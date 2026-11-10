@@ -1,0 +1,588 @@
+{
+ "round": 2,
+ "assets": {
+  "cabin": {
+   "scores": {
+    "silhouette": 8,
+    "construction": 6,
+    "scale": 7,
+    "materials": 6,
+    "wear": 6,
+    "detail": 7
+   },
+   "overall": 6.33,
+   "pass": false,
+   "defects": [
+    "Chimney (views 2, 3): every stone is the same proud rectangular block in alternating courses with black voids between them, so it reads as stacked toy bricks; a dark vertical seam runs down the centre of the outer face in view 2, and the stack is oversized against the 5.75 m cabin.",
+    "Corrugated roof (views 3, 4, 5): rust is one continuous orange band of even depth along the whole eave, and the sheet laps carry a thin dashed orange grid. It reads as a painted gradient and overlay, not runoff.",
+    "Side window (view 6): the frame head stops short of the cut logs, leaving a dark slot above the trim with pale ticks visible through it; the glass is a flat black plane.",
+    "Porch wall (view 3): the boarded window is one flat grey slab laid over the logs, with no individual boards, gaps or nails.",
+    "Ridge (view 5): the cap is a plain flat strip with a dark ragged gap to the far-slope sheets; the roof hole shows clean-cut edges with no bent or torn metal."
+   ],
+   "fixes": [
+    "Rebuild the chimney from irregular fieldstone of 3-4 sizes with recessed mortar filling every void, and taper it in two shoulders to a narrower flue.",
+    "Replace the eave band with rust streaks that start at each lap, fixing and sheet end and run downslope at varying lengths; remove the dashed grid.",
+    "Extend the window frame and head trim to the log cut and add a sill, chinking and a glass layer with dirt and a crack.",
+    "Model the porch window as 3-4 separate warped boards nailed across the frame with gaps between them.",
+    "Add a folded ridge cap seated on both slopes and bend and tear the sheet edges around the hole."
+   ]
+  },
+  "hut": {
+   "scores": {
+    "silhouette": 6,
+    "construction": 5,
+    "scale": 7,
+    "materials": 5,
+    "wear": 3,
+    "detail": 4
+   },
+   "overall": 4.0,
+   "pass": false,
+   "defects": [
+    "Block walls (views 4, 6): clean grey blocks with brighter, perfectly even mortar lines read as bathroom tile; there is no efflorescence, cracking or staining anywhere.",
+    "Roof slab, conduit and vent (views 1-4): no drip stains under the slab edge, no rust under the conduit and no streaks below the wall box. The building looks newly poured.",
+    "Wall box (view 4): the electrical box overlaps the right-hand side of the barred window, blocking the opening; no real installer would mount it there.",
+    "Conduit (views 3, 4, 6): pipes run along the walls with no straps or clamps, and the ground cable runs about 8 m away and ends bluntly on bare ground.",
+    "Door and front wall (view 4): a flat green slab with a tiny handle and no frame hinges or panel detail; two full-height dark lines beside the window read as unexplained cuts."
+   ],
+   "fixes": [
+    "Replace the block material with darker uneven mortar, chipped arrises, efflorescence and a damp tide line rising from the base.",
+    "Paint directional stains: drip lines under each slab edge, rust trails below conduit fittings and the box, and moss on the north base.",
+    "Move the box clear of the window and connect it to the conduit with a visible gland and elbow.",
+    "Add conduit straps every 1 m; end the ground cable in a junction box or a cut, frayed end.",
+    "Give the door a steel frame, three hinges, a lever and lock plate, scuffs at the handle and rust along the bottom edge."
+   ]
+  },
+  "generator": {
+   "scores": {
+    "silhouette": 6,
+    "construction": 4,
+    "scale": 6,
+    "materials": 5,
+    "wear": 5,
+    "detail": 6
+   },
+   "overall": 4.67,
+   "pass": false,
+   "defects": [
+    "Filter canister (views 2, 4, 6; audit group at -0.3, 1.4, 0.32): the canister, stub pipe and small foot plate hover at the back edge of the top plate with clear air beneath them. Real floater, automatic gate fails. The four audit bolt groups sit on the plate and are not floaters.",
+    "Radiator screen (views 2, 3): the rust-brown grille texture reads as brickwork, with low-resolution blotches and no tubes, fins or fan behind it.",
+    "Exhaust (views 1, 2, 4): a thick smooth pipe with a ball-like cap on one thin strap, carrying nothing around it. Oversized and looks like a handle.",
+    "Base of radiator post (view 3): an unexplained black chamfered block sits at the foot of the post, joined to nothing.",
+    "Motor and control box (views 1, 4): two thin strips stuck onto a smooth capsule stand in for detail; the control box sits on a stub with no conduit or cable to the alternator."
+   ],
+   "fixes": [
+    "Mount the canister on a bolted L-bracket fixed to the block, with a rubber hose clamped to the intake.",
+    "Replace the screen with modelled tube rows and an alpha or geometry fin grille, with a dark fan shroud behind it.",
+    "Reduce the exhaust diameter by about 30 percent, finish it with a rain flap or angled cut, and add two proper brackets and a heat-stained section near the manifold.",
+    "Remove the black block or model it as a labelled drain sump with a bolted flange.",
+    "Add ribbing and an end-bell vent to the alternator, a terminal box, and armoured cable from the alternator to the control box."
+   ]
+  },
+  "mast": {
+   "scores": {
+    "silhouette": 8,
+    "construction": 6,
+    "scale": 7,
+    "materials": 6,
+    "wear": 5,
+    "detail": 6
+   },
+   "overall": 5.67,
+   "pass": false,
+   "defects": [
+    "Antennas (views 1-4): no feed cable leaves any dish or runs down the tower, so three dishes connect to nothing.",
+    "Dish backs (views 1, 3): two dishes show rust-brown spherical backs while the fronts are clean white, an unexplained colour split with no weathering between.",
+    "Lattice paint (views 1, 6): red and white appear in irregular patches on the lattice rather than in full-height aviation bands, and the steel carries no rust at bolted joints.",
+    "Anchors and base (views 2, 6): anchor blocks and the footing are clean concrete cubes with a single eye; no turnbuckles, guy grips, fence or cable tray at ground level.",
+    "Ladder (view 6): a plain ladder runs up one side with no safety cage or visible stand-offs joining it to the legs."
+   ],
+   "fixes": [
+    "Add waveguide runs from each dish down one leg with clips every 1.5 m, ending in a cable bridge to ground level.",
+    "Give dishes consistent grey backs with mounting hardware and streaked grime below the rims.",
+    "Paint full bands by section at standard intervals, then fade and chip them with rust concentrated at flanges.",
+    "Add turnbuckles and guy thimbles at each anchor, and stain and crack the concrete with mud and grass splash at the base.",
+    "Model ladder stand-offs bolted to the leg every 1.5 m and a cage or fall-arrest rail on the upper section."
+   ]
+  },
+  "lookout": {
+   "scores": {
+    "silhouette": 8,
+    "construction": 7,
+    "scale": 7,
+    "materials": 6,
+    "wear": 6,
+    "detail": 7
+   },
+   "overall": 6.42,
+   "pass": false,
+   "defects": [
+    "Stair flights (views 1, 2, 6): stringers pass through the cross-bracing zone with no visible clearance or cut-out, so diagonals and stairs tangle at each storey.",
+    "Timber (views 1-4, 6): every member has the same streaky grey treatment and stays tonally flat; no darker water tracks below joints, no rust from the bolt plates.",
+    "Stair treads (views 1, 6): treads render nearly black and lose all form against the grey frame.",
+    "Cab (views 1, 2, 4): windows are near-uniform dark panes and the cab offers little detail at the height it is read from; the pyramid roof has no visible ridge or edge flashing.",
+    "Footings (views 5, 6): plain concrete cubes; legs land on top with no steel shoe, anchor strap or weather damage."
+   ],
+   "fixes": [
+    "Reroute the flights inboard of the diagonals, or cut the bracing around them with doubled members and bolted headers.",
+    "Stain per joint: dark tracks below each bolt, lighter sun-bleached outer faces, and damp base bands on the bottom metre of each leg.",
+    "Lighten the treads to weathered wood and add scuffed wear along the centre line.",
+    "Add window frames, one broken pane, shutters or a hanging chart, and ridge and hip flashing on the roof.",
+    "Add galvanised steel shoes with anchor bolts, chipped concrete and rust streaks to each footing."
+   ]
+  },
+  "pickup": {
+   "scores": {
+    "silhouette": 5,
+    "construction": 4,
+    "scale": 6,
+    "materials": 6,
+    "wear": 6,
+    "detail": 6
+   },
+   "overall": 4.75,
+   "pass": false,
+   "defects": [
+    "Triangle gate: 19,628 triangles against the 15,000 vehicle budget. Automatic gate fails.",
+    "Cab rear (views 1, 2, 5): where the back window should be there are stacked horizontal strips of blue, flat green and rust, reading as unexplained colour blocking.",
+    "Bodywork (views 1, 3, 4): fenders are separate shells that stand off the body with visible black gaps, and the cab pillars are flat slabs protruding past the cab. It reads as primitives stuck to a chassis.",
+    "Front end (views 3, 4): the headlight is a plain black cone with no lens or bezel, sitting in a gap between fender and grille; the grille is a plain frame with a flat rust texture.",
+    "Bed and mirrors (views 1, 5, 6): the bed floor is a glossy deep-blue wavy sheet that reads as plastic, and the mirrors are flat black squares on sticks."
+   ],
+   "fixes": [
+    "Reduce to under 15k triangles by simplifying wheels and hidden chassis, then spend the savings on a one-piece cab shell.",
+    "Model a real rear window with a rubber seal and dirty or cracked glass, and remove the colour strips.",
+    "Merge fenders into the body with welded seams, swaged lines and bolted mounts; replace pillar slabs with shaped C-pillars.",
+    "Build recessed headlights with chrome rings, lens and bucket, and model grille bars with a crossbar and surround.",
+    "Replace the blue bed with rusted steel ribs and timber slats, optionally with a dull torn tarp, and shape mirrors with housings and arms."
+   ]
+  },
+  "mine": {
+   "scores": {
+    "silhouette": 7,
+    "construction": 5,
+    "scale": 7,
+    "materials": 6,
+    "wear": 6,
+    "detail": 6
+   },
+   "overall": 5.58,
+   "pass": false,
+   "defects": [
+    "Track (views 5, 6): the outer 3-4 sleepers sink into the ground so only faint outlines show, and the rails run on above them with nothing underneath; a final sleeper sits alone past the rail ends.",
+    "Hillside (views 1-5): rounded pillow bulges and long even fracture grooves make it look like soft moulded foam rather than a rock face; a dark sliver of other geometry shows above the crest in views 1 and 2.",
+    "Ore cart (views 5, 6): solid black upper body with a ragged horizontal rust band across the lower third and no plates, seams or tip mechanism; wheels are lost in shadow.",
+    "Portal (views 1, 6): the timber set is clean and straight with neat square stone feet, and the side lagging ends as flat boards with no contact with rock or backfill.",
+    "Audit: the 17-part cart body and six rivets appear seated in the images. Two groups about 7 m inside the tunnel (around z -6.9 and -7.4) start above floor level but are not visible in any view, so they are unverified, not counted as floaters."
+   ],
+   "fixes": [
+    "Lift every sleeper to sit proud of grade and sit rails on tie plates with spikes; end the rails on a buffer or a bent and broken section.",
+    "Re-sculpt the hillside with angular strata and blocky talus, and hide the back geometry below the crest.",
+    "Rebuild the cart with riveted plates, a rim, axle boxes and spoked wheels; drive rust from seams and rivets rather than a horizontal band.",
+    "Add a sagging or split cap, wedges, rough-sawn lagging, packed rock and spilled soil where the portal meets the slope.",
+    "Confirm the two interior groups rest on the tunnel floor, or lower them."
+   ]
+  },
+  "camp": {
+   "scores": {
+    "silhouette": 6,
+    "construction": 5,
+    "scale": 7,
+    "materials": 5,
+    "wear": 4,
+    "detail": 6
+   },
+   "overall": 4.75,
+   "pass": false,
+   "defects": [
+    "Tarp mound (views 1, 2, 5): saturated orange with a soft blob shape and a dead-flat square edge, no folds, ropes or weights, and no explanation of what is under it.",
+    "Tent (views 3, 6): the canvas is a smooth blurred green with no seams or tension creases, and a strip of background shows between the ridge pole and the sagging top edge, so the fabric is not hung from the pole.",
+    "Cooler (views 4, 6): clean saturated red with a spotless white lid; nothing else in the scene is that new, and it breaks the abandoned-camp story.",
+    "Washing line (views 1, 4): a stiff flat orange rectangle hanging without weight or wrinkles, same colour and finish as the tarp.",
+    "Audit floater (around 1.73, 0.35, 1.13) is a small part consistent with the cooler handle; images do not show it floating. Not counted."
+   ],
+   "fixes": [
+    "Re-drape the tarp over a visible object (crate or bedroll), desaturate it, add folds, ropes and stones weighting it, and break the edge line.",
+    "Attach the canvas to the ridge with loops, add seams, guy-line tension wrinkles and a dirty lower hem; shape the door flaps as cloth.",
+    "Fade and scratch the cooler, dent the lid, add mud on the base and rust at the hinges.",
+    "Give hanging cloth gravity folds and a torn hem, with a different, dirtier colour.",
+    "Add camp evidence that explains the abandonment: dropped utensils, wet ash, a torn sleeve or boot."
+   ]
+  },
+  "logstack": {
+   "scores": {
+    "silhouette": 6,
+    "construction": 5,
+    "scale": 7,
+    "materials": 6,
+    "wear": 5,
+    "detail": 5
+   },
+   "overall": 5.33,
+   "pass": false,
+   "defects": [
+    "Logs (views 1, 2, 4, 6): near-identical straight cylinders of constant diameter with flush flat ends and plain tan end-grain, no rings, checks or bark edge. Reads as primitive tubes.",
+    "Moss (views 5, 6): green runs as an even band along log tops on every log across the stacks, a uniform treatment rather than patches where shade and water sit.",
+    "Shed back wall (view 3): a flat slab with a grey textured surface and white dashed slits along the seams, reading as a concrete panel; it does not show boards or fixings to the posts.",
+    "Shed roof (views 2, 3, 5): the sheet blows out to pure white in view 2, and the missing-sheet gap has clean straight edges.",
+    "Red drums (views 4-6): plain cylinders without rims or lids, far below the standard of the separate drum prop. The audit wire group connects stake to stake in view 5 and is not counted."
+   ],
+   "fixes": [
+    "Vary log taper, diameter and length, stagger the ends, and bake ring-and-check end-grain with bark rims.",
+    "Restrict moss to north-facing and low logs, in patches, leaving freshly exposed tops bare.",
+    "Rebuild the wall as individual overlapped planks nailed to rails, removing the white seam slits.",
+    "Lower roof specular and roughen it, and tear or bend sheets around the gap.",
+    "Replace the cylinders with the drum prop, and add loose bark, chain and a peavey tool near the stacks."
+   ]
+  },
+  "chapel": {
+   "scores": {
+    "silhouette": 8,
+    "construction": 6,
+    "scale": 7,
+    "materials": 5,
+    "wear": 6,
+    "detail": 7
+   },
+   "overall": 5.75,
+   "pass": false,
+   "defects": [
+    "Gravestones (views 4, 5): stones viewed from this side are near-black and covered in bright white speckle, a shading or texture artefact, and they are uniformly dark with no carving.",
+    "Doorway (view 4): a bright sky-coloured wedge shows through the upper-left interior, and the interior surface crawls with a black-and-grey checker noise.",
+    "Clapboard walls (views 1, 4, 6): vertical and horizontal grime lines form a regular grid over the boards, reading as tile; the close-up in view 6 is smeared and low resolution.",
+    "Wall base (views 1, 2, 4): dark patchy moss has blotchy, hard-edged shapes at regular intervals, close to camouflage.",
+    "Fence (views 2, 3, 5): panels stop short of or overlap the corner posts, leaving misaligned joins, and the roof gash in view 5 has no broken rafters or torn sheet."
+   ],
+   "fixes": [
+    "Fix the grave material (normals or roughness causing the sparkle), lighten to weathered stone with carved text and lichen.",
+    "Close the interior shell behind the door and replace the noisy interior surface with dim, legible planks and pews.",
+    "Remove the grid overlay; apply peeling paint per board with rain streaks only below sills, eaves and nails, at higher texel density.",
+    "Replace base blotches with a soft splash line and moss that climbs only in shaded corners.",
+    "Join fence panels to posts with rails and fixings, sag or break one run deliberately, and frame the roof gash with broken rafters and bent sheets."
+   ]
+  },
+  "noticeboard": {
+   "scores": {
+    "silhouette": 8,
+    "construction": 6,
+    "scale": 8,
+    "materials": 6,
+    "wear": 6,
+    "detail": 7
+   },
+   "overall": 6.42,
+   "pass": false,
+   "defects": [
+    "Roof underside (views 1, 2, 4): pale bright slits run between the roof boards and read as see-through gaps, so the roof would leak straight onto the notices.",
+    "Back of board (views 1, 2, 5, 6): a flat dark surface with a tiled grid of lines and no visible battens or bracing, flat across the whole 3 m span.",
+    "Board fixings (views 1-3): small square cleats sit on the post faces, and no bolts or notches show how the board carries its weight.",
+    "Roof top (view 2): the upper boards blow out to pure white at the crest.",
+    "Timber (views 3, 4): repeating horizontal pale banding across the board face around the notices looks like a stretched repeating texture."
+   ],
+   "fixes": [
+    "Lap or batten the roof boards to close the gaps, and add a drip edge above the board.",
+    "Model horizontal rails and vertical boards on the back, bolted through to the posts.",
+    "Replace cleats with through-bolts and square washers, and add rust trails below them.",
+    "Reduce roof specular and add moss and needles on the upper boards.",
+    "Break up the banding on the board face; add old pin holes, torn paper corners and faded rectangles from earlier notices."
+   ]
+  },
+  "deerstand": {
+   "scores": {
+    "silhouette": 8,
+    "construction": 6,
+    "scale": 7,
+    "materials": 6,
+    "wear": 6,
+    "detail": 6
+   },
+   "overall": 6.25,
+   "pass": false,
+   "defects": [
+    "Platform (view 3): a bright pale strip runs between the deck skirt and the beam under it, reading as either a gap or an unexplained blown edge, so the box is not visibly bearing on the frame.",
+    "Bracing (views 1-3, 6): X-braces pass through each other and through the legs with no lap, bolt or lashing visible.",
+    "Roof (views 1-5): a single corrugated sheet on bare posts with no rafters or purlins visible, and only two nub caps on top.",
+    "Timber (views 1-4): an even grey treatment throughout, with no rot at leg bases, no rust at nails and pale cloud blotches on the wall boards.",
+    "Box (views 1-4): plain plank walls with no shooting slot, bench or rest."
+   ],
+   "fixes": [
+    "Close or darken the pale strip under the deck, and notch the box bearers over the frame with bolts.",
+    "Half-lap the X-braces and add bolts or wire lashing at every crossing.",
+    "Add two purlins and rafters under the sheet, plus nails and a bent corner.",
+    "Darken and rot the bottom 40 cm of each leg, add nail-rust streaks and moss on the north walls.",
+    "Cut a shooting slot, add a bench, shelf and a hanging rag or cartridge box."
+   ]
+  },
+  "pole": {
+   "scores": {
+    "silhouette": 8,
+    "construction": 6,
+    "scale": 7,
+    "materials": 6,
+    "wear": 5,
+    "detail": 6
+   },
+   "overall": 5.67,
+   "pass": false,
+   "defects": [
+    "Transformer (views 1-5): a smooth capsule pressed against the pole with no hanger brackets, bushings, tank ribs or leads to the crossarm.",
+    "Crossarm joint (views 1, 3): the arm passes through the pole with no gain, through-bolt or plate, and the braces end at thin ends against the surfaces.",
+    "No wires or stubs (views 1-5): insulators carry nothing, so the pole has no cut conductors or ties to explain the kit.",
+    "Wood (views 1-6): uniform grey-brown top to bottom, with no darker ground-rot zone, tar line or checking near the base.",
+    "Audit floater (around 0.07, 9.05, 0.24) is a tiny part near the top, not visibly floating in any image. Not counted."
+   ],
+   "fixes": [
+    "Model a ribbed transformer on two steel hanger brackets with three bushings and leads to the arm.",
+    "Gain the arm into the pole, add a through-bolt and square washer, and bolt braces at both ends.",
+    "Add short cut conductors with ties on the insulators, and a ground wire stapled down the pole.",
+    "Add a creosote-dark base with soil splash, checks and rust streaks below the climbing staples."
+   ]
+  },
+  "crate": {
+   "scores": {
+    "silhouette": 8,
+    "construction": 6,
+    "scale": 8,
+    "materials": 7,
+    "wear": 7,
+    "detail": 7
+   },
+   "overall": 6.58,
+   "pass": false,
+   "defects": [
+    "Lid (views 1-5): the four-board lid overhangs a dark open slot along the front and side with a batten visible underneath, so it does not visibly seat on the body.",
+    "Steel straps (views 1, 3, 4, 5): straps run across two opposing faces only and stop at the corner posts; a real band wraps the crate.",
+    "Lid boards (views 1-6): identical board shapes and rounded edges, with the moss applied as soft even clouds; the wood reads slightly blurred up close.",
+    "Corner posts (views 1-4): rounded tops are clean and the same on every corner, with no splitting or nail damage.",
+    "Audit floaters at z +/-0.39 are zero-thickness strips flush with the strap faces, not visibly floating. Not counted; clean up the degenerate geometry."
+   ],
+   "fixes": [
+    "Seat the lid on the side boards with visible nails, or open it deliberately with one lifted corner and a shadowed interior.",
+    "Wrap straps around all four faces with a crimped joint and a rust stain where they pass the posts.",
+    "Vary board width and warp one board, and sharpen the grain; keep moss to the shaded side and board gaps.",
+    "Split one post top and add nails and rust streaks below them.",
+    "Delete the zero-thickness strips."
+   ]
+  },
+  "drum": {
+   "scores": {
+    "silhouette": 8,
+    "construction": 7,
+    "scale": 8,
+    "materials": 6,
+    "wear": 7,
+    "detail": 6
+   },
+   "overall": 6.5,
+   "pass": false,
+   "defects": [
+    "Sides (views 1-6): smooth salmon-coloured paint with faint vertical faceting, no dents, seam or lettering, so the upper body looks new while the lower third is heavily corroded.",
+    "Rust (views 1, 2, 4, 6): the bottom band is plausible from standing water but is the same on all sides; rust is not tied to ring seams or a dent.",
+    "Top (views 1-6): bungs are plain discs with no thread or wrench lugs and the lid has a blown pale highlight in view 2.",
+    "Rims (views 1-6): the top chime is a fat rounded tube too thick for sheet steel."
+   ],
+   "fixes": [
+    "Add two or three real dents, a welded side seam and a faded stencil.",
+    "Drive rust from the ribs, chime and dents, weighted to one side as if it stood against a wall.",
+    "Model threaded bungs with lugs, and add dirt and oily residue pooling around them on the top.",
+    "Thin the chime to a rolled steel edge."
+   ]
+  },
+  "jerrycan": {
+   "scores": {
+    "silhouette": 6,
+    "construction": 5,
+    "scale": 7,
+    "materials": 6,
+    "wear": 5,
+    "detail": 6
+   },
+   "overall": 5.42,
+   "pass": false,
+   "defects": [
+    "X-embossing (views 1-6): the diagonal X and horizontal bars read as rust-coloured strips stuck on the face rather than pressed form, and only they carry rust.",
+    "Spout (views 1-5): a bulbous mug-like shape with a torn open top and a pipe looped over it; it does not read as a cap or spout mechanism.",
+    "Handle (views 1-6): one pipe on three stubs, unlike the three-handle carry bar, and with no stamping to the body.",
+    "Body (views 1-6): near-flat faces with sharp corners, and the side weld is a rust strip with a black line alongside."
+   ],
+   "fixes": [
+    "Press the X and rim into the body as soft-edged raised geometry, and wear paint only on the raised edges.",
+    "Rebuild a proper cam-lever cap with hinge, gasket and pin, or a screw neck with a chained cap.",
+    "Make the three-bar carry handle with welded, tapered feet.",
+    "Round the body corners and form a real pressed seam around the perimeter, with dents on the lower corners."
+   ]
+  },
+  "fuse": {
+   "scores": {
+    "silhouette": 7,
+    "construction": 7,
+    "scale": 7,
+    "materials": 6,
+    "wear": 5,
+    "detail": 5
+   },
+   "overall": 5.58,
+   "pass": false,
+   "defects": [
+    "Body (views 1-6): a plain white ceramic tube with soft grey clouding, and no rating text, manufacturer marks or indicator.",
+    "End caps and blades (views 1-6): plain black bands and flat tabs without rivets, holes or contact wear.",
+    "Wear (views 1-6): no scorch, chip or oxidation to suggest it came out of old switchgear.",
+    "Sheet (views 1-6): the object is small in every frame including the close view, so close-range quality cannot be confirmed."
+   ],
+   "fixes": [
+    "Add printed rating text and an indicator pin at one end.",
+    "Change caps to tarnished copper or brass with rivets and a bolt hole in each blade.",
+    "Add a scorch mark, a chip in the ceramic and oxidised contacts.",
+    "Reframe the review camera so the fuse fills the close view."
+   ]
+  },
+  "roadsign": {
+   "scores": {
+    "silhouette": 7,
+    "construction": 6,
+    "scale": 7,
+    "materials": 5,
+    "wear": 4,
+    "detail": 4
+   },
+   "overall": 4.75,
+   "pass": false,
+   "defects": [
+    "Post (views 1-6): a perfectly clean smooth black pipe with no rust, stickers, chips or soil splash at the base.",
+    "Sign back (views 1, 2, 5): a flat dark panel with no ribs, weathering or bolts, just a thin rusty bracket line.",
+    "Sign face (views 3, 4): soft blotchy yellow dents read as cloud noise, and the thick black border looks like a picture frame.",
+    "Fixings (views 3, 4): two small dots on the face are the only hardware; no bolts or dents around them, no shot holes for a horror setting."
+   ],
+   "fixes": [
+    "Use a galvanised or rusted post with holes, scratched paint, a bent lean and mud at the base.",
+    "Add a stiffener, bolts and a rust bloom on the back, plus peeling paint at the edges.",
+    "Replace blotches with sun-fade, peeling reflective film, streaks from the bolts and a few bullet holes.",
+    "Model bolts and washers through the face with rust trails."
+   ]
+  },
+  "tire": {
+   "scores": {
+    "silhouette": 5,
+    "construction": 5,
+    "scale": 6,
+    "materials": 3,
+    "wear": 2,
+    "detail": 2
+   },
+   "overall": 2.92,
+   "pass": false,
+   "defects": [
+    "Triangle gate: 2,656 triangles against the 2,500 small-prop budget, spent on a smooth ring. Automatic gate fails.",
+    "Tread (views 1-6): no tread blocks, grooves or shoulder pattern at all; the outer surface is smooth and it reads as a rubber bowl.",
+    "Sidewall (views 1-6): no lettering, bead line or mould detail.",
+    "Material and wear (views 1-6): uniform dark grey with no dust, mud, cracking or wear; the interior is a black void.",
+    "Proportions (views 1, 2, 5): the wall profile is a simple flared band and the narrow opening reads as a stubby ring rather than a tyre carcass."
+   ],
+   "fixes": [
+    "Model or bake tread blocks with worn shoulders and reduce to under 2.5k triangles.",
+    "Add a raised sidewall band, bead rim and embossed lettering via normal map.",
+    "Texture with faded grey rubber, dried mud in the grooves, sidewall cracks and pine needles.",
+    "Rebuild the cross-section with proper bead, sidewall curve and a visible interior wall."
+   ]
+  },
+  "rock_a": {
+   "scores": {
+    "silhouette": 6,
+    "construction": 6,
+    "scale": 7,
+    "materials": 6,
+    "wear": 5,
+    "detail": 6
+   },
+   "overall": 5.5,
+   "pass": false,
+   "defects": [
+    "Fracture grooves (views 3, 5): near-straight parallel grooves cross at right angles over the top and sides, forming a grid, not a natural joint set.",
+    "Forms (views 1-4): rounded pillow bulges and soft shoulders read as moulded foam rather than hard, broken stone.",
+    "Base (views 1-4): the mesh meets the ground as a sharp lip with no buried skirt, soil or fallen debris.",
+    "Moss (views 3-6): moss is scattered evenly over the faces instead of gathering in cracks and shaded tops.",
+    "Close view (view 6): the texture is blurry and speckled at near range."
+   ],
+   "fixes": [
+    "Replace the grid with two or three irregular joint sets at non-orthogonal angles that terminate and offset.",
+    "Add hard planar faces, broken edges and overhangs, and reduce the rounded bulges.",
+    "Add a buried skirt, soil line, needles and talus at the base.",
+    "Mask moss to crevices and north or upward faces, and increase texel density or add a detail normal."
+   ]
+  },
+  "rock_b": {
+   "scores": {
+    "silhouette": 5,
+    "construction": 4,
+    "scale": 7,
+    "materials": 5,
+    "wear": 5,
+    "detail": 6
+   },
+   "overall": 4.67,
+   "pass": false,
+   "defects": [
+    "Mesh tear (view 6): a star-shaped patch of folded triangles and dark spikes sits in the middle of a crack, a visible mesh defect at close range.",
+    "Plan shape (views 5, 2): a cross-shaped footprint with quilted squares across the top reads as a stuffed cushion or pillow.",
+    "Fracture grooves (views 1, 3, 5): evenly spaced grooves wrap over the form like stitched seams.",
+    "Moss and texture (views 3, 4, 6): even green speckle with soft blurred patches, and low resolution up close.",
+    "Base (views 1-4): the skirt ends as a clean lip with no soil or debris."
+   ],
+   "fixes": [
+    "Repair the torn region: remove inverted triangles and re-topologise the crack.",
+    "Re-block the footprint to an irregular slab with one broken edge and stepped ledges.",
+    "Replace seam-like grooves with irregular, tapering fractures and a few offset blocks.",
+    "Use a sharper, higher-frequency rock texture and localise moss to crevices."
+   ]
+  },
+  "rock_c": {
+   "scores": {
+    "silhouette": 6,
+    "construction": 5,
+    "scale": 7,
+    "materials": 6,
+    "wear": 5,
+    "detail": 6
+   },
+   "overall": 5.42,
+   "pass": false,
+   "defects": [
+    "Base blobs (view 5, also view 1 lower left): teardrop-shaped lumps hang from the base edge like melted drips.",
+    "Fracture grooves (views 1, 2, 5): long straight grooves run across the whole mass and intersect in a rough grid.",
+    "Forms (views 2-4): rounded smooth bulges and lobed ledges, closer to a soft sculpt than to fractured rock.",
+    "Moss (views 3, 6): soft blotchy green patches across the surface, not concentrated where water sits."
+   ],
+   "fixes": [
+    "Delete the teardrop lumps; replace with angular fallen pieces separate from the main mesh.",
+    "Break the grooves into shorter, offset joints and stepped bedding planes.",
+    "Sharpen ledge edges with planar facets and undercuts.",
+    "Concentrate moss in cracks and shaded ledges, and add a dirt band at the base."
+   ]
+  },
+  "rock_d": {
+   "scores": {
+    "silhouette": 6,
+    "construction": 6,
+    "scale": 7,
+    "materials": 5,
+    "wear": 5,
+    "detail": 6
+   },
+   "overall": 5.42,
+   "pass": false,
+   "defects": [
+    "Dark streaks (views 1, 4): thick black diagonal strokes on one end look like smeared paint rather than cracks.",
+    "Fracture grooves (views 1, 5): orthogonal grooves make the same quilted grid as the other three rocks, so the set looks like one generator.",
+    "Close view (view 6): the texture is soft and blurred, with no crisp mineral detail.",
+    "Forms (views 2-4): soft rounded shoulders and a dome bulge, with little hard breakage.",
+    "Base (views 1-4): the mesh ends as a neat lip against the ground with no embedding."
+   ],
+   "fixes": [
+    "Replace the black strokes with real geometry cracks, with dirt inside them and an edge highlight.",
+    "Vary the joint pattern and overall massing per rock so the four don't share a grid.",
+    "Raise texel density or add tiling detail for near range.",
+    "Add hard faces and broken corners; bury the base with soil and fallen stone."
+   ]
+  }
+ }
+}

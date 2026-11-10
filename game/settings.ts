@@ -1,0 +1,27 @@
+export const defaultBindings={forward:'KeyW',back:'KeyS',left:'KeyA',right:'KeyD',sprint:'ShiftLeft',crouch:'ControlLeft',interact:'KeyE',fullscreen:'KeyF',rise:'Space',drop:'KeyQ'};
+export type Action=keyof typeof defaultBindings;
+export type Settings={quality:'auto'|'low'|'medium'|'high'|'custom';renderScale:number;shadows:number;shadowRate:number;waterDetail:number;fog:number;reflections:number;aa:number;anisotropy:number;fov:number;sensitivity:number;bindings:Record<Action,string>};
+export const defaults=():Settings=>({quality:'auto',renderScale:100,shadows:4096,shadowRate:0,waterDetail:2,fog:1,reflections:768,aa:4,anisotropy:16,fov:69,sensitivity:1,bindings:{...defaultBindings}});
+export function validKey(code:string){return /^(Key[A-Z]|Digit[0-9]|ShiftLeft|ShiftRight|ControlLeft|ControlRight|Space|ArrowUp|ArrowDown|ArrowLeft|ArrowRight)$/.test(code);}
+export function bindKey(settings:Settings,action:Action,code:string){
+ if(!validKey(code))return false;
+ const other=(Object.keys(settings.bindings) as Action[]).find(a=>a!==action&&settings.bindings[a]===code);
+ if(other)settings.bindings[other]=settings.bindings[action];settings.bindings[action]=code;return true;
+}
+export function readSettings(value:string|null){const result=defaults();try{const data=JSON.parse(value??'null');if(!data)return result;
+ if(['auto','low','medium','high','custom'].includes(data.quality))result.quality=data.quality;
+ if(Number.isFinite(data.sensitivity))result.sensitivity=Math.max(.25,Math.min(2.5,data.sensitivity));
+ for(const [key,values] of Object.entries({shadows:[1024,2048,4096],shadowRate:[0,30],waterDetail:[0,1,2],fog:[.5,.75,1],reflections:[256,512,768],aa:[0,1,2,4],anisotropy:[1,2,4,8,16]}))if(values.includes(data[key]))(result as unknown as Record<string,unknown>)[key]=data[key];
+ if(Number.isFinite(data.renderScale))result.renderScale=Math.max(50,Math.min(100,data.renderScale));if(Number.isFinite(data.fov))result.fov=Math.max(55,Math.min(95,data.fov));
+ if(data.bindings){
+ const actions=Object.keys(defaultBindings) as Action[],codes=new Set<string>();
+ // Old saves have no drop action. Preserve all valid existing assignments, then
+ // choose an unused key for newly introduced actions instead of resetting them.
+ const provided=actions.filter(a=>Object.hasOwn(data.bindings,a));
+ if(provided.length&&provided.every(a=>{const c=data.bindings[a];if(!validKey(c)||codes.has(c))return false;codes.add(c);return true;})){
+  for(const a of provided)result.bindings[a]=data.bindings[a];
+  for(const a of actions.filter(a=>!provided.includes(a))){const code=[defaultBindings[a],'KeyQ','KeyG','KeyR',...Array.from({length:26},(_,i)=>'Key'+String.fromCharCode(65+i))].find(c=>!codes.has(c))!;result.bindings[a]=code;codes.add(code);}
+ }
+ }
+ }catch{}return result;}
+export const keyLabel=(code:string)=>code.replace('Key','').replace('Digit','').replace('Left',' left').replace('Right',' right').replace('Arrow','Arrow ');

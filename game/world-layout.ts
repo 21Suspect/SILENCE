@@ -1,0 +1,461 @@
+/**
+ * Generates where everything stands, from the world seed. Deterministic and free of three.js,
+ * because the terrain worker runs it too and multiplayer clients must all arrive at one world.
+ *
+ * Places are chosen for reasons, not scattered: the cabin near the start and beside the trail, the
+ * relay on the highest ground, the logging yard off the road in thick timber, the camp by water,
+ * the mine where the land climbs. Footpaths are then routed across the real slopes to each door.
+ */
+import { WORLD_SEED, channelOffset, sideChannelOffset, hash, noise, pathX, riverX, roadZ, rockMask, treeDensity, warped } from './world-noise';
+import { landform, landSlope } from './world-landform';
+import { waterHeightAt } from './world-noise';
+import worldAssets from './world-assets.json';
+
+export type PoiPad = { radius: number; falloff: number; rise?: number };
+export type PoiFootprint = { cx: number; cz: number; hx: number; hz: number };
+export type GroundFit = 'tilt' | 'level' | 'run';
+export type PoiPlacement = {
+  id: string; asset: string; x: number; z: number; yaw: number;
+  pad?: PoiPad; footprint?: PoiFootprint; entrance?: [number, number]; clearing?: number; draw?: number; fit?: GroundFit;
+  scale?: number;
+  /** Stands at this height, not on the ground: a bridge deck. */
+  y?: number;
+};
+/** A patch of ground levelled for something, with no object of its own. */
+export type GroundPad = { x: number; z: number; radius: number; falloff: number; level?: number };
+
+/** Model-local to world, the same transform three.js applies for rotation.y = yaw. */
+export function placeLocal(p: { x: number; z: number; yaw: number }, lx: number, lz: number): [number, number] {
+  const c = Math.cos(p.yaw), s = Math.sin(p.yaw);
+  return [p.x + lx * c + lz * s, p.z + lz * c - lx * s];
+}
+const dist = (a: { x: number; z: number }, b: { x: number; z: number }) => Math.hypot(a.x - b.x, a.z - b.z);
+const r = (i: number) => hash(WORLD_SEED * .0173 + i * 3.7, i * 1.3 + WORLD_SEED * .0091);
+const LIMIT = 415;
+export const SPAWN = { x: pathX(12), z: 12 };
+const offPath = (x: number, z: number) => Math.abs(x - pathX(z));
+const offRoad = (x: number, z: number) => Math.abs(z - roadZ(x));
+const offRiver = (x: number, z: number) => channelOffset(x, z);
+const smoothCarve = (v: number, a: number, b: number) => { const t = Math.max(0, Math.min(1, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
+const offMainStream = (x: number, z: number) => Math.abs(x - riverX(z)) / Math.hypot(1, (riverX(z + .6) - riverX(z - .6)) / 1.2);
+
+/** Best-scoring buildable spot on a coarse grid. A site needs level ground and must not crowd another. */
+function bestSite(score: (x: number, z: number) => number, taken: { x: number; z: number }[], apart: number, seedIndex: number) {
+  let best = -Infinity, at = { x: 0, z: 0 };
+  for (let attempt = 0; attempt < 3 && best === -Infinity; attempt++) {
+    const spacing = apart * Math.pow(.72, attempt);
+    for (let gx = -40; gx <= 40; gx++) for (let gz = -40; gz <= 40; gz++) {
+      const x = gx * 11 + (hash(gx + seedIndex, gz) - .5) * 8, z = gz * 11 + (hash(gz - seedIndex, gx + 3) - .5) * 8;
+      if (Math.hypot(x, z) > LIMIT || offRiver(x, z) < 30 || sideChannelOffset(x, z) < 42 || offRoad(x, z) < 16 || offPath(x, z) < 12) continue;
+      if (taken.some(t => dist(t, { x, z }) < spacing)) continue;
+      const s = score(x, z) + hash(gx * 2.1 + seedIndex, gz * 1.7) * .4;
+      if (s > best) { best = s; at = { x, z }; }
+    }
+  }
+  return at;
+}
+/** Nearest point on the road or main trail: the side of a place people would have approached from. */
+function nearestRoute(x: number, z: number): [number, number] {
+  let best = Infinity, out: [number, number] = [x, z];
+  for (let d = -60; d <= 60; d += 3) {
+    const pz = z + d, px = pathX(pz), rx = x + d, rz = roadZ(rx);
+    const a = Math.hypot(px - x, pz - z), b = Math.hypot(rx - x, rz - z);
+    if (a < best && Math.hypot(px, pz) < 430) { best = a; out = [px, pz]; }
+    if (b < best) { best = b; out = [rx, rz]; }
+  }
+  return out;
+}
+/** Yaw that turns a model-local "front" direction to face a world point. */
+function facing(from: { x: number; z: number }, to: [number, number], frontX: number, frontZ: number) {
+  return Math.atan2(to[0] - from.x, to[1] - from.z) - Math.atan2(frontX, frontZ);
+}
+
+function generate() {
+  const taken: { x: number; z: number }[] = [SPAWN];
+  const claim = (s: { x: number; z: number }) => { taken.push(s); return s; };
+  const flat = (x: number, z: number) => 1 - Math.min(1, landSlope(x, z, 6) * 5);
+  const pois: PoiPlacement[] = [];
+
+  // Where the trail leaves the road. The notice board goes here, so the cabin must not.
+  let cross = -83;
+  for (let z = -140; z < -20; z += 1) if (Math.abs(z - roadZ(pathX(z))) < Math.abs(cross - roadZ(pathX(cross)))) cross = z;
+  const bz = cross + 10, bs = r(5) > .5 ? 1 : -1, board = { x: pathX(bz) + bs * 8, z: bz };
+  // The cabin: the first shelter you reach, a short way off the trail, near the start.
+  let cabin = { x: 0, z: 0 }, cabinScore = -Infinity;
+  for (let pz = -75; pz <= 60; pz += 4) for (const side of [-1, 1]) for (const out of [13, 17, 22]) {
+    const x = pathX(pz) + side * out, z = pz;
+    if (offRiver(x, z) < 17 || offRoad(x, z) < 17 || Math.hypot(x - board.x, z - board.z) < 30) continue;
+    const away = Math.hypot(x - SPAWN.x, z - SPAWN.z);
+    const s = flat(x, z) * 2 - Math.abs(away - 42) / 40 + r(pz + 90 + side) * .5;
+    if (s > cabinScore) { cabinScore = s; cabin = { x, z }; }
+  }
+  claim(cabin);
+  const cabinPlace: PoiPlacement = { id: 'cabin', asset: 'cabin', ...cabin, yaw: facing(cabin, [pathX(cabin.z), cabin.z], 0, 1), pad: { radius: 7, falloff: 10 }, footprint: { cx: 0, cz: 1.55, hx: 4.4, hz: 4.4 }, entrance: [-.7, 6.2] };
+  pois.push(cabinPlace);
+
+  // A notice board where the trail leaves the road.
+  claim(board);
+  pois.push({ id: 'trailhead-board', asset: 'noticeboard', ...board, yaw: facing(board, [board.x, roadZ(board.x)], 0, 1), pad: { radius: 2.2, falloff: 4 }, footprint: { cx: 0, cz: 0, hx: 1.5, hz: .35 }, entrance: [0, 1.5] });
+
+  // The relay stands on the highest ground within a long walk of the road.
+  const relay = claim(bestSite((x, z) => {
+    const away = Math.hypot(x - SPAWN.x, z - SPAWN.z);
+    return away < 120 || away > 340 ? -99 : landform(x, z) * .2 - landSlope(x, z, 8) - Math.max(0, offRoad(x, z) - 90) * .01;
+  }, taken, 150, 11));
+  const toRelay = nearestRoute(relay.x, relay.z);
+  const relayYaw = facing(relay, toRelay, .39, .92) + .4;
+  const relayPart = (dx: number, dz: number): [number, number] => placeLocal({ ...relay, yaw: relayYaw - .4 }, dx, dz);
+  const [hx, hz] = relayPart(10, -6), [gx, gz] = relayPart(8.5, -1);
+  pois.push({ id: 'relay-mast', asset: 'mast', ...relay, yaw: relayYaw, pad: { radius: 17, falloff: 26, rise: 5 }, footprint: { cx: 0, cz: 0, hx: 1.7, hz: 1.7 }, clearing: 17, draw: 420 });
+  pois.push({ id: 'relay-hut', asset: 'hut', x: hx, z: hz, yaw: relayYaw, footprint: { cx: 0, cz: .35, hx: 2.5, hz: 2.2 }, entrance: [-.9, 3.4] });
+  pois.push({ id: 'relay-generator', asset: 'generator', x: gx, z: gz, yaw: relayYaw + 1.2, footprint: { cx: 0, cz: 0, hx: 1.15, hz: .55 } });
+
+  // The fire tower commands the far bank.
+  const lookout = claim(bestSite((x, z) => {
+    const away = Math.hypot(x - SPAWN.x, z - SPAWN.z);
+    return x < riverX(z) + 20 || away < 130 || away > 360 ? -99 : landform(x, z) * .22 - landSlope(x, z, 8);
+  }, taken, 170, 23));
+  pois.push({ id: 'lookout', asset: 'lookout', ...lookout, yaw: facing(lookout, nearestRoute(lookout.x, lookout.z), -.12, -.99), pad: { radius: 7, falloff: 20, rise: 3 }, footprint: { cx: 0, cz: 0, hx: 2.8, hz: 2.8 }, entrance: [-.48, -3.9], clearing: 15, draw: 420 });
+
+  // Logging needed a truck: just off the road, on level ground, in thick timber.
+  const yard = claim(bestSite((x, z) => {
+    const d = offRoad(x, z), away = Math.hypot(x - SPAWN.x, z - SPAWN.z);
+    return d < 26 || d > 58 || away < 80 ? -99 : flat(x, z) * 2 + treeDensity(x, z);
+  }, taken, 120, 37));
+  pois.push({ id: 'logging-camp', asset: 'logstack', ...yard, yaw: facing(yard, nearestRoute(yard.x, yard.z), 0, 1), pad: { radius: 15, falloff: 14 }, footprint: { cx: 0, cz: 0, hx: 10.2, hz: 10.6 }, entrance: [-.2, 11.4] });
+
+  // Hunters camp near water, away from the road.
+  const camp = claim(bestSite((x, z) => {
+    const w = offRiver(x, z);
+    return w < 30 || w > 58 || offRoad(x, z) < 70 ? -99 : flat(x, z) * 2 - treeDensity(x, z) * .5;
+  }, taken, 130, 53));
+  pois.push({ id: 'hunter-camp', asset: 'camp', ...camp, yaw: facing(camp, [riverX(camp.z), camp.z], -.45, .89), pad: { radius: 6.5, falloff: 10 }, footprint: { cx: -.3, cz: -.6, hx: 4.5, hz: 3.9 }, entrance: [-1.9, 3.8] });
+
+  // The chapel served whoever lived along the road: a clearing some way back from it.
+  const chapel = claim(bestSite((x, z) => {
+    const d = offRoad(x, z), away = Math.hypot(x - SPAWN.x, z - SPAWN.z);
+    return d < 28 || d > 80 || away < 150 ? -99 : flat(x, z) * 2 - treeDensity(x, z) * .4;
+  }, taken, 170, 67));
+  pois.push({ id: 'chapel', asset: 'chapel', ...chapel, yaw: facing(chapel, nearestRoute(chapel.x, chapel.z), 0, 1), pad: { radius: 17, falloff: 12 }, footprint: { cx: -4.8, cz: 0, hx: 8.2, hz: 7.2 }, entrance: [0, 7.2] });
+
+  // The mine goes where the land climbs, its mouth looking back down the slope.
+  const mine = claim(bestSite((x, z) => {
+    const away = Math.hypot(x, z);
+    return away < 190 || away > 400 || offPath(x, z) < 62 ? -99 : Math.min(landSlope(x, z, 14) * 6, 1.6) + landform(x, z) * .05;
+  }, taken, 150, 79));
+  const up = [landform(mine.x + 12, mine.z) - landform(mine.x - 12, mine.z), landform(mine.x, mine.z + 12) - landform(mine.x, mine.z - 12)];
+  const mineYaw = Math.atan2(-up[0], -up[1]);
+  const mineSite = { ...mine, yaw: mineYaw };
+  pois.push({ id: 'mine', asset: 'mine', ...mineSite, pad: { radius: 12, falloff: 10 }, footprint: { cx: 0, cz: .5, hx: 2.3, hz: 8.0 }, entrance: [0, 9.6] });
+  pois.push({ id: 'mine-rock', asset: 'minerock', ...mineSite, clearing: 20 });
+  return pois;
+}
+
+/** Where the road meets the stream, and the level its bridge has to carry it across at. */
+export const ROAD_CROSSING = (() => {
+  let x = 39, gap = Infinity;
+  for (let px = -60; px < 200; px += .25) { const d = Math.abs(px - riverX(roadZ(px))); if (d < gap) { gap = d; x = px; } }
+  const z = roadZ(x), yaw = -Math.atan2(roadZ(x + 2) - roadZ(x - 2), 4);
+  const ground = (landform(x - 27, roadZ(x - 27)) + landform(x + 27, roadZ(x + 27))) / 2;
+  return { x, z, yaw, level: Math.max(waterHeightAt(z) + 3.6, ground) };
+})();
+
+const levelled: GroundPad[] = [];
+export const POI_PLACEMENTS: PoiPlacement[] = generate();
+POI_PLACEMENTS.push({ id: 'road-bridge', asset: 'roadbridge', x: ROAD_CROSSING.x, z: ROAD_CROSSING.z, yaw: ROAD_CROSSING.yaw, y: ROAD_CROSSING.level, clearing: 28, draw: 300 });
+for (const side of [-1, 1]) levelled.push({ x: ROAD_CROSSING.x + side * 24, z: roadZ(ROAD_CROSSING.x + side * 24), radius: 10, falloff: 16, level: ROAD_CROSSING.level });
+/** Patches of ground levelled for something: the bridge approaches, then each small building. */
+export const GROUND_PADS = levelled;
+const poi = (id: string) => POI_PLACEMENTS.find(p => p.id === id)!;
+const entranceOf = (id: string) => { const p = poi(id); return placeLocal(p, p.entrance![0], p.entrance![1]); };
+
+// ---- footpaths ---------------------------------------------------------------------------------
+const CELL = 7, HALF = 66, SIZE = HALF * 2 + 1;
+const cellOf = (v: number) => Math.round(v / CELL) + HALF;
+const key = (i: number, j: number) => j * SIZE + i;
+
+/** A path begins exactly on the road, the trail, a bridge end or another path, not merely near one. */
+function snapToRoute(at: [number, number], lines: [number, number][][]): [number, number] {
+  let best = Infinity, out = at;
+  const consider = (x: number, z: number) => { const d = Math.hypot(x - at[0], z - at[1]); if (d < best) { best = d; out = [x, z]; } };
+  for (let d = -9; d <= 9; d += .25) { consider(pathX(at[1] + d), at[1] + d); consider(at[0] + d, roadZ(at[0] + d)); }
+  consider(riverX(-35) + 12, -35); consider(riverX(-35) - 12, -35);
+  for (const line of lines) for (const q of line) consider(q[0], q[1]);
+  return out;
+}
+
+/** Routes a path across the real ground: it prefers contours, stays out of the water, and joins a route that already exists. */
+function routePaths() {
+  const network = new Set<number>(), blocked = new Uint8Array(SIZE * SIZE), wet = new Uint8Array(SIZE * SIZE), height = new Float32Array(SIZE * SIZE);
+  for (let j = 0; j < SIZE; j++) for (let i = 0; i < SIZE; i++) {
+    const x = (i - HALF) * CELL, z = (j - HALF) * CELL;
+    const off = offRiver(x, z), ground = landform(x, z), bank = waterHeightAt(z) + 1.2, relief = Math.max(0, ground - bank) * 1.4;
+    height[key(i, j)] = off < 19 + relief ? bank + (ground - bank) * smoothCarve(off, 9, 19 + relief) : ground;
+    if (Math.hypot(x, z) > 440 || offMainStream(x, z) < 10) blocked[key(i, j)] = 1;
+    wet[key(i, j)] = offRiver(x, z) < 7 ? 1 : 0;
+  }
+  for (const p of POI_PLACEMENTS) {
+    if (!p.footprint) continue;
+    const [fx, fz] = placeLocal(p, p.footprint.cx, p.footprint.cz), reach = Math.hypot(p.footprint.hx, p.footprint.hz);
+    const c = Math.cos(p.yaw), s = Math.sin(p.yaw);
+    for (let j = cellOf(fz - reach); j <= cellOf(fz + reach); j++) for (let i = cellOf(fx - reach); i <= cellOf(fx + reach); i++) {
+      if (i < 0 || j < 0 || i >= SIZE || j >= SIZE) continue;
+      const dx = (i - HALF) * CELL - fx, dz = (j - HALF) * CELL - fz;
+      if (Math.abs(dx * c - dz * s) < p.footprint.hx + 1 && Math.abs(dx * s + dz * c) < p.footprint.hz + 1) blocked[key(i, j)] = 1;
+    }
+  }
+  // The hillside and rock behind the mine are a wall: its path has to come up the yard, to the front.
+  {
+    const m = poi('mine'), c = Math.cos(m.yaw), s = Math.sin(m.yaw);
+    for (let j = 0; j < SIZE; j++) for (let i = 0; i < SIZE; i++) {
+      const dx = (i - HALF) * CELL - m.x, dz = (j - HALF) * CELL - m.z, lx = dx * c - dz * s, lz = dx * s + dz * c;
+      if (lz < 7 && Math.hypot(lx, lz) < 30 && Math.abs(lx) > 2.5 || lz < 3 && Math.hypot(lx, lz) < 30) blocked[key(i, j)] = 1;
+    }
+  }
+  const mark = (x: number, z: number) => { const i = cellOf(x), j = cellOf(z); if (i >= 0 && j >= 0 && i < SIZE && j < SIZE && !blocked[key(i, j)]) network.add(key(i, j)); };
+  for (let z = -430; z <= 430; z += 3) mark(pathX(z), z);
+  for (let x = -430; x <= 430; x += 3) mark(x, roadZ(x));
+  mark(riverX(-35) + 12, -35); mark(riverX(-35) - 12, -35);
+
+  const lines: [number, number][][] = [];
+  for (const id of ['cabin', 'trailhead-board', 'logging-camp', 'relay-hut', 'hunter-camp', 'lookout', 'chapel', 'mine']) {
+    const [ex, ez] = entranceOf(id), si = cellOf(ex), sj = cellOf(ez);
+    // Dijkstra outward from the door until it meets anything already walked.
+    const best = new Float32Array(SIZE * SIZE).fill(Infinity), prev = new Int32Array(SIZE * SIZE).fill(-1), heap: [number, number][] = [];
+    const push = (item: [number, number]) => {
+      heap.push(item);
+      for (let n = heap.length - 1; n > 0;) { const up = (n - 1) >> 1; if (heap[up][0] <= heap[n][0]) break; [heap[up], heap[n]] = [heap[n], heap[up]]; n = up; }
+    };
+    const pop = () => {
+      const top = heap[0], last = heap.pop()!;
+      if (heap.length) {
+        heap[0] = last;
+        for (let n = 0; ;) {
+          const a = n * 2 + 1, b = a + 1; let least = n;
+          if (a < heap.length && heap[a][0] < heap[least][0]) least = a;
+          if (b < heap.length && heap[b][0] < heap[least][0]) least = b;
+          if (least === n) break;
+          [heap[least], heap[n]] = [heap[n], heap[least]]; n = least;
+        }
+      }
+      return top;
+    };
+    push([0, key(si, sj)]);
+    best[key(si, sj)] = 0;
+    let end = -1;
+    while (heap.length) {
+      const [d, c] = pop();
+      if (d > best[c]) continue;
+      if (network.has(c) && c !== key(si, sj)) { end = c; break; }
+      const j = Math.floor(c / SIZE), i = c - j * SIZE;
+      for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+        const ni = i + di, nj = j + dj;
+        if (ni < 0 || nj < 0 || ni >= SIZE || nj >= SIZE) continue;
+        const n = key(ni, nj);
+        if (blocked[n] && n !== key(si, sj)) continue;
+        const run = Math.hypot(di, dj) * CELL, slope = Math.abs(height[n] - height[c]) / run;
+        // People go round wet hollows and thickets: this is what stops a path being a ruled line.
+        // A side stream can be waded, but nobody does it without a reason.
+        const cost = run * (1 + 42 * slope * slope + noise(ni * .22 + WORLD_SEED, nj * .22) ** 2 * 3.2 + wet[n] * 9);
+        if (d + cost < best[n]) { best[n] = d + cost; prev[n] = c; push([best[n], n]); }
+      }
+    }
+    if (end < 0) continue;
+    const cells: [number, number][] = [];
+    for (let c = end; c !== -1; c = prev[c]) { const j = Math.floor(c / SIZE), i = c - j * SIZE; cells.push([(i - HALF) * CELL, (j - HALF) * CELL]); network.add(c); }
+    cells[cells.length - 1] = [ex, ez];
+    cells[0] = snapToRoute(cells[0], lines);
+    // Rounded by corner cutting, so a grid never shows through in the walked line.
+    let line = cells;
+    for (let pass = 0; pass < 2; pass++) {
+      const next: [number, number][] = [line[0]];
+      for (let i = 0; i < line.length - 1; i++) {
+        const [ax, az] = line[i], [bx, bz] = line[i + 1];
+        next.push([ax * .75 + bx * .25, az * .75 + bz * .25], [ax * .25 + bx * .75, az * .25 + bz * .75]);
+      }
+      next.push(line[line.length - 1]);
+      line = next;
+    }
+    const distance = [0];
+    for (let i = 1; i < line.length; i++) distance.push(distance[i - 1] + Math.hypot(line[i][0] - line[i - 1][0], line[i][1] - line[i - 1][1]));
+    const total = distance[distance.length - 1];
+    line = line.map(([x, z], i) => {
+      if (!i || i === line.length - 1) return [x, z];
+      const [ax, az] = line[i - 1], [bx, bz] = line[i + 1], length = Math.hypot(bx - ax, bz - az) || 1;
+      const taper = Math.min(1, distance[i] / 9, (total - distance[i]) / 9);
+      const offset = taper * (Math.sin(distance[i] * .21 + lines.length * 1.7) * 1.15 + Math.sin(distance[i] * .47 + lines.length) * .32);
+      const nx = x - (bz - az) / length * offset, nz = z + (bx - ax) / length * offset;
+      const ci = cellOf(nx), cj = cellOf(nz);
+      return ci >= 0 && cj >= 0 && ci < SIZE && cj < SIZE && !blocked[key(ci, cj)] ? [nx, nz] : [x, z];
+    });
+    lines.push(line);
+  }
+  return lines;
+}
+/** Each route, from where it joins a road or trail to the door it serves. */
+export const TRAIL_LINES: [number, number][][] = routePaths();
+export const TRAILS = TRAIL_LINES;
+
+type Item = [asset: string, lx: number, lz: number, yaw?: number, fit?: GroundFit];
+/** Each place tells one small story with a handful of objects. Stop there; negative space is the point. */
+const CLUSTERS: [string, Item[]][] = [
+  ['cabin', [['chair', 1.7, 7.0, 1.2, 'tilt'], ['bucket', 2.7, 6.3, .4, 'tilt'], ['wheelbarrow', 5.7, 1.5, 2.6, 'tilt'], ['shovel', 5.6, -1.9, 1.3, 'tilt'], ['outhouse', -3.4, -11, .15], ['canline', -9.5, -7, 1.1, 'tilt']]],
+  ['trailhead-board', [['picnic_table', 3.6, 5.5, .3], ['fence', -3.5, 2.8, 1.4, 'tilt']]],
+  ['relay-hut', [['pallet', 3.6, 1.4, .5, 'tilt'], ['crate', 3.7, 1.5, .2, 'tilt'], ['drum', 3.5, -.4, 0], ['drum', 4.25, -.1, 2], ['toolbox', 1.9, 3.1, 1.4, 'tilt']]],
+  ['lookout', [['crate', 3.8, -2, .3, 'tilt'], ['chair', -4.2, -3.5, .8, 'tilt']]],
+  ['logging-camp', [['sawhorse', 3.8, 3.4, .4], ['stump_axe', -2.4, 2.4, 2], ['firewood', 6.2, 1.2, .4], ['wheelbarrow', -1.4, .2, 1.2, 'tilt'], ['pallet', -.4, -2, .9, 'tilt'], ['drum', 11, 5, .4], ['tire', 11, 8, 0, 'tilt']]],
+  ['hunter-camp', [['antler_post', 2.6, 3.4, .5], ['bottles', 3.6, 1.0, 0, 'tilt'], ['chair', 2.9, -2.9, 2.5, 'tilt'], ['firewood', -7.4, 1.8, 1.4], ['canline', -11, -3, .3, 'tilt'], ['canline', 9.5, 7, -.5, 'tilt']]],
+  ['chapel', [['totem', 2.6, 9.6, 0], ['totem', -2.8, 9.8, .4], ['bucket', -4.2, 2, .8, 'tilt'], ['shovel', -8.5, 4.6, 2, 'tilt']]],
+  ['mine', [['toolbox', 2.4, 1.6, .4, 'tilt'], ['bucket', -2, 3.1, 1.4, 'tilt'], ['wheelbarrow', -5.8, 4.6, 2, 'tilt'], ['shovel', 2.6, 6.2, .8, 'tilt'], ['drum', 5.2, 6.4, .3]]],
+];
+
+function scatter(): PoiPlacement[] {
+  const out: PoiPlacement[] = [];
+  const clearOfPlaces = (x: number, z: number, margin: number) => !POI_PLACEMENTS.some(p => p.pad && Math.hypot(p.x - x, p.z - z) < p.pad.radius + margin);
+  // The power line serves the road and nothing else.
+  let n = 0;
+  for (let x = -380; x <= 380; x += 34) {
+    const z = roadZ(x) + 5.4;
+    if (offRiver(x, z) < 11 || Math.abs(x - ROAD_CROSSING.x) < 50 || !clearOfPlaces(x, z, 4)) continue;
+    out.push({ id: `pole-${n++}`, asset: 'pole', x, z, yaw: -Math.atan2(roadZ(x + 4) - roadZ(x - 4), 8) + (hash(x, 3) - .5) * .06, draw: 220 });
+  }
+  // Bedrock breaks the surface only where the soil is really thin, in small groups.
+  const CELLR = 70, rocks = ['rock_a', 'rock_b', 'rock_c', 'rock_d'];
+  for (let gx = -6; gx <= 6; gx++) for (let gz = -6; gz <= 6; gz++) {
+    const cx = (gx + .15 + hash(gx, gz) * .7) * CELLR, cz = (gz + .15 + hash(gz + 7, gx) * .7) * CELLR;
+    const [u, v] = warped(cx, cz);
+    if (Math.hypot(cx, cz) > 430 || rockMask(u, v) < .55) continue;
+    const count = 1 + Math.floor(hash(gx * 5, gz * 3) * 3);
+    for (let i = 0; i < count; i++) {
+      const a = hash(gx + i, gz * 2) * 6.28, d = i ? 9 + hash(gz + i, gx) * 11 : 0, x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d;
+      if (offRoad(x, z) < 12 || offRiver(x, z) < 14 || offPath(x, z) < 9 || !clearOfPlaces(x, z, 12)) continue;
+      if (TRAIL_LINES.some(l => l.some(q => Math.hypot(q[0] - x, q[1] - z) < 9))) continue;
+      if (out.some(o => o.asset.startsWith('rock_') && Math.hypot(o.x - x, o.z - z) < 11)) continue;
+      out.push({ id: `rock-${gx}-${gz}-${i}`, asset: rocks[Math.floor(hash(gx + 11, gz - 5 + i) * 4)], x, z, yaw: hash(gx, gz + 31 + i) * 6.28, draw: 170 });
+    }
+  }
+  // Road furniture belongs at the junctions.
+  TRAIL_LINES.forEach((line, t) => {
+    const [x, z] = line[0];
+    if (offRoad(x, z) < 6) {
+      const side = hash(t, 9) > .5 ? 1 : -1;
+      const sx = x + 3 * side, sz = roadZ(x + 3 * side) + (z > roadZ(x) ? 4.2 : -4.2), altX = x - 5 * side, altZ = roadZ(x - 5 * side) + (z > roadZ(x) ? 4.2 : -4.2), onPath = (a: number, b: number) => TRAIL_LINES.some(l => l.some(q => Math.hypot(q[0] - a, q[1] - b) < 1.6));
+      const signAt = onPath(sx, sz) ? [altX, altZ] : [sx, sz];
+      out.push({ id: `sign-${t}`, asset: 'roadsign', x: signAt[0], z: signAt[1], yaw: hash(t, 4) * .4 + (z > roadZ(x) ? Math.PI : 0) });
+      if (t % 2 === 0) out.push({ id: `mailbox-${t}`, asset: 'mailbox', x: x - 4.5 * side, z: roadZ(x - 4.5 * side) + (z > roadZ(x) ? 3.5 : -3.5), yaw: z > roadZ(x) ? Math.PI : 0 });
+    }
+    // One waymark where a path leaves the main route; a cairn only on a long walk.
+    const step = line[Math.min(6, line.length - 1)], dx = step[0] - x, dz = step[1] - z, l = Math.hypot(dx, dz) || 1;
+    const mx = x + dx / l * 5 - dz / l * 1.8, mz = z + dz / l * 5 + dx / l * 1.8;
+    const roomy = !out.some(o => Math.hypot(o.x - mx, o.z - mz) < 1.5) && !POI_PLACEMENTS.some(p => { if (!p.footprint) return false; const [fx, fz] = placeLocal(p, p.footprint.cx, p.footprint.cz); return Math.hypot(fx - mx, fz - mz) < Math.hypot(p.footprint.hx, p.footprint.hz) + 1; });
+    if (landSlope(x, z, 2) < .5 && roomy) out.push({ id: `mark-${t}`, asset: 'trailmarker', x: mx, z: mz, yaw: Math.atan2(dx, dz) + 1.57, fit: 'level' });
+    let length = 0; for (let i = 1; i < line.length; i++) length += Math.hypot(line[i][0] - line[i - 1][0], line[i][1] - line[i - 1][1]);
+    if (length > 150) {
+      const q = line[Math.floor(line.length * .55)], p = line[Math.floor(line.length * .55) + 1] ?? q, ux = p[0] - q[0], uz = p[1] - q[1], ul = Math.hypot(ux, uz) || 1;
+      const cx = q[0] - uz / ul * 2, cz = q[1] + ux / ul * 2;
+      if (landSlope(cx, cz, .5) < .12) out.push({ id: `cairn-${t}`, asset: 'cairn', x: cx, z: cz, yaw: hash(t, 2) * 6, fit: 'level' });
+    }
+    // A hunter's stand overlooks a long path, back in the trees.
+    if (length > 170) {
+      const q = line[Math.floor(line.length * .35)], p = line[Math.floor(line.length * .35) + 1] ?? q, ux = p[0] - q[0], uz = p[1] - q[1], ul = Math.hypot(ux, uz) || 1;
+      const sx = q[0] + uz / ul * 13, sz = q[1] - ux / ul * 13;
+      for (let attempt = 0; attempt < 80; attempt++) {
+        const angle = attempt * 2.399963, radius = attempt ? 1.4 * Math.sqrt(attempt) : 0;
+        const x = sx + Math.cos(angle) * radius, z = sz + Math.sin(angle) * radius;
+        if (offRiver(x,z) < 24 || offRoad(x,z) < 16 || offPath(x,z) < 7 || !clearOfPlaces(x,z,12)) continue;
+        if (TRAIL_LINES.some(l=>l.some(q=>Math.hypot(q[0]-x,q[1]-z)<8))) continue;
+        const samples = Array.from({length: 8}, (_, k) => landform(x + Math.cos(k * Math.PI / 4) * 2, z + Math.sin(k * Math.PI / 4) * 2));
+        if (Math.max(...samples) - Math.min(...samples) > .13 || out.some(o=>Math.hypot(o.x-x,o.z-z)<8)) continue;
+        out.push({id: `stand-${t}`, asset: 'deerstand', x, z, yaw: Math.atan2(ux, uz) + 1.57});
+        break;
+      }
+    }
+  });
+  // Crash rail where the road meets the stream, the only place anyone spent money on it. Each run picks up where the
+  // bridge's own rail stops, closes in to the road edge, and ends turned down into the ground.
+  for (const side of [-1, 1]) for (const dir of [-1, 1]) {
+    const PANEL = 7.8, LENGTHS = 2;
+    let [ax, az] = placeLocal(ROAD_CROSSING, dir * 18.9, side * 4.22);
+    for (let m = 0; m < LENGTHS; m++) {
+      const towards = ax + dir * PANEL, edge = 4.22 + (3.4 - 4.22) * Math.min(1, (m + 1) / 2);
+      const wantX = towards - ax, wantZ = roadZ(towards) + side * edge - az, length = Math.hypot(wantX, wantZ);
+      const ux = wantX / length, uz = wantZ / length, ex = ax + ux * PANEL, ez = az + uz * PANEL;
+      let yaw = Math.atan2(-uz, ux), asset = 'guardrail';
+      // Local +Z is the road face: (sin, cos) in world x, z.
+      const flipped = Math.cos(yaw) * -side < 0;
+      if (flipped) yaw += Math.PI;
+      if (m === LENGTHS - 1) asset = flipped ? 'guardrail_endr' : 'guardrail_end';
+      out.push({ id: `rail-${side}-${dir}-${m}`, asset, x: (ax + ex) / 2, z: (az + ez) / 2, yaw, fit: 'run' });
+      ax = ex; az = ez;
+    }
+  }
+  // Broken stone collects at the foot of the bank, never as floating shelves
+  // halfway up the cut. Keep the open channel and bridge piers clear.
+  for (let i = 0; i < 20; i++) {
+    const bank = i % 2 ? 1 : -1, side = (i >> 1) % 2 ? 1 : -1;
+    const [, z] = placeLocal(ROAD_CROSSING, 0, side * (12 + Math.floor(i / 4) * 8 + hash(i, 43) * 3));
+    const x = riverX(z) + bank * (7.2 + hash(i, 41) * .5);
+    if (offRiver(x, z) < 6.8) continue;
+    out.push({id: `riprap-${i}`, asset: ['rock_a', 'rock_b', 'rock_c', 'rock_d'][i % 4], x, z,
+      yaw: hash(i, 47) * 6.28, scale: .12 + hash(i, 49) * .1, draw: 170});
+  }
+  // Each object looks for the closest spot that actually works: off the path, on ground it can stand on, not in
+  // something else. On another seed the ground differs, so nothing here can be trusted to a fixed coordinate.
+  const REACH: Record<string, number> = { outhouse: 1.3, picnic_table: 1.5, canline: 3.8, totem: 1.4, fence: 2.4, wheelbarrow: 1.1, firewood: 1.3, sawhorse: 1.4, pallet: .9, crate: .6, drum: .45, chair: .7, bucket: .3, shovel: .9, bottles: .4, toolbox: .4, tire: .6, stump_axe: .7, antler_post: .6 };
+  const standing = new Set(['outhouse', 'picnic_table', 'totem', 'antler_post', 'firewood']);
+  const trail = (x: number, z: number) => {
+    let d = Infinity;
+    for (const l of TRAIL_LINES) for (let i = 0; i < l.length - 1; i++) {
+      const [ax, az] = l[i], [bx, bz] = l[i + 1], ux = bx - ax, uz = bz - az, t = Math.max(0, Math.min(1, ((x - ax) * ux + (z - az) * uz) / (ux * ux + uz * uz || 1)));
+      d = Math.min(d, Math.hypot(x - ax - ux * t, z - az - uz * t));
+    }
+    return d;
+  };
+  const uneven = (x: number, z: number, reach: number) => { let lo = Infinity, hi = -Infinity; for (let a = 0; a < 8; a++) { const h = landform(x + Math.cos(a * .785) * reach, z + Math.sin(a * .785) * reach); lo = Math.min(lo, h); hi = Math.max(hi, h); } return hi - lo; };
+  const sited: { x: number; z: number; r: number; asset: string }[] = [];
+  const usable = (x: number, z: number, asset: string, reach: number, fit: GroundFit | undefined, host: PoiPlacement) => {
+    if (trail(x, z) < reach + 1.1) return false;
+    // A host's footprint can contain open ground, but its posts, graves and walls
+    // still occupy space. Test the exported solids before placing loose props.
+    const dx = x - host.x, dz = z - host.z, c = Math.cos(host.yaw), n = Math.sin(host.yaw);
+    const lx = dx * c - dz * n, lz = dx * n + dz * c;
+    const solids = (worldAssets as Record<string, {colliders?: {kind:string; x?:number; z?:number; yaw?:number; halfX?:number; halfZ?:number; ax?:number; az?:number; bx?:number; bz?:number; radius?:number; minY:number}[]}>)[host.asset]?.colliders ?? [];
+    for (const solid of solids) {
+      if (solid.minY > .6) continue;
+      let distance: number;
+      if (solid.kind === 'box') {
+        const co = Math.cos(solid.yaw ?? 0), si = Math.sin(solid.yaw ?? 0), u = lx - solid.x!, v = lz - solid.z!;
+        distance = Math.hypot(Math.max(0, Math.abs(u * co - v * si) - solid.halfX!), Math.max(0, Math.abs(u * si + v * co) - solid.halfZ!));
+      } else {
+        const ux = solid.bx! - solid.ax!, uz = solid.bz! - solid.az!, t = Math.max(0, Math.min(1, ((lx - solid.ax!) * ux + (lz - solid.az!) * uz) / (ux * ux + uz * uz || 1)));
+        distance = Math.hypot(lx - solid.ax! - ux * t, lz - solid.az! - uz * t) - solid.radius!;
+      }
+      if (distance < reach + .08) return false;
+    }
+
+    if (sited.some(o => Math.hypot(o.x - x, o.z - z) < o.r + reach + .25 && !(new Set([o.asset, asset]).has('pallet') && new Set([o.asset, asset]).has('crate')))) return false;
+    if (POI_PLACEMENTS.some(p => { if (p === host || !p.footprint) return false; const [fx, fz] = placeLocal(p, p.footprint.cx, p.footprint.cz); return Math.hypot(fx - x, fz - z) < Math.hypot(p.footprint.hx, p.footprint.hz) + reach; })) return false;
+    if (standing.has(asset)) return true;       // these get a small levelled patch of their own
+    return fit === 'tilt' ? landSlope(x, z, 1.5) < .42 : uneven(x, z, reach) < .32;
+  };
+  for (const [id, items] of CLUSTERS) {
+    const p = poi(id);
+    items.forEach(([asset, lx, lz, yaw, fit], i) => {
+      const reach = REACH[asset] ?? .6, [x0, z0] = placeLocal(p, lx, lz);
+      let spot: [number, number] | undefined;
+      for (let ring = 0; ring <= 8 && !spot; ring++) for (let k = 0; k < (ring ? 10 : 1); k++) {
+        const a = k * .628 + ring, d = ring * .8, x = x0 + Math.cos(a) * d, z = z0 + Math.sin(a) * d;
+        if (usable(x, z, asset, reach, fit, p)) { spot = [x, z]; break; }
+      }
+      if (!spot) return;
+      sited.push({ x: spot[0], z: spot[1], r: reach, asset });
+      if (standing.has(asset)) levelled.push({ x: spot[0], z: spot[1], radius: reach + .5, falloff: 3 });
+      out.push({ id: `${id}:${asset}:${i}`, asset, x: spot[0], z: spot[1], yaw: p.yaw + (yaw ?? 0), fit });
+    });
+  }
+  // Hunters levelled the ground under their stands before anything else.
+  for (const s of out) if (s.asset === 'deerstand') levelled.push({ x: s.x, z: s.z, radius: 1.6, falloff: 3 });
+  return out;
+}
+
+export const SCATTER_PLACEMENTS: PoiPlacement[] = scatter();

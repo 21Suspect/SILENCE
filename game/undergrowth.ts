@@ -1,0 +1,428 @@
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { SimplifyModifier } from 'three/addons/modifiers/SimplifyModifier.js';
+import { WORLD_RADIUS, biomeAt } from './world';
+import { createVegetationBatcher, type VegetationBatchDefinition } from './vegetation-batches';
+
+type Plant = {
+  x: number; y: number; z: number; sx: number; sz: number;
+  sine: number; cosine: number; size: number; stretch: number; tint: number; kind: number; dry: number; soilR:number; soilG:number; soilB:number;
+};
+type GroundCover = { fine: Plant[]; tussock: Plant[] };
+type Batch = VegetationBatchDefinition;
+
+function hash(x: number, z: number, salt = 0) {
+  let n = Math.imul(x | 0, 374761393) ^ Math.imul(z | 0, 668265263) ^ Math.imul(salt, 1274126177);
+  n = Math.imul(n ^ (n >>> 13), 1274126177);
+  return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
+}
+
+function patch(x: number, z: number) {
+  return .5 + Math.sin(x * .17 + Math.sin(z * .11) * 1.9) * .23 + Math.cos(z * .21 - x * .073) * .19;
+}
+
+function grassPatch(variant: number, blades=32, segments=3, widthScale=1) {
+  const vertices: number[] = [], uvs: number[] = [], indices: number[] = [];
+  // Exact photographed blade regions in the Grass Medium 02 atlas (glTF V points down).
+  const regions = [
+    [.012, .198, .012, .988], [.145, .290, .165, .865],
+    [.345, .448, .127, .738], [.855, .998, .010, .995],
+  ];
+  for (let blade = 0; blade < blades; blade++) {
+    const random = (salt: number) => hash(blade, variant, salt);
+    const angle = random(304) * Math.PI * 2;
+    const rootAngle = blade * 2.399963 + variant;
+    const radius = Math.sqrt(random(305)) * .043;
+    const x = Math.cos(rootAngle) * radius, z = Math.sin(rootAngle) * radius;
+    const height = .052 + random(306) * .038;
+    const width = (.013 + random(307) * .011)*widthScale;
+    const bend = .022 + random(308) * .061;
+    const region = regions[(blade + variant) % regions.length];
+    const start = vertices.length / 3;
+    for (let segment = 0; segment <= segments; segment++) {
+      const t = segment / segments;
+      const px = x + Math.cos(angle) * bend * t * t;
+      const pz = z + Math.sin(angle) * bend * t * t;
+      const py = .006 + height * t - height * .12 * Math.pow(t, 5);
+      for (const side of [-1, 1]) {
+        vertices.push(px - Math.sin(angle) * width * side * .5, py, pz + Math.cos(angle) * width * side * .5);
+        uvs.push(side < 0 ? region[0] : region[1], region[3] + (region[2] - region[3]) * t);
+      }
+      if (segment < segments) {
+        const a = start + segment * 2;
+        indices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+      }
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices); geometry.computeVertexNormals();
+  return geometry;
+}
+
+/** Photographed botanical textures, original UVs, and a terrain-rooted streaming understory. */
+export function createUndergrowth(
+  scene: THREE.Scene,
+  heightAt: (x: number, z: number) => number,
+  exclusion: (x: number, z: number) => number,
+) {
+  const group = new THREE.Group();
+  group.name = 'Photographic forest understory';
+  scene.add(group);
+  const textureSet = new Set<THREE.Texture>();
+  const geometries: THREE.BufferGeometry[] = [];
+  const materials: THREE.MeshStandardMaterial[] = [];
+  const fine: Batch[] = [], midFine: Batch[] = [], farFine: Batch[] = [], tussocks: Batch[] = [], ferns: Batch[] = [], farFerns: Batch[] = [];
+  const groundCover = new Map<string, GroundCover>(), fernCells = new Map<string, Plant[]>();
+  const vegetation = createVegetationBatcher(group);
+  let definitionSerial = 0;
+  const timeUniform = { value: 0 };
+  const eyeUniform = { value: new THREE.Vector3(0, 2, 12) };
+  const CELL = 6.4;
+  const GRASS_RANGE = 33, TUSSOCK_RANGE=20, FERN_RANGE = 48;
+  const STREAM_STEP=4, STREAM_BUFFER=4.5, FERN_LOD_START=12, FERN_LOD_END=16;
+  const warmCells: {cx:number;cz:number;key:string;distance2:number}[] = [];
+  const lastPosition = new THREE.Vector3(Infinity, 0, Infinity);
+  let disposed = false, loaded = false;
+
+  const trackedTexture = (texture: THREE.Texture) => {
+    texture.anisotropy = 8;
+    textureSet.add(texture);
+    return texture;
+  };
+  function prepareMaterial(source: THREE.MeshStandardMaterial, alpha: THREE.Texture, distance: number, breeze: number, fernLOD?:'near'|'far') {
+    const material = source.clone();
+    const reflected=distance!==GRASS_RANGE, ditherRange={value:false};
+    // Albedo photographed in daylight must not be emitted again as light.
+    // The previous emissive copy bypassed tree shadows and made every tuft glow.
+    material.color.set(0xe2e5d1);
+    material.emissiveMap = null;
+    material.emissive.set(0x000000);
+    material.emissiveIntensity = 0;
+    material.transparent = false;
+    material.alphaMap = alpha;
+    material.alphaTest = .43;
+    material.alphaToCoverage = true;
+    material.alphaHash = reflected;
+    if(reflected)material.onBeforeRender=renderer=>{ditherRange.value=(renderer.getRenderTarget()?.samples??0)<2;};
+    material.side = THREE.DoubleSide;
+    material.depthWrite = true;
+    material.roughness = .92;
+    material.metalness = 0;
+    material.normalScale.set(.55, .55);
+    // Every map uses the unmodified source mesh UVs; the separate mask shares glTF orientation.
+    for (const value of Object.values(material)) if (value instanceof THREE.Texture) trackedTexture(value);
+    material.onBeforeCompile = shader => {
+      shader.uniforms.uUnderstoryTime = timeUniform;
+      shader.uniforms.uUnderstoryEye = eyeUniform;
+      if(reflected)shader.uniforms.uUnderstoryDither=ditherRange;
+      const fernVarying=fernLOD?'varying float vFernBlend;':'';
+      shader.vertexShader = `
+        uniform float uUnderstoryTime;
+        uniform vec3 uUnderstoryEye;
+        attribute vec2 plantSlope;
+        attribute vec3 plantSoil;
+        varying vec3 vPlantSoil;
+        varying float vPlantRootShade;
+        varying float vPlantFade;
+        ${fernVarying}
+        ${shader.vertexShader}
+      `.replace(/void main\s*\(\s*\)\s*\{/,`void main(){
+        #ifdef USE_INSTANCING
+          vec2 awayFromPlayer=instanceMatrix[3].xz-uUnderstoryEye.xz;
+          float distanceFromEye=length(awayFromPlayer);
+          vPlantFade=1.-smoothstep(${(distance-7).toFixed(1)},${distance.toFixed(1)},distanceFromEye);
+          ${fernLOD?`vFernBlend=smoothstep(${FERN_LOD_START}.,${FERN_LOD_END}.,distanceFromEye);`:''}
+          if(vPlantFade<=0.${fernLOD==='near'?'||vFernBlend>=1.':fernLOD==='far'?'||vFernBlend<=0.':''}){
+            gl_Position=vec4(2.,2.,2.,1.);return;
+          }
+        #endif
+      `).replace('#include <begin_vertex>', `
+        #include <begin_vertex>
+        #ifdef USE_INSTANCING
+          vec3 plantRoot = instanceMatrix[3].xyz;
+          float plantScaleY = max(.01, length(instanceMatrix[1].xyz));
+          vec3 acrossGround = mat3(instanceMatrix) * transformed;
+          // Each root follows the actual local ground plane, including the river banks.
+          transformed.y += dot(acrossGround.xz, plantSlope) / plantScaleY;
+          float h = max(0., position.y);
+          float wind = sin(uUnderstoryTime*.77 + plantRoot.x*.27 + plantRoot.z*.19);
+          float flutter = sin(uUnderstoryTime*2.3 + plantRoot.x*.71 + h*19.);
+          transformed.x += (wind*.7 + flutter*.15) * h*h * ${breeze.toFixed(3)};
+          transformed.z += cos(uUnderstoryTime*.59 + plantRoot.z*.34) * h*h * ${(breeze * .35).toFixed(3)};
+          float brush=1.-smoothstep(.2,.8,distanceFromEye);
+          vec3 pushWorld=vec3(awayFromPlayer.x,0.,awayFromPlayer.y)/max(distanceFromEye,.08)*h*plantScaleY*.72*brush;
+          mat3 plantBasis=mat3(instanceMatrix);
+          vec3 inverseScale=vec3(dot(plantBasis[0],plantBasis[0]),dot(plantBasis[1],plantBasis[1]),dot(plantBasis[2],plantBasis[2]));
+          transformed+=transpose(plantBasis)*pushWorld/max(inverseScale,vec3(.001));
+          transformed.y-=h*.32*brush;
+
+          vPlantRootShade = smoothstep(.008,.13,h*plantScaleY);
+          vPlantSoil = plantSoil;
+        #else
+          vPlantFade=1.; vPlantRootShade=1.; vPlantSoil=vec3(.08,.07,.025);
+          ${fernLOD?`vFernBlend=${fernLOD==='near'?'0.':'1.'};`:''}
+        #endif
+      `);
+      shader.fragmentShader = `varying vec3 vPlantSoil; varying float vPlantRootShade; varying float vPlantFade; ${fernVarying}${reflected?'uniform bool uUnderstoryDither;':''}\n${shader.fragmentShader}`
+        .replace('#include <alphatest_fragment>', `
+          // MSAA coverage smooths both photographed leaf edges and the distance
+          // fade. No screen-space hash speckles are added to the distant fog.
+          float alphaWidth=max(fwidth(diffuseColor.a),.0001);
+          diffuseColor.a=smoothstep(alphaTest-alphaWidth,alphaTest+alphaWidth,diffuseColor.a)*vPlantFade;
+          if(diffuseColor.a<.003)discard;
+        `)
+        .replace('#include <alphahash_fragment>', reflected?`
+          ${fernLOD?`if(vFernBlend>0.&&vFernBlend<1.&&getAlphaHashThreshold(vPosition)${fernLOD==='near'?'<':'>='}vFernBlend)discard;`:''}
+          if(uUnderstoryDither&&vPlantFade<1.&&vPlantFade<getAlphaHashThreshold(vPosition))discard;
+        `:'')
+        .replace('#include <color_fragment>', `
+          #include <color_fragment>
+          // Root color shares the damp litter palette rather than exposing a
+          // bright card edge. Texture/color variation returns along each blade.
+          diffuseColor.rgb=mix(vPlantSoil*.55,diffuseColor.rgb,vPlantRootShade);
+        `)
+        .replace('#include <lights_physical_pars_fragment>', `
+          #include <lights_physical_pars_fragment>
+          // Thin leaves transmit a little DIRECT light from behind. Three has
+          // already applied the directional shadow to directLight.color here,
+          // so transmission vanishes inside tree shadows, unlike emission.
+          void RE_Direct_Plant(const in IncidentLight directLight,const in vec3 geometryPosition,const in vec3 geometryNormal,const in vec3 geometryViewDir,const in vec3 geometryClearcoatNormal,const in PhysicalMaterial material,inout ReflectedLight reflectedLight){
+            RE_Direct_Physical(directLight,geometryPosition,geometryNormal,geometryViewDir,geometryClearcoatNormal,material,reflectedLight);
+            float backlight=max(0.,dot(-geometryNormal,directLight.direction));
+            reflectedLight.directDiffuse+=material.diffuseColor*directLight.color*backlight*.075*vPlantRootShade;
+          }
+          #undef RE_Direct
+          #define RE_Direct RE_Direct_Plant
+        `);
+    };
+    material.customProgramCacheKey = () => `silence-understory-streamed-${distance}-${breeze}-${fernLOD??''}`;
+    materials.push(material);
+    return material;
+  }
+
+  function batch(geometry: THREE.BufferGeometry, material: THREE.MeshStandardMaterial, capacity: number, layer?: number, name = 'Understory vegetation'): Batch {
+    geometry.computeBoundingSphere();
+    const slopes = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 2), 2);
+    slopes.setUsage(THREE.DynamicDrawUsage);
+    geometry.setAttribute('plantSlope', slopes);
+    const soil=new THREE.InstancedBufferAttribute(new Float32Array(capacity*3),3);soil.setUsage(THREE.DynamicDrawUsage);geometry.setAttribute('plantSoil',soil);
+    geometries.push(geometry);
+    return {id:`undergrowth-${definitionSerial++}`,geometry,material,capacity,layer,name,radius:2,spatial:false};
+  }
+
+  const loader = new GLTFLoader();
+  const textureLoader = new THREE.TextureLoader();
+  async function source(asset: string) {
+    const [gltf, alpha] = await Promise.all([
+      loader.loadAsync(`/plantassets/${asset}/${asset}.gltf`),
+      textureLoader.loadAsync(`/plantassets/${asset}/alpha.png`),
+    ]);
+    alpha.flipY = false; trackedTexture(alpha);
+    const meshes: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>[] = [];
+    gltf.scene.traverse(object => {
+      if (object instanceof THREE.Mesh) {
+        meshes.push(object as THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>);
+        const material = object.material as THREE.MeshStandardMaterial;
+        for (const value of Object.values(material)) if (value instanceof THREE.Texture) trackedTexture(value);
+      }
+    });
+    return { gltf, alpha, meshes };
+  }
+  const ready = Promise.all([source('grass_medium_02'), source('fern_02')]).then(sources => {
+    if (disposed) {
+      for (const { meshes } of sources) for (const mesh of meshes) { mesh.geometry.dispose(); mesh.material.dispose(); }
+      for (const texture of textureSet) texture.dispose();
+      return;
+    }
+    const [grass, fern] = sources;
+    const fineMaterial = prepareMaterial(grass.meshes[0].material, grass.alpha, 33, 1.4);
+    const grassMaterial = prepareMaterial(grass.meshes[0].material, grass.alpha, TUSSOCK_RANGE, .6);
+    const fernMaterial = prepareMaterial(fern.meshes[0].material, fern.alpha, FERN_RANGE, .17,'near');
+    const farFernMaterial = prepareMaterial(fern.meshes[0].material, fern.alpha, FERN_RANGE, .17,'far');
+    // One exposure/albedo scale across low grass and taller clumps prevents
+    // identical atlas regions becoming abruptly brighter at a species/LOD edge.
+    fernMaterial.color.set(0xe0e7ce);
+    farFernMaterial.color.copy(fernMaterial.color);
+    const simplifier = new SimplifyModifier();
+    // Individually bowed blades retain exact photographs, veins, mottling, and alpha silhouettes.
+    // A broad 32-blade cluster costs only 192 triangles and stays below 30cm after placement.
+    for (let variant = 0; variant < 4; variant++) {
+      fine.push(batch(grassPatch(variant), fineMaterial, 900, 2, 'Fine grass LOD'));
+      midFine.push(batch(grassPatch(variant,20,2,1.2),fineMaterial,1800, 2, 'Fine grass LOD'));
+      farFine.push(batch(grassPatch(variant,16,1,1.65),fineMaterial,7200, 2, 'Fine grass LOD'));
+    }
+    for (const index of [0, 2, 4]) {
+      const geometry = grass.meshes[index].geometry.clone();
+      geometry.translate(0, .004, 0);
+      tussocks.push(batch(geometry, grassMaterial, 480));
+    }
+    for (const sourceMesh of fern.meshes) {
+      const geometry = sourceMesh.geometry.clone();
+      // Stem bases intentionally sink by a few millimetres into the damp litter.
+      geometry.translate(0, .01, 0);
+      const lowDetail = simplifier.modify(geometry, Math.floor(geometry.attributes.position.count * .66));
+      ferns.push(batch(geometry, fernMaterial, 150));
+      farFerns.push(batch(lowDetail, farFernMaterial, 300));
+    }
+    const sourceMaterials = new Set<THREE.Material>();
+    for (const { meshes } of sources) for (const mesh of meshes) { mesh.geometry.dispose(); sourceMaterials.add(mesh.material); }
+    sourceMaterials.forEach(material => material.dispose());
+    loaded = true;
+    group.userData.ready = true;
+    lastPosition.set(Infinity, 0, Infinity);
+  }).catch(error => {
+    // Loading failures remain visible to diagnostics; they never create game HUD content.
+    console.error('SILENCE: botanical assets could not be loaded.', error);
+    group.userData.error = String(error);
+  });
+
+  function makePlant(x: number, z: number, ix: number, iz: number, salt: number, kind: number, size: number, biome = biomeAt(x,z)): Plant {
+    const y = heightAt(x, z),leaf=biome.grove+biome.heath*.55;
+    const slopeX = (heightAt(x + .18, z) - heightAt(x - .18, z)) / .36;
+    const slopeZ = (heightAt(x, z + .18) - heightAt(x, z - .18)) / .36;
+    const yaw = hash(ix, iz, salt + 3) * Math.PI * 2;
+    return {
+      x, y: y - .012, z, sx: slopeX, sz: slopeZ, kind, size,
+      sine:Math.sin(yaw),cosine:Math.cos(yaw),
+      stretch: .75 + hash(ix, iz, salt + 7) * .58,
+      tint: .77 + hash(ix, iz, salt + 11) * .32,
+      dry:biome.heath*.83+biome.alpine*.45,
+      soilR:.085*(1-leaf)+.091*leaf,soilG:.071*(1-leaf)+.061*leaf,soilB:.026*(1-leaf)+.023*leaf,
+    };
+  }
+  function buildGroundCover(cx: number, cz: number, key: string) {
+    const cell: GroundCover = { fine: [], tussock: [] };
+    for (let ax = 0; ax < 20; ax++) {
+      for (let az = 0; az < 20; az++) {
+        const ix = cx * 20 + ax, iz = cz * 20 + az;
+        const x = (ix + .12 + hash(ix, iz, 1) * .76) * .32;
+        const z = (iz + .12 + hash(ix, iz, 2) * .76) * .32;
+        if (Math.hypot(x, z) > WORLD_RADIUS-55) continue;
+        const e = exclusion(x, z);
+        if (e > .91) continue;
+        const cover = patch(x, z);
+        const biome=biomeAt(x,z);
+        const probability = (.30 + cover * .40) * (1 - Math.pow(e, 1.3) * .93) * (1-biome.alpine*.93);
+        if (hash(ix, iz, 5) > probability) continue;
+        if (Math.abs(x + 18) < 1.55 && Math.abs(z + 46) < 1.05 && hash(ix, iz, 93) > .12) continue;
+        const size = Math.min(3, (1.8 + hash(ix, iz, 8) * 1.8) * (.72 + cover * .48) * (1 - e * .42));
+        const plant=makePlant(x,z,ix,iz,20,Math.floor(hash(ix,iz,14)*4),size,biome);if(Math.hypot(plant.sx,plant.sz)<.75)cell.fine.push(plant);
+      }
+    }
+    for (let i = 0; i < 35; i++) {
+      const x = (cx + hash(cx * 37 + i, cz, 101)) * CELL;
+      const z = (cz + hash(cx, cz * 41 + i, 103)) * CELL;
+      if (Math.hypot(x, z) > WORLD_RADIUS-55 || Math.hypot(x + 18, z + 46) < 2) continue;
+      const e = exclusion(x, z), p = patch(x, z);
+      if (e > .7 || hash(cx * 39 + i, cz, 104) > (.3 + p * .57) * (1 - e) * (1-biomeAt(x,z).alpine*.91)) continue;
+      const plant=makePlant(x,z,cx*59+i,cz,105,i%3,.9+hash(cx*67+i,cz,107)*1.15);if(Math.hypot(plant.sx,plant.sz)<.65)cell.tussock.push(plant);
+    }
+    groundCover.set(key, cell);
+    return cell;
+  }
+  function buildFerns(cx: number, cz: number, key: string) {
+    const plants: Plant[] = [];
+    for (let i = 0; i < 8; i++) {
+      const x = (cx + hash(cx * 17 + i, cz, 201)) * CELL;
+      const z = (cz + hash(cx, cz * 23 + i, 202)) * CELL;
+      if (Math.hypot(x, z) > WORLD_RADIUS-55 || Math.hypot(x + 18, z + 46) < 2.1) continue;
+      const e = exclusion(x, z), cover = patch(x + 11, z - 7);
+      const biome=biomeAt(x,z);
+      if (e > .48 || hash(cx * 13 + i, cz, 203) > (.25 + cover * .68)*(1-biome.heath*.82-biome.alpine*.95)) continue;
+      const plant=makePlant(x,z,cx*17+i,cz,210,i%4,.65+hash(cx*19+i,cz,215)*1.13,biome);if(Math.hypot(plant.sx,plant.sz)<.6)plants.push(plant);
+    }
+    fernCells.set(key, plants);
+    return plants;
+  }
+  const color=new THREE.Color();
+  function place(plant:Plant,batches:Batch[],fineBlade=false){
+    const b=batches[plant.kind%batches.length];
+    const handle=vegetation.allocate(b,plant.x,plant.z,2,plant.y); if(!handle)return;
+    const i=handle.index,offset=i*16,a=handle.mesh.instanceMatrix.array;
+    // Cached orientation and direct typed-array writes avoid quaternion/matrix
+    // work for thousands of unchanged plants whenever the visible ring refreshes.
+    const sx=plant.size,sy=plant.size*(fineBlade?Math.min(1.1,plant.stretch):plant.stretch);
+    a[offset]=plant.cosine*sx;a[offset+2]=-plant.sine*sx;
+    a[offset+5]=sy;a[offset+8]=plant.sine*sx;a[offset+10]=plant.cosine*sx;
+    a[offset+12]=plant.x;a[offset+13]=plant.y;a[offset+14]=plant.z;a[offset+15]=1;
+    color.setRGB(plant.tint*(.94+plant.dry*.2),plant.tint*(1-plant.dry*.08),plant.tint*(.86-plant.dry*.18));handle.mesh.setColorAt(i,color);
+    const slopes=handle.mesh.geometry.getAttribute('plantSlope') as THREE.InstancedBufferAttribute;
+    const soil=handle.mesh.geometry.getAttribute('plantSoil') as THREE.InstancedBufferAttribute;
+    slopes.setXY(i,plant.sx,plant.sz);
+    // Linear albedo averages of the actual soil/leaf atlases after terrain tint.
+    // Root contact is darkened in the shader; biome interpolation stays smooth.
+    const variation=.86+plant.tint*.14;
+    soil.setXYZ(i,plant.soilR*variation,plant.soilG*variation,plant.soilB*variation);
+  }
+  function refresh(player: THREE.Vector3) {
+    vegetation.begin();
+    warmCells.length = 0;
+    const cx0 = Math.floor(player.x / CELL), cz0 = Math.floor(player.z / CELL);
+    const range=Math.ceil((FERN_RANGE+STREAM_BUFFER)/CELL);
+    for (let dx = -range; dx <= range; dx++) {
+      for (let dz = -range; dz <= range; dz++) {
+        const cx = cx0 + dx, cz = cz0 + dz;
+        const x = Math.abs((cx + .5) * CELL - player.x), z = Math.abs((cz + .5) * CELL - player.z);
+        // Only generate a layer if some point in the cell can enter its LOD.
+        const distance2 = Math.max(0,x-CELL*.5)**2 + Math.max(0,z-CELL*.5)**2;
+        const key = `${cx},${cz}`;
+        if (distance2 < (GRASS_RANGE+STREAM_BUFFER)**2) {
+          const cell = groundCover.get(key) ?? buildGroundCover(cx, cz, key);
+          for(const plant of cell.fine){
+            const distance2=(plant.x-player.x)**2+(plant.z-player.z)**2;
+            if(distance2>=(GRASS_RANGE+STREAM_BUFFER)**2)continue;
+            // Stagger changes per tuft rather than switching a visible circular ring.
+            const stagger=hash(Math.floor(plant.x*20),Math.floor(plant.z*20),91)*4-1;
+            place(plant,distance2<(7+stagger)**2?fine:distance2<(15+stagger)**2?midFine:farFine,true);
+          }
+          for (const plant of cell.tussock) if ((plant.x - player.x) ** 2 + (plant.z - player.z) ** 2 < (TUSSOCK_RANGE+STREAM_BUFFER)**2) place(plant, tussocks);
+        } else if (distance2 < (GRASS_RANGE+STREAM_BUFFER+STREAM_STEP+2)**2 && !groundCover.has(key)) {
+          warmCells.push({cx,cz,key,distance2});
+        }
+        if (distance2 >= (FERN_RANGE+STREAM_BUFFER)**2) continue;
+        for (const plant of fernCells.get(key) ?? buildFerns(cx, cz, key)) {
+          const distanceSquared = (plant.x - player.x) ** 2 + (plant.z - player.z) ** 2;
+          if(distanceSquared<(FERN_LOD_END+STREAM_BUFFER)**2)place(plant,ferns);
+          if(distanceSquared>(FERN_LOD_START-STREAM_BUFFER)**2&&distanceSquared<(FERN_RANGE+STREAM_BUFFER)**2)place(plant,farFerns);
+        }
+      }
+    }
+    vegetation.end();
+    warmCells.sort((a,b)=>b.distance2-a.distance2);
+    for (const cache of [groundCover, fernCells]) for (const key of cache.keys()) {
+      const [cx, cz] = key.split(',').map(Number);
+      if (Math.abs(cx - cx0) > 11 || Math.abs(cz - cz0) > 11) cache.delete(key);
+    }
+    const total=(list:Batch[])=>list.reduce((n,b)=>n+vegetation.count(b),0);
+    group.userData.counts = { fine: total([...fine,...midFine,...farFine]), closeGrass:total(fine), tussocks: total(tussocks), ferns: total([...ferns, ...farFerns]), detailedFerns: total(ferns) };
+    lastPosition.copy(player);
+  }
+  return {
+    ready,
+    update(time: number, player: THREE.Vector3, deferRefresh = false) {
+      timeUniform.value = time; eyeUniform.value.copy(player);
+      if (!loaded || disposed || deferRefresh) return;
+      // Prepare beyond the visible fade so a plant can reach full coverage
+      // without waiting for the next ring refresh.
+      if (lastPosition.distanceToSquared(player) > STREAM_STEP ** 2) {
+        refresh(player);
+      } else {
+        // Spread the next ring's grass generation over ordinary frames.
+        const cell = warmCells.pop();
+        if (cell) buildGroundCover(cell.cx, cell.cz, cell.key);
+      }
+    },
+    dispose() {
+      disposed = true;
+      // Sector wrappers detach shared static vertex/index attributes before
+      // disposing their geometries; release them before the source geometries.
+      vegetation.dispose();
+      for (const geometry of geometries) geometry.dispose();
+      for (const material of materials) material.dispose();
+      for (const texture of textureSet) texture.dispose();
+      groundCover.clear(); fernCells.clear(); warmCells.length=0; scene.remove(group);
+    },
+  };
+}

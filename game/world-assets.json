@@ -1,0 +1,4394 @@
+{
+ "cabin": {
+  "url": "/world/cabin.glb",
+  "radius": 9,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": -3.25,
+    "az": 4.55,
+    "bx": -3.25,
+    "bz": 4.55,
+    "radius": 0.1,
+    "minY": 0.0,
+    "maxY": 2.21,
+    "tag": "porch post"
+   },
+   {
+    "kind": "capsule",
+    "ax": -1.75,
+    "az": 4.55,
+    "bx": -1.75,
+    "bz": 4.55,
+    "radius": 0.1,
+    "minY": 0.0,
+    "maxY": 2.21,
+    "tag": "porch post"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.95,
+    "az": 4.55,
+    "bx": 0.95,
+    "bz": 4.55,
+    "radius": 0.1,
+    "minY": 0.0,
+    "maxY": 2.21,
+    "tag": "porch post"
+   },
+   {
+    "kind": "capsule",
+    "ax": 3.25,
+    "az": 4.55,
+    "bx": 3.25,
+    "bz": 4.55,
+    "radius": 0.1,
+    "minY": 0.0,
+    "maxY": 2.21,
+    "tag": "porch post"
+   },
+   {
+    "kind": "box",
+    "x": -3.76,
+    "z": -0.55,
+    "halfX": 0.8,
+    "halfZ": 0.8,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 5.139137445250188,
+    "tag": "prop"
+   },
+   {
+    "kind": "box",
+    "x": 1.4,
+    "z": 2.92,
+    "halfX": 0.85,
+    "halfZ": 0.2,
+    "yaw": 0.0,
+    "minY": 0.42,
+    "maxY": 0.9,
+    "tag": "porch bench"
+   },
+   {
+    "kind": "box",
+    "x": 3.7199999999999998,
+    "z": -1.0,
+    "halfX": 0.3,
+    "halfZ": 1.5,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 1.2,
+    "tag": "woodpile"
+   },
+   {
+    "kind": "capsule",
+    "ax": 4.55,
+    "az": 1.45,
+    "bx": 4.55,
+    "bz": 1.45,
+    "radius": 0.28,
+    "minY": 0.0,
+    "maxY": 0.5,
+    "tag": "chopping block"
+   },
+   {
+    "kind": "box",
+    "x": 1.1,
+    "z": -0.5,
+    "halfX": 0.68,
+    "halfZ": 0.42,
+    "yaw": 0.0,
+    "minY": 0.42,
+    "maxY": 1.22,
+    "tag": "table"
+   },
+   {
+    "kind": "capsule",
+    "ax": -2.1,
+    "az": -1.2,
+    "bx": -2.1,
+    "bz": -1.2,
+    "radius": 0.36,
+    "minY": 0.42,
+    "maxY": 1.52,
+    "tag": "stove"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": -2.5,
+    "halfX": 3.4,
+    "halfZ": 0.15,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 2.55,
+    "tag": "cabin wall"
+   },
+   {
+    "kind": "box",
+    "x": -3.3,
+    "z": 0.0,
+    "halfX": 0.15,
+    "halfZ": 2.6,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 2.55,
+    "tag": "cabin wall"
+   },
+   {
+    "kind": "box",
+    "x": 3.3,
+    "z": 0.0,
+    "halfX": 0.15,
+    "halfZ": 2.6,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 2.55,
+    "tag": "cabin wall"
+   },
+   {
+    "kind": "box",
+    "x": -2.25,
+    "z": 2.5,
+    "halfX": 1.0499999999999998,
+    "halfZ": 0.15,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 2.55,
+    "tag": "cabin wall"
+   },
+   {
+    "kind": "box",
+    "x": 1.5399999999999998,
+    "z": 2.5,
+    "halfX": 1.76,
+    "halfZ": 0.15,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 2.55,
+    "tag": "cabin wall"
+   },
+   {
+    "kind": "box",
+    "x": -0.7,
+    "z": 2.5,
+    "halfX": 0.5,
+    "halfZ": 0.15,
+    "yaw": 0.0,
+    "minY": 2.42,
+    "maxY": 2.55,
+    "tag": "door lintel"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": 1.08,
+    "halfX": 3.5,
+    "halfZ": 3.6399999999999997,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.42,
+    "tag": "cabin floor"
+   },
+   {
+    "kind": "box",
+    "x": -0.7,
+    "z": 4.92,
+    "halfX": 0.78,
+    "halfZ": 0.17,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.27999999999999997,
+    "tag": "step"
+   },
+   {
+    "kind": "box",
+    "x": -0.7,
+    "z": 5.24,
+    "halfX": 0.78,
+    "halfZ": 0.17,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.13999999999999996,
+    "tag": "step"
+   }
+  ],
+  "hooks": {
+   "chimney": [
+    -3.76,
+    5.739,
+    -0.55
+   ],
+   "bench": [
+    1.15,
+    0.95,
+    2.94
+   ],
+   "lantern": [
+    -0.8,
+    1.76,
+    3.7
+   ]
+  },
+  "ladders": []
+ },
+ "mast": {
+  "url": "/world/mast.glb",
+  "radius": 20,
+  "colliders": [
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": 0.0,
+    "halfX": 1.55,
+    "halfZ": 1.55,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.3,
+    "tag": "mast plinth"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.8286650774405305,
+    "az": 0.4527017950523593,
+    "bx": 0.8286650774405305,
+    "bz": 0.4527017950523593,
+    "radius": 0.1,
+    "minY": 0.0,
+    "maxY": 34.0,
+    "tag": "mast leg"
+   },
+   {
+    "kind": "capsule",
+    "ax": -0.8063837935744247,
+    "az": 0.491294110766319,
+    "bx": -0.8063837935744247,
+    "bz": 0.491294110766319,
+    "radius": 0.1,
+    "minY": 0.0,
+    "maxY": 34.0,
+    "tag": "mast leg"
+   },
+   {
+    "kind": "capsule",
+    "ax": -0.022281283866106037,
+    "az": -0.9439959058186782,
+    "bx": -0.022281283866106037,
+    "bz": -0.9439959058186782,
+    "radius": 0.1,
+    "minY": 0.0,
+    "maxY": 34.0,
+    "tag": "mast leg"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": 0.0,
+    "halfX": 0.72,
+    "halfZ": 0.72,
+    "yaw": 0.0,
+    "minY": 19.88,
+    "maxY": 20.02,
+    "tag": "mast platform"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.92,
+    "az": 0.0,
+    "bx": 0.6505382386916237,
+    "bz": 0.6505382386916236,
+    "radius": 0.03,
+    "minY": 20.0,
+    "maxY": 21.0,
+    "tag": "platform rail"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.6505382386916237,
+    "az": 0.6505382386916236,
+    "bx": 5.633375276077825e-17,
+    "bz": 0.92,
+    "radius": 0.03,
+    "minY": 20.0,
+    "maxY": 21.0,
+    "tag": "platform rail"
+   },
+   {
+    "kind": "capsule",
+    "ax": 5.633375276077825e-17,
+    "az": 0.92,
+    "bx": -0.6505382386916236,
+    "bz": 0.6505382386916237,
+    "radius": 0.03,
+    "minY": 20.0,
+    "maxY": 21.0,
+    "tag": "platform rail"
+   },
+   {
+    "kind": "capsule",
+    "ax": -0.6505382386916236,
+    "az": 0.6505382386916237,
+    "bx": -0.92,
+    "bz": 1.126675055215565e-16,
+    "radius": 0.03,
+    "minY": 20.0,
+    "maxY": 21.0,
+    "tag": "platform rail"
+   },
+   {
+    "kind": "capsule",
+    "ax": -0.92,
+    "az": 1.126675055215565e-16,
+    "bx": -0.6505382386916239,
+    "bz": -0.6505382386916236,
+    "radius": 0.03,
+    "minY": 20.0,
+    "maxY": 21.0,
+    "tag": "platform rail"
+   },
+   {
+    "kind": "capsule",
+    "ax": -0.6505382386916239,
+    "az": -0.6505382386916236,
+    "bx": -1.6900125828233474e-16,
+    "bz": -0.92,
+    "radius": 0.03,
+    "minY": 20.0,
+    "maxY": 21.0,
+    "tag": "platform rail"
+   },
+   {
+    "kind": "capsule",
+    "ax": -1.6900125828233474e-16,
+    "az": -0.92,
+    "bx": 0.6505382386916236,
+    "bz": -0.6505382386916239,
+    "radius": 0.03,
+    "minY": 20.0,
+    "maxY": 21.0,
+    "tag": "platform rail"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.6505382386916236,
+    "az": -0.6505382386916239,
+    "bx": 0.92,
+    "bz": -2.25335011043113e-16,
+    "radius": 0.03,
+    "minY": 20.0,
+    "maxY": 21.0,
+    "tag": "platform rail"
+   },
+   {
+    "kind": "box",
+    "x": 0.32231983094793265,
+    "z": 15.496648344935034,
+    "halfX": 0.58,
+    "halfZ": 0.58,
+    "yaw": -1.55,
+    "minY": 0.0,
+    "maxY": 0.72,
+    "tag": "guy anchor"
+   },
+   {
+    "kind": "box",
+    "x": -13.581651055701782,
+    "z": -7.469187010723101,
+    "halfX": 0.58,
+    "halfZ": 0.58,
+    "yaw": -3.6443951023931955,
+    "minY": 0.0,
+    "maxY": 0.72,
+    "tag": "guy anchor"
+   },
+   {
+    "kind": "box",
+    "x": 13.259331224753842,
+    "z": -8.027461334211942,
+    "halfX": 0.58,
+    "halfZ": 0.58,
+    "yaw": -5.73879020478639,
+    "minY": 0.0,
+    "maxY": 0.72,
+    "tag": "guy anchor"
+   }
+  ],
+  "hooks": {
+   "beacon": [
+    0.0,
+    37.4,
+    0.0
+   ]
+  },
+  "ladders": [
+   {
+    "bottom": [
+     1.079,
+     0.0,
+     0.59
+    ],
+    "top": [
+     1.079,
+     20.02,
+     0.59
+    ],
+    "exit": [
+     0.483,
+     20.02,
+     0.264
+    ],
+    "width": 0.36
+   }
+  ]
+ },
+ "hut": {
+  "url": "/world/hut.glb",
+  "radius": 4,
+  "colliders": [
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": 2.4,
+    "halfX": 0.7,
+    "halfZ": 0.45,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.12,
+    "tag": "door slab"
+   },
+   {
+    "kind": "capsule",
+    "ax": -1.33,
+    "az": 1.8199999999999998,
+    "bx": -1.6596538022060026,
+    "bz": 2.635921792018773,
+    "radius": 0.05,
+    "minY": 0.0,
+    "maxY": 2.2,
+    "tag": "steel door"
+   },
+   {
+    "kind": "box",
+    "x": -1.3,
+    "z": -1.35,
+    "halfX": 0.42,
+    "halfZ": 0.27,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 2.05,
+    "tag": "radio rack"
+   },
+   {
+    "kind": "box",
+    "x": 0.8,
+    "z": -1.2,
+    "halfX": 0.77,
+    "halfZ": 0.38,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.8,
+    "tag": "desk"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": -1.7,
+    "halfX": 2.3000000000000003,
+    "halfZ": 0.1,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 2.75,
+    "tag": "hut wall"
+   },
+   {
+    "kind": "box",
+    "x": -2.2,
+    "z": 0.0,
+    "halfX": 0.1,
+    "halfZ": 1.8,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 2.75,
+    "tag": "hut wall"
+   },
+   {
+    "kind": "box",
+    "x": 2.2,
+    "z": 0.0,
+    "halfX": 0.1,
+    "halfZ": 1.8,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 2.75,
+    "tag": "hut wall"
+   },
+   {
+    "kind": "box",
+    "x": -1.77,
+    "z": 1.7,
+    "halfX": 0.52,
+    "halfZ": 0.1,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 2.75,
+    "tag": "hut wall"
+   },
+   {
+    "kind": "box",
+    "x": 0.3,
+    "z": 1.7,
+    "halfX": 0.75,
+    "halfZ": 0.1,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 2.75,
+    "tag": "hut wall"
+   },
+   {
+    "kind": "box",
+    "x": 1.65,
+    "z": 1.7,
+    "halfX": 0.55,
+    "halfZ": 0.1,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 2.75,
+    "tag": "hut wall"
+   },
+   {
+    "kind": "box",
+    "x": -0.9,
+    "z": 1.7,
+    "halfX": 0.5,
+    "halfZ": 0.1,
+    "yaw": 0.0,
+    "minY": 2.25,
+    "maxY": 2.75,
+    "tag": "hut lintel"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": 0.0,
+    "halfX": 2.2,
+    "halfZ": 1.7,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.1,
+    "tag": "hut floor"
+   }
+  ],
+  "hooks": {
+   "window": [
+    0.65,
+    1.52,
+    1.5
+   ],
+   "fusebox": [
+    1.72,
+    1.42,
+    2.12
+   ],
+   "radio": [
+    -1.3,
+    1.25,
+    -0.85
+   ]
+  },
+  "ladders": []
+ },
+ "generator": {
+  "url": "/world/generator.glb",
+  "radius": 2,
+  "colliders": [
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": 0.0,
+    "halfX": 1.08,
+    "halfZ": 0.5,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 1.45,
+    "tag": "generator"
+   }
+  ],
+  "hooks": {
+   "pullcord": [
+    -0.5,
+    0.36,
+    -0.42
+   ],
+   "exhaust": [
+    0.9,
+    1.9,
+    -0.42
+   ]
+  },
+  "ladders": []
+ },
+ "lookout": {
+  "url": "/world/lookout.glb",
+  "radius": 8,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": -2.05,
+    "az": -2.05,
+    "bx": -2.05,
+    "bz": -2.05,
+    "radius": 0.14,
+    "minY": 0.0,
+    "maxY": 16.7,
+    "tag": "tower leg"
+   },
+   {
+    "kind": "capsule",
+    "ax": -2.05,
+    "az": 2.05,
+    "bx": -2.05,
+    "bz": 2.05,
+    "radius": 0.14,
+    "minY": 0.0,
+    "maxY": 16.7,
+    "tag": "tower leg"
+   },
+   {
+    "kind": "capsule",
+    "ax": 2.05,
+    "az": -2.05,
+    "bx": 2.05,
+    "bz": -2.05,
+    "radius": 0.14,
+    "minY": 0.0,
+    "maxY": 16.7,
+    "tag": "tower leg"
+   },
+   {
+    "kind": "capsule",
+    "ax": 2.05,
+    "az": 2.05,
+    "bx": 2.05,
+    "bz": 2.05,
+    "radius": 0.14,
+    "minY": 0.0,
+    "maxY": 16.7,
+    "tag": "tower leg"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": -1.4300000000000002,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 0.07999999999999999,
+    "maxY": 0.19999999999999998,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": -1.17,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 0.27999999999999997,
+    "maxY": 0.39999999999999997,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": -0.91,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 0.48,
+    "maxY": 0.6,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": -0.65,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 0.6799999999999999,
+    "maxY": 0.7999999999999999,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": -0.3900000000000001,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 0.88,
+    "maxY": 1.0,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": -0.1299999999999999,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 1.08,
+    "maxY": 1.2,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": 0.1299999999999999,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 1.2800000000000002,
+    "maxY": 1.4000000000000001,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": 0.3900000000000001,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 1.48,
+    "maxY": 1.5999999999999999,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": 0.6499999999999999,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 1.6799999999999997,
+    "maxY": 1.7999999999999998,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": 0.9100000000000001,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 1.88,
+    "maxY": 2.0,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": 1.17,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 2.0799999999999996,
+    "maxY": 2.1999999999999997,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": 1.4300000000000002,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 2.28,
+    "maxY": 2.4,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "capsule",
+    "ax": -0.94,
+    "az": -1.36,
+    "bx": -0.94,
+    "bz": 1.46,
+    "radius": 0.04,
+    "minY": 0.0,
+    "maxY": 3.3,
+    "tag": "stair rail"
+   },
+   {
+    "kind": "capsule",
+    "ax": -0.019999999999999962,
+    "az": -1.36,
+    "bx": -0.019999999999999962,
+    "bz": 1.46,
+    "radius": 0.04,
+    "minY": 0.0,
+    "maxY": 3.3,
+    "tag": "stair rail"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": 1.94,
+    "halfX": 0.99,
+    "halfZ": 0.41,
+    "yaw": 0.0,
+    "minY": 2.26,
+    "maxY": 2.4,
+    "tag": "stair landing"
+   },
+   {
+    "kind": "capsule",
+    "ax": -0.98,
+    "az": 2.34,
+    "bx": 0.98,
+    "bz": 2.34,
+    "radius": 0.04,
+    "minY": 2.4,
+    "maxY": 3.5,
+    "tag": "landing rail"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": 1.4300000000000002,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 2.48,
+    "maxY": 2.6,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": 1.17,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 2.6799999999999997,
+    "maxY": 2.8,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": 0.91,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 2.88,
+    "maxY": 3.0,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": 0.65,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 3.0799999999999996,
+    "maxY": 3.1999999999999997,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": 0.3900000000000001,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 3.28,
+    "maxY": 3.4,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": 0.1299999999999999,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 3.4799999999999995,
+    "maxY": 3.5999999999999996,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": -0.1299999999999999,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 3.6799999999999997,
+    "maxY": 3.8,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": -0.3900000000000001,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 3.88,
+    "maxY": 4.0,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": -0.6499999999999999,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 4.079999999999999,
+    "maxY": 4.199999999999999,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": -0.9100000000000001,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 4.28,
+    "maxY": 4.4,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": -1.17,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 4.4799999999999995,
+    "maxY": 4.6,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": -1.4300000000000002,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 4.68,
+    "maxY": 4.8,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.019999999999999962,
+    "az": 1.36,
+    "bx": 0.019999999999999962,
+    "bz": -1.46,
+    "radius": 0.04,
+    "minY": 2.4,
+    "maxY": 5.7,
+    "tag": "stair rail"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.94,
+    "az": 1.36,
+    "bx": 0.94,
+    "bz": -1.46,
+    "radius": 0.04,
+    "minY": 2.4,
+    "maxY": 5.7,
+    "tag": "stair rail"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": -1.94,
+    "halfX": 0.99,
+    "halfZ": 0.41,
+    "yaw": 0.0,
+    "minY": 4.66,
+    "maxY": 4.8,
+    "tag": "stair landing"
+   },
+   {
+    "kind": "capsule",
+    "ax": -0.98,
+    "az": -2.34,
+    "bx": 0.98,
+    "bz": -2.34,
+    "radius": 0.04,
+    "minY": 4.8,
+    "maxY": 5.9,
+    "tag": "landing rail"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": -1.4300000000000002,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 4.88,
+    "maxY": 5.0,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": -1.17,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 5.08,
+    "maxY": 5.2,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": -0.91,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 5.279999999999999,
+    "maxY": 5.3999999999999995,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": -0.65,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 5.4799999999999995,
+    "maxY": 5.6,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": -0.3900000000000001,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 5.68,
+    "maxY": 5.8,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": -0.1299999999999999,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 5.88,
+    "maxY": 6.0,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": 0.1299999999999999,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 6.08,
+    "maxY": 6.2,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": 0.3900000000000001,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 6.279999999999999,
+    "maxY": 6.3999999999999995,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": 0.6499999999999999,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 6.4799999999999995,
+    "maxY": 6.6,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": 0.9100000000000001,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 6.68,
+    "maxY": 6.8,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": 1.17,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 6.88,
+    "maxY": 7.0,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": 1.4300000000000002,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 7.079999999999999,
+    "maxY": 7.199999999999999,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "capsule",
+    "ax": -0.94,
+    "az": -1.36,
+    "bx": -0.94,
+    "bz": 1.46,
+    "radius": 0.04,
+    "minY": 4.8,
+    "maxY": 8.1,
+    "tag": "stair rail"
+   },
+   {
+    "kind": "capsule",
+    "ax": -0.019999999999999962,
+    "az": -1.36,
+    "bx": -0.019999999999999962,
+    "bz": 1.46,
+    "radius": 0.04,
+    "minY": 4.8,
+    "maxY": 8.1,
+    "tag": "stair rail"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": 1.94,
+    "halfX": 0.99,
+    "halfZ": 0.41,
+    "yaw": 0.0,
+    "minY": 7.06,
+    "maxY": 7.199999999999999,
+    "tag": "stair landing"
+   },
+   {
+    "kind": "capsule",
+    "ax": -0.98,
+    "az": 2.34,
+    "bx": 0.98,
+    "bz": 2.34,
+    "radius": 0.04,
+    "minY": 7.199999999999999,
+    "maxY": 8.299999999999999,
+    "tag": "landing rail"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": 1.4300000000000002,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 7.279999999999999,
+    "maxY": 7.3999999999999995,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": 1.17,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 7.4799999999999995,
+    "maxY": 7.6,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": 0.91,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 7.679999999999999,
+    "maxY": 7.799999999999999,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": 0.65,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 7.879999999999999,
+    "maxY": 7.999999999999999,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": 0.3900000000000001,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 8.08,
+    "maxY": 8.2,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": 0.1299999999999999,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 8.28,
+    "maxY": 8.399999999999999,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": -0.1299999999999999,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 8.48,
+    "maxY": 8.6,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": -0.3900000000000001,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 8.68,
+    "maxY": 8.799999999999999,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": -0.6499999999999999,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 8.88,
+    "maxY": 9.0,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": -0.9100000000000001,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 9.08,
+    "maxY": 9.2,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": -1.17,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 9.28,
+    "maxY": 9.399999999999999,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": -1.4300000000000002,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 9.48,
+    "maxY": 9.6,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.019999999999999962,
+    "az": 1.36,
+    "bx": 0.019999999999999962,
+    "bz": -1.46,
+    "radius": 0.04,
+    "minY": 7.199999999999999,
+    "maxY": 10.5,
+    "tag": "stair rail"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.94,
+    "az": 1.36,
+    "bx": 0.94,
+    "bz": -1.46,
+    "radius": 0.04,
+    "minY": 7.199999999999999,
+    "maxY": 10.5,
+    "tag": "stair rail"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": -1.94,
+    "halfX": 0.99,
+    "halfZ": 0.41,
+    "yaw": 0.0,
+    "minY": 9.459999999999999,
+    "maxY": 9.6,
+    "tag": "stair landing"
+   },
+   {
+    "kind": "capsule",
+    "ax": -0.98,
+    "az": -2.34,
+    "bx": 0.98,
+    "bz": -2.34,
+    "radius": 0.04,
+    "minY": 9.6,
+    "maxY": 10.7,
+    "tag": "landing rail"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": -1.4300000000000002,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 9.68,
+    "maxY": 9.799999999999999,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": -1.17,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 9.88,
+    "maxY": 10.0,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": -0.91,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 10.08,
+    "maxY": 10.2,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": -0.65,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 10.280000000000001,
+    "maxY": 10.4,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": -0.3900000000000001,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 10.48,
+    "maxY": 10.6,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": -0.1299999999999999,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 10.68,
+    "maxY": 10.799999999999999,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": 0.1299999999999999,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 10.88,
+    "maxY": 11.0,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": 0.3900000000000001,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 11.08,
+    "maxY": 11.2,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": 0.6499999999999999,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 11.28,
+    "maxY": 11.399999999999999,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": 0.9100000000000001,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 11.48,
+    "maxY": 11.6,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": 1.17,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 11.68,
+    "maxY": 11.799999999999999,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": -0.48,
+    "z": 1.4300000000000002,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 11.88,
+    "maxY": 12.0,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "capsule",
+    "ax": -0.94,
+    "az": -1.36,
+    "bx": -0.94,
+    "bz": 1.46,
+    "radius": 0.04,
+    "minY": 9.6,
+    "maxY": 12.9,
+    "tag": "stair rail"
+   },
+   {
+    "kind": "capsule",
+    "ax": -0.019999999999999962,
+    "az": -1.36,
+    "bx": -0.019999999999999962,
+    "bz": 1.46,
+    "radius": 0.04,
+    "minY": 9.6,
+    "maxY": 12.9,
+    "tag": "stair rail"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": 1.94,
+    "halfX": 0.99,
+    "halfZ": 0.41,
+    "yaw": 0.0,
+    "minY": 11.86,
+    "maxY": 12.0,
+    "tag": "stair landing"
+   },
+   {
+    "kind": "capsule",
+    "ax": -0.98,
+    "az": 2.34,
+    "bx": 0.98,
+    "bz": 2.34,
+    "radius": 0.04,
+    "minY": 12.0,
+    "maxY": 13.1,
+    "tag": "landing rail"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": 1.4300000000000002,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 12.08,
+    "maxY": 12.2,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": 1.17,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 12.280000000000001,
+    "maxY": 12.4,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": 0.91,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 12.48,
+    "maxY": 12.6,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": 0.65,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 12.680000000000001,
+    "maxY": 12.8,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": 0.3900000000000001,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 12.88,
+    "maxY": 13.0,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": 0.1299999999999999,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 13.08,
+    "maxY": 13.2,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": -0.1299999999999999,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 13.280000000000001,
+    "maxY": 13.4,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": -0.3900000000000001,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 13.48,
+    "maxY": 13.6,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": -0.6499999999999999,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 13.680000000000001,
+    "maxY": 13.8,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": -0.9100000000000001,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 13.88,
+    "maxY": 14.0,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": -1.17,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 14.08,
+    "maxY": 14.2,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "box",
+    "x": 0.48,
+    "z": -1.4300000000000002,
+    "halfX": 0.45,
+    "halfZ": 0.14,
+    "yaw": 0.0,
+    "minY": 14.280000000000001,
+    "maxY": 14.4,
+    "tag": "stair tread"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.019999999999999962,
+    "az": 1.36,
+    "bx": 0.019999999999999962,
+    "bz": -0.6500000000000004,
+    "radius": 0.04,
+    "minY": 12.0,
+    "maxY": 15.3,
+    "tag": "stair rail"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.94,
+    "az": 1.36,
+    "bx": 0.94,
+    "bz": -0.6500000000000004,
+    "radius": 0.04,
+    "minY": 12.0,
+    "maxY": 15.3,
+    "tag": "stair rail"
+   },
+   {
+    "kind": "box",
+    "x": -1.215,
+    "z": 0.0,
+    "halfX": 1.245,
+    "halfZ": 2.45,
+    "yaw": 0.0,
+    "minY": 14.259999999999998,
+    "maxY": 14.399999999999999,
+    "tag": "cab floor"
+   },
+   {
+    "kind": "box",
+    "x": 1.705,
+    "z": 0.0,
+    "halfX": 0.7450000000000001,
+    "halfZ": 2.45,
+    "yaw": 0.0,
+    "minY": 14.259999999999998,
+    "maxY": 14.399999999999999,
+    "tag": "cab floor"
+   },
+   {
+    "kind": "box",
+    "x": 0.49,
+    "z": 2.005,
+    "halfX": 0.48,
+    "halfZ": 0.44500000000000006,
+    "yaw": 0.0,
+    "minY": 14.259999999999998,
+    "maxY": 14.399999999999999,
+    "tag": "cab floor"
+   },
+   {
+    "kind": "box",
+    "x": 0.49,
+    "z": -2.005,
+    "halfX": 0.48,
+    "halfZ": 0.44500000000000006,
+    "yaw": 0.0,
+    "minY": 14.259999999999998,
+    "maxY": 14.399999999999999,
+    "tag": "cab floor"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.0,
+    "az": -0.66,
+    "bx": 0.0,
+    "bz": 1.56,
+    "radius": 0.04,
+    "minY": 14.399999999999999,
+    "maxY": 15.45,
+    "tag": "well rail"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.98,
+    "az": -0.66,
+    "bx": 0.98,
+    "bz": 1.56,
+    "radius": 0.04,
+    "minY": 14.399999999999999,
+    "maxY": 15.45,
+    "tag": "well rail"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": 1.85,
+    "halfX": 1.85,
+    "halfZ": 0.08,
+    "yaw": 0.0,
+    "minY": 14.399999999999999,
+    "maxY": 16.65,
+    "tag": "cab wall"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": -1.85,
+    "halfX": 1.85,
+    "halfZ": 0.08,
+    "yaw": 0.0,
+    "minY": 14.399999999999999,
+    "maxY": 16.65,
+    "tag": "cab wall"
+   },
+   {
+    "kind": "box",
+    "x": -1.85,
+    "z": 0.0,
+    "halfX": 0.08,
+    "halfZ": 1.85,
+    "yaw": 0.0,
+    "minY": 14.399999999999999,
+    "maxY": 16.65,
+    "tag": "cab wall"
+   },
+   {
+    "kind": "box",
+    "x": 1.85,
+    "z": 1.2799999999999998,
+    "halfX": 0.08,
+    "halfZ": 0.55,
+    "yaw": 0.0,
+    "minY": 14.399999999999999,
+    "maxY": 16.65,
+    "tag": "cab wall"
+   },
+   {
+    "kind": "box",
+    "x": 1.85,
+    "z": -1.4,
+    "halfX": 0.08,
+    "halfZ": 0.5,
+    "yaw": 0.0,
+    "minY": 14.399999999999999,
+    "maxY": 16.65,
+    "tag": "cab wall"
+   },
+   {
+    "kind": "capsule",
+    "ax": -2.45,
+    "az": 2.45,
+    "bx": 2.45,
+    "bz": 2.45,
+    "radius": 0.04,
+    "minY": 14.399999999999999,
+    "maxY": 15.499999999999998,
+    "tag": "catwalk rail"
+   },
+   {
+    "kind": "capsule",
+    "ax": -2.45,
+    "az": -2.45,
+    "bx": 2.45,
+    "bz": -2.45,
+    "radius": 0.04,
+    "minY": 14.399999999999999,
+    "maxY": 15.499999999999998,
+    "tag": "catwalk rail"
+   },
+   {
+    "kind": "capsule",
+    "ax": -2.45,
+    "az": -2.45,
+    "bx": -2.45,
+    "bz": 2.45,
+    "radius": 0.04,
+    "minY": 14.399999999999999,
+    "maxY": 15.499999999999998,
+    "tag": "catwalk rail"
+   },
+   {
+    "kind": "capsule",
+    "ax": 2.45,
+    "az": -2.45,
+    "bx": 2.45,
+    "bz": 2.45,
+    "radius": 0.04,
+    "minY": 14.399999999999999,
+    "maxY": 15.499999999999998,
+    "tag": "catwalk rail"
+   },
+   {
+    "kind": "capsule",
+    "ax": -0.9,
+    "az": 0.4,
+    "bx": -0.9,
+    "bz": 0.4,
+    "radius": 0.3,
+    "minY": 14.399999999999999,
+    "maxY": 15.399999999999999,
+    "tag": "fire finder"
+   }
+  ],
+  "hooks": {
+   "fuse": [
+    -1.5,
+    15.43,
+    -1.5
+   ]
+  },
+  "ladders": []
+ },
+ "noticeboard": {
+  "url": "/world/noticeboard.glb",
+  "radius": 2,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": -1.25,
+    "az": 0.0,
+    "bx": -1.25,
+    "bz": 0.0,
+    "radius": 0.1,
+    "minY": 0.0,
+    "maxY": 2.7,
+    "tag": "notice post"
+   },
+   {
+    "kind": "capsule",
+    "ax": 1.25,
+    "az": 0.0,
+    "bx": 1.25,
+    "bz": 0.0,
+    "radius": 0.1,
+    "minY": 0.0,
+    "maxY": 2.7,
+    "tag": "notice post"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": 0.02,
+    "halfX": 1.25,
+    "halfZ": 0.05,
+    "yaw": 0.0,
+    "minY": 0.9,
+    "maxY": 2.35,
+    "tag": "noticeboard"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "deerstand": {
+  "url": "/world/deerstand.glb",
+  "radius": 2,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": -1.0,
+    "az": -1.0,
+    "bx": -0.7,
+    "bz": -0.7,
+    "radius": 0.08,
+    "minY": 0.0,
+    "maxY": 3.1,
+    "tag": "stand leg"
+   },
+   {
+    "kind": "capsule",
+    "ax": -1.0,
+    "az": 1.0,
+    "bx": -0.7,
+    "bz": 0.7,
+    "radius": 0.08,
+    "minY": 0.0,
+    "maxY": 3.1,
+    "tag": "stand leg"
+   },
+   {
+    "kind": "capsule",
+    "ax": 1.0,
+    "az": -1.0,
+    "bx": 0.7,
+    "bz": -0.7,
+    "radius": 0.08,
+    "minY": 0.0,
+    "maxY": 3.1,
+    "tag": "stand leg"
+   },
+   {
+    "kind": "capsule",
+    "ax": 1.0,
+    "az": 1.0,
+    "bx": 0.7,
+    "bz": 0.7,
+    "radius": 0.08,
+    "minY": 0.0,
+    "maxY": 3.1,
+    "tag": "stand leg"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": 0.0,
+    "halfX": 0.82,
+    "halfZ": 0.82,
+    "yaw": 0.0,
+    "minY": 2.98,
+    "maxY": 3.13,
+    "tag": "stand floor"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": -0.78,
+    "halfX": 0.84,
+    "halfZ": 0.05,
+    "yaw": 0.0,
+    "minY": 3.1,
+    "maxY": 4.05,
+    "tag": "stand wall"
+   },
+   {
+    "kind": "box",
+    "x": -0.78,
+    "z": 0.0,
+    "halfX": 0.05,
+    "halfZ": 0.84,
+    "yaw": 0.0,
+    "minY": 3.1,
+    "maxY": 4.05,
+    "tag": "stand wall"
+   },
+   {
+    "kind": "box",
+    "x": 0.78,
+    "z": 0.0,
+    "halfX": 0.05,
+    "halfZ": 0.84,
+    "yaw": 0.0,
+    "minY": 3.1,
+    "maxY": 4.05,
+    "tag": "stand wall"
+   }
+  ],
+  "hooks": {
+   "fuse": [
+    0.0,
+    3.2,
+    0.0
+   ]
+  },
+  "ladders": [
+   {
+    "bottom": [
+     0.0,
+     0.0,
+     1.45
+    ],
+    "top": [
+     0.0,
+     3.13,
+     0.745
+    ],
+    "exit": [
+     0.0,
+     3.13,
+     0.3
+    ],
+    "width": 0.5
+   }
+  ]
+ },
+ "pole": {
+  "url": "/world/pole.glb",
+  "radius": 2,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": 0.0,
+    "az": 0.0,
+    "bx": 0.0,
+    "bz": 0.0,
+    "radius": 0.17,
+    "minY": 0.0,
+    "maxY": 9.6,
+    "tag": "utility pole"
+   }
+  ],
+  "hooks": {
+   "wire_l": [
+    -0.934,
+    9.51,
+    0.168
+   ],
+   "wire_c": [
+    0.066,
+    9.51,
+    0.168
+   ],
+   "wire_r": [
+    1.066,
+    9.51,
+    0.168
+   ]
+  },
+  "ladders": []
+ },
+ "jerrycan": {
+  "url": "/world/jerrycan.glb",
+  "radius": 1.0,
+  "colliders": [
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": 0.0,
+    "halfX": 0.18000000000000002,
+    "halfZ": 0.095,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.56,
+    "tag": "jerry can"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "fuse": {
+  "url": "/world/fuse.glb",
+  "radius": 1.0,
+  "colliders": [],
+  "hooks": {},
+  "ladders": []
+ },
+ "crate": {
+  "url": "/world/crate.glb",
+  "radius": 1.0,
+  "colliders": [
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": 0.0,
+    "halfX": 0.38,
+    "halfZ": 0.38,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.728,
+    "tag": "crate"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "drum": {
+  "url": "/world/drum.glb",
+  "radius": 1.0,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": 0.0,
+    "az": 0.0,
+    "bx": 0.0,
+    "bz": 0.0,
+    "radius": 0.3,
+    "minY": 0.0,
+    "maxY": 0.9,
+    "tag": "drum"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "tire": {
+  "url": "/world/tire.glb",
+  "radius": 1.0,
+  "colliders": [],
+  "hooks": {},
+  "ladders": []
+ },
+ "roadsign": {
+  "url": "/world/roadsign.glb",
+  "radius": 1.0,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": 0.0,
+    "az": -0.03,
+    "bx": 0.0,
+    "bz": -0.03,
+    "radius": 0.05,
+    "minY": 0.0,
+    "maxY": 2.3,
+    "tag": "sign post"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "mine": {
+  "url": "/world/mine.glb",
+  "radius": 9,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": -1.42,
+    "az": 1.1,
+    "bx": -1.42,
+    "bz": 1.1,
+    "radius": 0.16,
+    "minY": 0.0,
+    "maxY": 2.72,
+    "tag": "mine timber"
+   },
+   {
+    "kind": "capsule",
+    "ax": 1.42,
+    "az": 1.1,
+    "bx": 1.42,
+    "bz": 1.1,
+    "radius": 0.16,
+    "minY": 0.0,
+    "maxY": 2.72,
+    "tag": "mine timber"
+   },
+   {
+    "kind": "capsule",
+    "ax": -1.42,
+    "az": -0.7,
+    "bx": -1.42,
+    "bz": -0.7,
+    "radius": 0.16,
+    "minY": 0.0,
+    "maxY": 2.72,
+    "tag": "mine timber"
+   },
+   {
+    "kind": "capsule",
+    "ax": 1.42,
+    "az": -0.7,
+    "bx": 1.42,
+    "bz": -0.7,
+    "radius": 0.16,
+    "minY": 0.0,
+    "maxY": 2.72,
+    "tag": "mine timber"
+   },
+   {
+    "kind": "capsule",
+    "ax": -1.42,
+    "az": -2.5,
+    "bx": -1.42,
+    "bz": -2.5,
+    "radius": 0.16,
+    "minY": 0.0,
+    "maxY": 2.72,
+    "tag": "mine timber"
+   },
+   {
+    "kind": "capsule",
+    "ax": 1.42,
+    "az": -2.5,
+    "bx": 1.42,
+    "bz": -2.5,
+    "radius": 0.16,
+    "minY": 0.0,
+    "maxY": 2.72,
+    "tag": "mine timber"
+   },
+   {
+    "kind": "capsule",
+    "ax": -1.42,
+    "az": -4.3,
+    "bx": -1.42,
+    "bz": -4.3,
+    "radius": 0.16,
+    "minY": 0.0,
+    "maxY": 2.72,
+    "tag": "mine timber"
+   },
+   {
+    "kind": "capsule",
+    "ax": 1.42,
+    "az": -4.3,
+    "bx": 1.42,
+    "bz": -4.3,
+    "radius": 0.16,
+    "minY": 0.0,
+    "maxY": 2.72,
+    "tag": "mine timber"
+   },
+   {
+    "kind": "capsule",
+    "ax": -1.42,
+    "az": -6.1,
+    "bx": -1.42,
+    "bz": -6.1,
+    "radius": 0.16,
+    "minY": 0.0,
+    "maxY": 2.72,
+    "tag": "mine timber"
+   },
+   {
+    "kind": "capsule",
+    "ax": 1.42,
+    "az": -6.1,
+    "bx": 1.42,
+    "bz": -6.1,
+    "radius": 0.16,
+    "minY": 0.0,
+    "maxY": 2.72,
+    "tag": "mine timber"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": -6.5,
+    "halfX": 1.5,
+    "halfZ": 0.9,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 3.0,
+    "tag": "collapse"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": 7.6,
+    "halfX": 0.8,
+    "halfZ": 0.2,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 1.0,
+    "tag": "track buffer"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": 3.2,
+    "halfX": 0.58,
+    "halfZ": 0.78,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 1.3,
+    "tag": "mine cart"
+   },
+   {
+    "kind": "capsule",
+    "ax": -2.9,
+    "az": 2.5,
+    "bx": -2.9,
+    "bz": 2.5,
+    "radius": 0.09,
+    "minY": 0.0,
+    "maxY": 2.2,
+    "tag": "sign post"
+   },
+   {
+    "kind": "box",
+    "x": 1.0,
+    "z": -1.6,
+    "halfX": 0.33,
+    "halfZ": 0.27,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.65,
+    "tag": "crate"
+   }
+  ],
+  "hooks": {
+   "fuse": [
+    1.0,
+    0.68,
+    -1.6
+   ],
+   "depths": [
+    0.0,
+    1.4,
+    -5.0
+   ]
+  },
+  "ladders": []
+ },
+ "camp": {
+  "url": "/world/camp.glb",
+  "radius": 7,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": 0.0,
+    "az": 0.0,
+    "bx": 0.0,
+    "bz": 0.0,
+    "radius": 0.75,
+    "minY": 0.0,
+    "maxY": 0.2,
+    "tag": "fire ring"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.24843888473008924,
+    "az": 1.6824916405599375,
+    "bx": 1.426498263461144,
+    "bz": 0.9260684123445417,
+    "radius": 0.23,
+    "minY": 0.0,
+    "maxY": 0.44,
+    "tag": "log seat"
+   },
+   {
+    "kind": "capsule",
+    "ax": -1.7318729656653407,
+    "az": 0.22498006755607958,
+    "bx": -1.0101710451152908,
+    "bz": 1.4246243222726058,
+    "radius": 0.23,
+    "minY": 0.0,
+    "maxY": 0.44,
+    "tag": "log seat"
+   },
+   {
+    "kind": "capsule",
+    "ax": 1.3446190995196918,
+    "az": -1.0413930464559735,
+    "bx": 0.10778258151147735,
+    "bz": -1.6973163862765013,
+    "radius": 0.23,
+    "minY": 0.0,
+    "maxY": 0.44,
+    "tag": "log seat"
+   },
+   {
+    "kind": "box",
+    "x": -2.5,
+    "z": -1.8,
+    "halfX": 1.0,
+    "halfZ": 1.28,
+    "yaw": 0.55,
+    "minY": 0.0,
+    "maxY": 1.3,
+    "tag": "tent"
+   },
+   {
+    "kind": "box",
+    "x": 2.05,
+    "z": 1.8,
+    "halfX": 0.4,
+    "halfZ": 0.24,
+    "yaw": 0.3,
+    "minY": 0.0,
+    "maxY": 0.52,
+    "tag": "cooler"
+   },
+   {
+    "kind": "capsule",
+    "ax": 3.6,
+    "az": 0.1,
+    "bx": 3.6,
+    "bz": 0.1,
+    "radius": 0.07,
+    "minY": 0.0,
+    "maxY": 2.0,
+    "tag": "line post"
+   },
+   {
+    "kind": "capsule",
+    "ax": 3.55,
+    "az": 2.6,
+    "bx": 3.55,
+    "bz": 2.6,
+    "radius": 0.07,
+    "minY": 0.0,
+    "maxY": 2.0,
+    "tag": "line post"
+   },
+   {
+    "kind": "box",
+    "x": -1.15,
+    "z": -3.2,
+    "halfX": 0.38,
+    "halfZ": 0.27,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.34,
+    "tag": "crate"
+   }
+  ],
+  "hooks": {
+   "jerrycan": [
+    -1.15,
+    0.32,
+    -3.2
+   ],
+   "lantern": [
+    1.0,
+    0.44,
+    -0.9
+   ]
+  },
+  "ladders": []
+ },
+ "logstack": {
+  "url": "/world/logstack.glb",
+  "radius": 13,
+  "colliders": [
+   {
+    "kind": "box",
+    "x": -5.5,
+    "z": -2.5,
+    "halfX": 1.9900000000000002,
+    "halfZ": 4.3,
+    "yaw": 0.1,
+    "minY": 0.0,
+    "maxY": 2.5755,
+    "tag": "log stack"
+   },
+   {
+    "kind": "box",
+    "x": 5.2,
+    "z": -5.5,
+    "halfX": 1.7200000000000002,
+    "halfZ": 3.7,
+    "yaw": -0.25,
+    "minY": 0.0,
+    "maxY": 2.1084,
+    "tag": "log stack"
+   },
+   {
+    "kind": "box",
+    "x": 2.5,
+    "z": 6.5,
+    "halfX": 1.4500000000000002,
+    "halfZ": 3.4,
+    "yaw": 0.9,
+    "minY": 0.0,
+    "maxY": 1.6413000000000002,
+    "tag": "log stack"
+   },
+   {
+    "kind": "capsule",
+    "ax": -2.273246294422814,
+    "az": 10.037665239370826,
+    "bx": -2.273246294422814,
+    "bz": 10.037665239370826,
+    "radius": 0.1,
+    "minY": 0.0,
+    "maxY": 3.15,
+    "tag": "shed post"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.24033671081380303,
+    "az": 6.672862054073704,
+    "bx": 0.24033671081380303,
+    "bz": 6.672862054073704,
+    "radius": 0.1,
+    "minY": 0.0,
+    "maxY": 2.4499999999999997,
+    "tag": "shed post"
+   },
+   {
+    "kind": "capsule",
+    "ax": -4.7567915026183085,
+    "az": 8.18240159264856,
+    "bx": -4.7567915026183085,
+    "bz": 8.18240159264856,
+    "radius": 0.1,
+    "minY": 0.0,
+    "maxY": 3.15,
+    "tag": "shed post"
+   },
+   {
+    "kind": "capsule",
+    "ax": -2.2432084973816915,
+    "az": 4.817598407351439,
+    "bx": -2.2432084973816915,
+    "bz": 4.817598407351439,
+    "radius": 0.1,
+    "minY": 0.0,
+    "maxY": 2.4499999999999997,
+    "tag": "shed post"
+   },
+   {
+    "kind": "capsule",
+    "ax": -7.2403367108138035,
+    "az": 6.327137945926296,
+    "bx": -7.2403367108138035,
+    "bz": 6.327137945926296,
+    "radius": 0.1,
+    "minY": 0.0,
+    "maxY": 3.15,
+    "tag": "shed post"
+   },
+   {
+    "kind": "capsule",
+    "ax": -4.726753705577186,
+    "az": 2.962334760629174,
+    "bx": -4.726753705577186,
+    "bz": 2.962334760629174,
+    "radius": 0.1,
+    "minY": 0.0,
+    "maxY": 2.4499999999999997,
+    "tag": "shed post"
+   },
+   {
+    "kind": "box",
+    "x": -4.7567915026183085,
+    "z": 8.18240159264856,
+    "halfX": 3.1,
+    "halfZ": 0.1,
+    "yaw": 2.5,
+    "minY": 0.0,
+    "maxY": 2.3,
+    "tag": "shed wall"
+   },
+   {
+    "kind": "box",
+    "x": -5.288622653318462,
+    "z": 7.223414821548484,
+    "halfX": 1.22,
+    "halfZ": 0.37,
+    "yaw": 2.5,
+    "minY": 0.0,
+    "maxY": 0.98,
+    "tag": "workbench"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.6,
+    "az": 1.5,
+    "bx": 0.6,
+    "bz": 1.5,
+    "radius": 0.3,
+    "minY": 0.0,
+    "maxY": 0.9,
+    "tag": "drum"
+   },
+   {
+    "kind": "capsule",
+    "ax": 1.25,
+    "az": 1.1,
+    "bx": 1.25,
+    "bz": 1.1,
+    "radius": 0.3,
+    "minY": 0.0,
+    "maxY": 0.9,
+    "tag": "drum"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.85,
+    "az": 0.7,
+    "bx": 0.85,
+    "bz": 0.7,
+    "radius": 0.3,
+    "minY": 0.0,
+    "maxY": 0.9,
+    "tag": "drum"
+   },
+   {
+    "kind": "box",
+    "x": -0.7,
+    "z": -6.45,
+    "halfX": 0.55,
+    "halfZ": 0.85,
+    "yaw": 0.3,
+    "minY": 0.0,
+    "maxY": 1.6,
+    "tag": "cable reel"
+   }
+  ],
+  "hooks": {
+   "fuse": [
+    -5.467,
+    1.0,
+    7.128
+   ]
+  },
+  "ladders": []
+ },
+ "chapel": {
+  "url": "/world/chapel.glb",
+  "radius": 14,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": -0.76,
+    "az": 5.23,
+    "bx": -0.5203550045795958,
+    "bz": 5.9512283107102455,
+    "radius": 0.04,
+    "minY": 0.0,
+    "maxY": 2.5,
+    "tag": "chapel door"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.76,
+    "az": 5.23,
+    "bx": 1.0057000708162627,
+    "bz": 5.949188066642435,
+    "radius": 0.04,
+    "minY": 0.0,
+    "maxY": 2.5,
+    "tag": "chapel door"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": 5.5200000000000005,
+    "halfX": 0.95,
+    "halfZ": 0.15,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.27999999999999997,
+    "tag": "step"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": 5.82,
+    "halfX": 0.95,
+    "halfZ": 0.15,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.13999999999999996,
+    "tag": "step"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": 0.0,
+    "halfX": 2.8,
+    "halfZ": 5.2,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.42,
+    "tag": "chapel floor"
+   },
+   {
+    "kind": "box",
+    "x": -1.4,
+    "z": -3.23,
+    "halfX": 0.92,
+    "halfZ": 0.2,
+    "yaw": 0.0,
+    "minY": 0.42,
+    "maxY": 1.27,
+    "tag": "pew"
+   },
+   {
+    "kind": "box",
+    "x": 1.4,
+    "z": -3.23,
+    "halfX": 0.92,
+    "halfZ": 0.2,
+    "yaw": 0.0,
+    "minY": 0.42,
+    "maxY": 1.27,
+    "tag": "pew"
+   },
+   {
+    "kind": "box",
+    "x": -1.4,
+    "z": -2.08,
+    "halfX": 0.92,
+    "halfZ": 0.2,
+    "yaw": 0.0,
+    "minY": 0.42,
+    "maxY": 1.27,
+    "tag": "pew"
+   },
+   {
+    "kind": "box",
+    "x": 1.4,
+    "z": -2.08,
+    "halfX": 0.92,
+    "halfZ": 0.2,
+    "yaw": 0.0,
+    "minY": 0.42,
+    "maxY": 1.27,
+    "tag": "pew"
+   },
+   {
+    "kind": "box",
+    "x": -1.4,
+    "z": -0.9300000000000004,
+    "halfX": 0.92,
+    "halfZ": 0.2,
+    "yaw": 0.0,
+    "minY": 0.42,
+    "maxY": 1.27,
+    "tag": "pew"
+   },
+   {
+    "kind": "box",
+    "x": 1.4,
+    "z": -0.9300000000000004,
+    "halfX": 0.92,
+    "halfZ": 0.2,
+    "yaw": 0.0,
+    "minY": 0.42,
+    "maxY": 1.27,
+    "tag": "pew"
+   },
+   {
+    "kind": "box",
+    "x": -1.4,
+    "z": 0.21999999999999956,
+    "halfX": 0.92,
+    "halfZ": 0.2,
+    "yaw": 0.0,
+    "minY": 0.42,
+    "maxY": 1.27,
+    "tag": "pew"
+   },
+   {
+    "kind": "box",
+    "x": 1.4,
+    "z": 0.21999999999999956,
+    "halfX": 0.92,
+    "halfZ": 0.2,
+    "yaw": 0.0,
+    "minY": 0.42,
+    "maxY": 1.27,
+    "tag": "pew"
+   },
+   {
+    "kind": "box",
+    "x": -1.4,
+    "z": 1.3699999999999994,
+    "halfX": 0.92,
+    "halfZ": 0.2,
+    "yaw": 0.0,
+    "minY": 0.42,
+    "maxY": 1.27,
+    "tag": "pew"
+   },
+   {
+    "kind": "box",
+    "x": 1.4,
+    "z": 1.3699999999999994,
+    "halfX": 0.92,
+    "halfZ": 0.2,
+    "yaw": 0.0,
+    "minY": 0.42,
+    "maxY": 1.27,
+    "tag": "pew"
+   },
+   {
+    "kind": "box",
+    "x": -1.4,
+    "z": 2.5199999999999996,
+    "halfX": 0.92,
+    "halfZ": 0.2,
+    "yaw": 0.0,
+    "minY": 0.42,
+    "maxY": 1.27,
+    "tag": "pew"
+   },
+   {
+    "kind": "box",
+    "x": 1.4,
+    "z": 2.5199999999999996,
+    "halfX": 0.92,
+    "halfZ": 0.2,
+    "yaw": 0.0,
+    "minY": 0.42,
+    "maxY": 1.27,
+    "tag": "pew"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": -5.2,
+    "halfX": 2.8,
+    "halfZ": 0.12,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 4.6,
+    "tag": "chapel wall"
+   },
+   {
+    "kind": "box",
+    "x": -2.8,
+    "z": 0.0,
+    "halfX": 0.12,
+    "halfZ": 5.2,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 4.6,
+    "tag": "chapel wall"
+   },
+   {
+    "kind": "box",
+    "x": 2.8,
+    "z": 0.0,
+    "halfX": 0.12,
+    "halfZ": 5.2,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 4.6,
+    "tag": "chapel wall"
+   },
+   {
+    "kind": "box",
+    "x": -1.7999999999999998,
+    "z": 5.2,
+    "halfX": 0.9999999999999999,
+    "halfZ": 0.12,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 4.6,
+    "tag": "chapel wall"
+   },
+   {
+    "kind": "box",
+    "x": 1.7999999999999998,
+    "z": 5.2,
+    "halfX": 0.9999999999999999,
+    "halfZ": 0.12,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 4.6,
+    "tag": "chapel wall"
+   },
+   {
+    "kind": "capsule",
+    "ax": -6.816690408010327,
+    "az": -5.237006593690077,
+    "bx": -6.816690408010327,
+    "bz": -5.237006593690077,
+    "radius": 0.3106987929168842,
+    "minY": 0.0,
+    "maxY": 0.7189007577420183,
+    "tag": "headstone"
+   },
+   {
+    "kind": "capsule",
+    "ax": -6.5879436103084075,
+    "az": -2.5746142882968033,
+    "bx": -6.5879436103084075,
+    "bz": -2.5746142882968033,
+    "radius": 0.3125006695910334,
+    "minY": 0.0,
+    "maxY": 0.7309559274447665,
+    "tag": "headstone"
+   },
+   {
+    "kind": "capsule",
+    "ax": -6.91570251680986,
+    "az": -0.3964182032427441,
+    "bx": -6.91570251680986,
+    "bz": -0.3964182032427441,
+    "radius": 0.30805024223131094,
+    "minY": 0.0,
+    "maxY": 1.0044859502628998,
+    "tag": "headstone"
+   },
+   {
+    "kind": "capsule",
+    "ax": -7.27953039675442,
+    "az": 1.3198465407565285,
+    "bx": -7.27953039675442,
+    "bz": 1.3198465407565285,
+    "radius": 0.34116234580329763,
+    "minY": 0.0,
+    "maxY": 1.0200436940542166,
+    "tag": "headstone"
+   },
+   {
+    "kind": "capsule",
+    "ax": -6.345370361376813,
+    "az": 2.5977208645569316,
+    "bx": -6.345370361376813,
+    "bz": 2.5977208645569316,
+    "radius": 0.3158191103103154,
+    "minY": 0.0,
+    "maxY": 0.8833910149257924,
+    "tag": "headstone"
+   },
+   {
+    "kind": "capsule",
+    "ax": -6.727927001028211,
+    "az": 5.014403470565055,
+    "bx": -6.727927001028211,
+    "bz": 5.014403470565055,
+    "radius": 0.25938868185886327,
+    "minY": 0.0,
+    "maxY": 0.6422486356512505,
+    "tag": "headstone"
+   },
+   {
+    "kind": "capsule",
+    "ax": -9.131942304170362,
+    "az": -5.225630585504213,
+    "bx": -9.131942304170362,
+    "bz": -5.225630585504213,
+    "radius": 0.3291761279807366,
+    "minY": 0.0,
+    "maxY": 0.6024682033693413,
+    "tag": "headstone"
+   },
+   {
+    "kind": "capsule",
+    "ax": -8.864792364670151,
+    "az": -3.003815042292828,
+    "bx": -8.864792364670151,
+    "bz": -3.003815042292828,
+    "radius": 0.07,
+    "minY": 0.0,
+    "maxY": 1.0,
+    "tag": "grave marker"
+   },
+   {
+    "kind": "capsule",
+    "ax": -9.120402017453456,
+    "az": -0.7185620057242408,
+    "bx": -9.120402017453456,
+    "bz": -0.7185620057242408,
+    "radius": 0.2571601213365915,
+    "minY": 0.0,
+    "maxY": 0.9094876295444667,
+    "tag": "headstone"
+   },
+   {
+    "kind": "capsule",
+    "ax": -8.756864537782182,
+    "az": 1.4049720766340816,
+    "bx": -8.756864537782182,
+    "bz": 1.4049720766340816,
+    "radius": 0.2546718662546181,
+    "minY": 0.0,
+    "maxY": 0.7503071248600195,
+    "tag": "headstone"
+   },
+   {
+    "kind": "capsule",
+    "ax": -9.03582634104588,
+    "az": 2.010296416251187,
+    "bx": -9.03582634104588,
+    "bz": 2.010296416251187,
+    "radius": 0.26408446349422526,
+    "minY": 0.0,
+    "maxY": 0.7703782224971021,
+    "tag": "headstone"
+   },
+   {
+    "kind": "capsule",
+    "ax": -9.187515632658751,
+    "az": 4.079553752126842,
+    "bx": -9.187515632658751,
+    "bz": 4.079553752126842,
+    "radius": 0.31384919165812153,
+    "minY": 0.0,
+    "maxY": 1.0235194605253422,
+    "tag": "headstone"
+   },
+   {
+    "kind": "capsule",
+    "ax": -10.596902670456245,
+    "az": -4.315549105877531,
+    "bx": -10.596902670456245,
+    "bz": -4.315549105877531,
+    "radius": 0.07,
+    "minY": 0.0,
+    "maxY": 1.0,
+    "tag": "grave marker"
+   },
+   {
+    "kind": "capsule",
+    "ax": -11.099064823395272,
+    "az": -2.0440008393185116,
+    "bx": -11.099064823395272,
+    "bz": -2.0440008393185116,
+    "radius": 0.07,
+    "minY": 0.0,
+    "maxY": 1.0,
+    "tag": "grave marker"
+   },
+   {
+    "kind": "capsule",
+    "ax": -10.083200094144068,
+    "az": -0.2606657793537497,
+    "bx": -10.083200094144068,
+    "bz": -0.2606657793537497,
+    "radius": 0.27055582474247675,
+    "minY": 0.0,
+    "maxY": 0.8325285037490596,
+    "tag": "headstone"
+   },
+   {
+    "kind": "capsule",
+    "ax": -10.228386419475678,
+    "az": 1.1981988718818375,
+    "bx": -10.228386419475678,
+    "bz": 1.1981988718818375,
+    "radius": 0.3233273824145908,
+    "minY": 0.0,
+    "maxY": 0.9622784317195558,
+    "tag": "headstone"
+   },
+   {
+    "kind": "capsule",
+    "ax": -10.261210459169208,
+    "az": 2.9644920656280513,
+    "bx": -10.261210459169208,
+    "bz": 2.9644920656280513,
+    "radius": 0.2726945416420951,
+    "minY": 0.0,
+    "maxY": 1.0128978524081422,
+    "tag": "headstone"
+   },
+   {
+    "kind": "capsule",
+    "ax": -10.584533876938679,
+    "az": 4.9842766541605075,
+    "bx": -10.584533876938679,
+    "bz": 4.9842766541605075,
+    "radius": 0.3184921736431193,
+    "minY": 0.0,
+    "maxY": 0.8642021666910518,
+    "tag": "headstone"
+   },
+   {
+    "kind": "capsule",
+    "ax": -12.4,
+    "az": -6.4,
+    "bx": -12.4,
+    "bz": -0.8,
+    "radius": 0.04,
+    "minY": 0.0,
+    "maxY": 1.1,
+    "tag": "iron fence"
+   },
+   {
+    "kind": "capsule",
+    "ax": -12.4,
+    "az": 0.8,
+    "bx": -12.4,
+    "bz": 6.4,
+    "radius": 0.04,
+    "minY": 0.0,
+    "maxY": 1.1,
+    "tag": "iron fence"
+   },
+   {
+    "kind": "capsule",
+    "ax": -12.4,
+    "az": 6.4,
+    "bx": -5.2,
+    "bz": 6.4,
+    "radius": 0.04,
+    "minY": 0.0,
+    "maxY": 1.1,
+    "tag": "iron fence"
+   },
+   {
+    "kind": "capsule",
+    "ax": -12.4,
+    "az": 0.8,
+    "bx": -13.65,
+    "bz": 1.75,
+    "radius": 0.04,
+    "minY": 0.0,
+    "maxY": 1.1,
+    "tag": "iron fence"
+   },
+   {
+    "kind": "capsule",
+    "ax": -5.2,
+    "az": -6.4,
+    "bx": -12.4,
+    "bz": -6.4,
+    "radius": 0.04,
+    "minY": 0.0,
+    "maxY": 1.1,
+    "tag": "iron fence"
+   }
+  ],
+  "hooks": {
+   "bell": [
+    0.0,
+    6.6,
+    4.2
+   ],
+   "fuse": [
+    1.4,
+    0.92,
+    -4.0
+   ]
+  },
+  "ladders": []
+ },
+ "minerock": {
+  "url": "/world/minerock.glb",
+  "radius": 13,
+  "colliders": [
+   {
+    "kind": "box",
+    "x": -4.2,
+    "z": -5.4,
+    "halfX": 2.6,
+    "halfZ": 6.4,
+    "yaw": 0,
+    "minY": -1,
+    "maxY": 9,
+    "tag": "rock"
+   },
+   {
+    "kind": "box",
+    "x": 4.2,
+    "z": -5.4,
+    "halfX": 2.6,
+    "halfZ": 6.4,
+    "yaw": 0,
+    "minY": -1,
+    "maxY": 9,
+    "tag": "rock"
+   },
+   {
+    "kind": "box",
+    "x": 0,
+    "z": -10.8,
+    "halfX": 3,
+    "halfZ": 0.8,
+    "yaw": 0,
+    "minY": -1,
+    "maxY": 9,
+    "tag": "rock"
+   },
+   {
+    "kind": "box",
+    "x": 0,
+    "z": -4.5,
+    "halfX": 3,
+    "halfZ": 5.8,
+    "yaw": 0,
+    "minY": 3.15,
+    "maxY": 9,
+    "tag": "rock"
+   }
+  ],
+  "hooks": {}
+ },
+ "rock_a": {
+  "url": "/world/rock_a.glb",
+  "radius": 7.12897087995637,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": 0,
+    "az": 0,
+    "bx": 0,
+    "bz": 0,
+    "radius": 3.7625124088658612,
+    "minY": -1,
+    "maxY": 3.564485439978185,
+    "tag": "rock"
+   }
+  ],
+  "hooks": {}
+ },
+ "rock_b": {
+  "url": "/world/rock_b.glb",
+  "radius": 8.82134727026253,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": 0,
+    "az": 0,
+    "bx": 0,
+    "bz": 0,
+    "radius": 4.655711059305224,
+    "minY": -1,
+    "maxY": 4.410673635131265,
+    "tag": "rock"
+   }
+  ],
+  "hooks": {}
+ },
+ "rock_c": {
+  "url": "/world/rock_c.glb",
+  "radius": 9.612446891857962,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": 0,
+    "az": 0,
+    "bx": 0,
+    "bz": 0,
+    "radius": 5.073235859591702,
+    "minY": -1,
+    "maxY": 4.806223445928981,
+    "tag": "rock"
+   }
+  ],
+  "hooks": {}
+ },
+ "rock_d": {
+  "url": "/world/rock_d.glb",
+  "radius": 9.572001362254943,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": 0,
+    "az": 0,
+    "bx": 0,
+    "bz": 0,
+    "radius": 5.051889607856775,
+    "minY": -1,
+    "maxY": 4.786000681127471,
+    "tag": "rock"
+   }
+  ],
+  "hooks": {}
+ },
+ "outhouse": {
+  "url": "/world/outhouse.glb",
+  "radius": 2,
+  "colliders": [
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": -0.72,
+    "halfX": 0.6799999999999999,
+    "halfZ": 0.05,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 2.1,
+    "tag": "outhouse wall"
+   },
+   {
+    "kind": "box",
+    "x": -0.62,
+    "z": 0.0,
+    "halfX": 0.05,
+    "halfZ": 0.78,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 2.1,
+    "tag": "outhouse wall"
+   },
+   {
+    "kind": "box",
+    "x": 0.62,
+    "z": 0.0,
+    "halfX": 0.05,
+    "halfZ": 0.78,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 2.1,
+    "tag": "outhouse wall"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": -0.25,
+    "halfX": 0.62,
+    "halfZ": 0.46,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.6,
+    "tag": "outhouse seat"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "picnic_table": {
+  "url": "/world/picnic_table.glb",
+  "radius": 2,
+  "colliders": [
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": 0.0,
+    "halfX": 0.92,
+    "halfZ": 0.85,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.79,
+    "tag": "picnic table"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "sawhorse": {
+  "url": "/world/sawhorse.glb",
+  "radius": 1.6,
+  "colliders": [
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": 0.0,
+    "halfX": 0.77,
+    "halfZ": 0.38,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 1.2000000000000002,
+    "tag": "sawhorse"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "pallet": {
+  "url": "/world/pallet.glb",
+  "radius": 1,
+  "colliders": [
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": 0.0,
+    "halfX": 0.6,
+    "halfZ": 0.6,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.15,
+    "tag": "pallet"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "wheelbarrow": {
+  "url": "/world/wheelbarrow.glb",
+  "radius": 1.5,
+  "colliders": [
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": -0.05,
+    "halfX": 0.42,
+    "halfZ": 0.95,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.85,
+    "tag": "wheelbarrow"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "shovel": {
+  "url": "/world/shovel.glb",
+  "radius": 1,
+  "colliders": [],
+  "hooks": {},
+  "ladders": []
+ },
+ "bucket": {
+  "url": "/world/bucket.glb",
+  "radius": 1.0,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": 0.0,
+    "az": 0.0,
+    "bx": 0.0,
+    "bz": 0.0,
+    "radius": 0.17,
+    "minY": 0.0,
+    "maxY": 0.27,
+    "tag": "bucket"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "cans": {
+  "url": "/world/cans.glb",
+  "radius": 0.7,
+  "colliders": [],
+  "hooks": {},
+  "ladders": []
+ },
+ "bottles": {
+  "url": "/world/bottles.glb",
+  "radius": 1.0,
+  "colliders": [],
+  "hooks": {},
+  "ladders": []
+ },
+ "canline": {
+  "url": "/world/canline.glb",
+  "radius": 4,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": -3.4,
+    "az": 0.0,
+    "bx": -3.4,
+    "bz": 0.0,
+    "radius": 0.05,
+    "minY": 0.0,
+    "maxY": 1.1500000000000001,
+    "tag": "stake"
+   },
+   {
+    "kind": "capsule",
+    "ax": 3.4,
+    "az": 0.0,
+    "bx": 3.4,
+    "bz": 0.0,
+    "radius": 0.05,
+    "minY": 0.0,
+    "maxY": 1.1500000000000001,
+    "tag": "stake"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "totem": {
+  "url": "/world/totem.glb",
+  "radius": 2,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": -0.9,
+    "az": 0.0,
+    "bx": -0.9,
+    "bz": 0.0,
+    "radius": 0.08,
+    "minY": 0.0,
+    "maxY": 2.75,
+    "tag": "post"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.9,
+    "az": 0.0,
+    "bx": 0.9,
+    "bz": 0.0,
+    "radius": 0.08,
+    "minY": 0.0,
+    "maxY": 2.75,
+    "tag": "post"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "trailmarker": {
+  "url": "/world/trailmarker.glb",
+  "radius": 0.7,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": 0.0,
+    "az": 0.0,
+    "bx": 0.0,
+    "bz": 0.0,
+    "radius": 0.06,
+    "minY": 0.0,
+    "maxY": 1.3,
+    "tag": "waymark"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "cairn": {
+  "url": "/world/cairn.glb",
+  "radius": 0.8,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": 0.0,
+    "az": 0.0,
+    "bx": 0.0,
+    "bz": 0.0,
+    "radius": 0.3,
+    "minY": 0.0,
+    "maxY": 0.561204054872875,
+    "tag": "cairn"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "mailbox": {
+  "url": "/world/mailbox.glb",
+  "radius": 0.7,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": 0.0,
+    "az": 0.0,
+    "bx": 0.0,
+    "bz": 0.0,
+    "radius": 0.07,
+    "minY": 0.0,
+    "maxY": 1.2,
+    "tag": "mailbox"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "guardrail": {
+  "url": "/world/guardrail.glb",
+  "radius": 4.6,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": -2.925,
+    "az": -0.19,
+    "bx": -2.925,
+    "bz": -0.19,
+    "radius": 0.09,
+    "minY": 0.0,
+    "maxY": 0.74,
+    "tag": "guard post"
+   },
+   {
+    "kind": "capsule",
+    "ax": -0.975,
+    "az": -0.19,
+    "bx": -0.975,
+    "bz": -0.19,
+    "radius": 0.09,
+    "minY": 0.0,
+    "maxY": 0.74,
+    "tag": "guard post"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.975,
+    "az": -0.19,
+    "bx": 0.975,
+    "bz": -0.19,
+    "radius": 0.09,
+    "minY": 0.0,
+    "maxY": 0.74,
+    "tag": "guard post"
+   },
+   {
+    "kind": "capsule",
+    "ax": 2.925,
+    "az": -0.19,
+    "bx": 2.925,
+    "bz": -0.19,
+    "radius": 0.09,
+    "minY": 0.0,
+    "maxY": 0.74,
+    "tag": "guard post"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": -0.0,
+    "halfX": 3.9,
+    "halfZ": 0.07,
+    "yaw": 0.0,
+    "minY": 0.4,
+    "maxY": 0.78,
+    "tag": "guard rail"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "fence": {
+  "url": "/world/fence.glb",
+  "radius": 3,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": -2.0,
+    "az": 0.0,
+    "bx": -2.0,
+    "bz": 0.0,
+    "radius": 0.09,
+    "minY": 0.0,
+    "maxY": 1.25,
+    "tag": "fence post"
+   },
+   {
+    "kind": "capsule",
+    "ax": 2.0,
+    "az": 0.0,
+    "bx": 2.0,
+    "bz": 0.0,
+    "radius": 0.09,
+    "minY": 0.0,
+    "maxY": 1.25,
+    "tag": "fence post"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": 0.08,
+    "halfX": 2.0,
+    "halfZ": 0.05,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 1.1,
+    "tag": "fence rail"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "chair": {
+  "url": "/world/chair.glb",
+  "radius": 1,
+  "colliders": [
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": -0.1,
+    "halfX": 0.25,
+    "halfZ": 0.5,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.5,
+    "tag": "chair"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "toolbox": {
+  "url": "/world/toolbox.glb",
+  "radius": 1.0,
+  "colliders": [
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": 0.0,
+    "halfX": 0.27,
+    "halfZ": 0.12,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.27,
+    "tag": "toolbox"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "firewood": {
+  "url": "/world/firewood.glb",
+  "radius": 1.5,
+  "colliders": [
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": 0.0,
+    "halfX": 1.05,
+    "halfZ": 0.32,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.9,
+    "tag": "firewood"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "stump_axe": {
+  "url": "/world/stump_axe.glb",
+  "radius": 1.1,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": 0.0,
+    "az": 0.0,
+    "bx": 0.0,
+    "bz": 0.0,
+    "radius": 0.34,
+    "minY": 0.0,
+    "maxY": 0.62,
+    "tag": "stump"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "antler_post": {
+  "url": "/world/antler_post.glb",
+  "radius": 1,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": 0.0,
+    "az": 0.0,
+    "bx": 0.0,
+    "bz": 0.0,
+    "radius": 0.09,
+    "minY": 0.0,
+    "maxY": 1.9,
+    "tag": "antler post"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "roadbridge": {
+  "url": "/world/roadbridge.glb",
+  "radius": 20,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": -6.2,
+    "az": -3.1,
+    "bx": -6.2,
+    "bz": -3.1,
+    "radius": 0.39,
+    "minY": -16.0,
+    "maxY": -0.8,
+    "tag": "bridge pier"
+   },
+   {
+    "kind": "capsule",
+    "ax": -6.2,
+    "az": 0.0,
+    "bx": -6.2,
+    "bz": 0.0,
+    "radius": 0.39,
+    "minY": -16.0,
+    "maxY": -0.8,
+    "tag": "bridge pier"
+   },
+   {
+    "kind": "capsule",
+    "ax": -6.2,
+    "az": 3.1,
+    "bx": -6.2,
+    "bz": 3.1,
+    "radius": 0.39,
+    "minY": -16.0,
+    "maxY": -0.8,
+    "tag": "bridge pier"
+   },
+   {
+    "kind": "capsule",
+    "ax": 6.2,
+    "az": -3.1,
+    "bx": 6.2,
+    "bz": -3.1,
+    "radius": 0.39,
+    "minY": -16.0,
+    "maxY": -0.8,
+    "tag": "bridge pier"
+   },
+   {
+    "kind": "capsule",
+    "ax": 6.2,
+    "az": 0.0,
+    "bx": 6.2,
+    "bz": 0.0,
+    "radius": 0.39,
+    "minY": -16.0,
+    "maxY": -0.8,
+    "tag": "bridge pier"
+   },
+   {
+    "kind": "capsule",
+    "ax": 6.2,
+    "az": 3.1,
+    "bx": 6.2,
+    "bz": 3.1,
+    "radius": 0.39,
+    "minY": -16.0,
+    "maxY": -0.8,
+    "tag": "bridge pier"
+   },
+   {
+    "kind": "box",
+    "x": -17.75,
+    "z": -4.7,
+    "halfX": 1.6,
+    "halfZ": 0.3,
+    "yaw": 0.0,
+    "minY": -16.0,
+    "maxY": 0.0,
+    "tag": "bridge wing wall"
+   },
+   {
+    "kind": "box",
+    "x": -17.75,
+    "z": 4.7,
+    "halfX": 1.6,
+    "halfZ": 0.3,
+    "yaw": 0.0,
+    "minY": -16.0,
+    "maxY": 0.0,
+    "tag": "bridge wing wall"
+   },
+   {
+    "kind": "box",
+    "x": -15.7,
+    "z": 0.0,
+    "halfX": 0.45,
+    "halfZ": 4.85,
+    "yaw": 0.0,
+    "minY": -16.0,
+    "maxY": -0.3,
+    "tag": "bridge abutment"
+   },
+   {
+    "kind": "box",
+    "x": 17.75,
+    "z": -4.7,
+    "halfX": 1.6,
+    "halfZ": 0.3,
+    "yaw": 0.0,
+    "minY": -16.0,
+    "maxY": 0.0,
+    "tag": "bridge wing wall"
+   },
+   {
+    "kind": "box",
+    "x": 17.75,
+    "z": 4.7,
+    "halfX": 1.6,
+    "halfZ": 0.3,
+    "yaw": 0.0,
+    "minY": -16.0,
+    "maxY": 0.0,
+    "tag": "bridge wing wall"
+   },
+   {
+    "kind": "box",
+    "x": 15.7,
+    "z": 0.0,
+    "halfX": 0.45,
+    "halfZ": 4.85,
+    "yaw": 0.0,
+    "minY": -16.0,
+    "maxY": -0.3,
+    "tag": "bridge abutment"
+   },
+   {
+    "kind": "capsule",
+    "ax": -19.0,
+    "az": -4.22,
+    "bx": -19.0,
+    "bz": -4.22,
+    "radius": 0.06,
+    "minY": -0.3,
+    "maxY": 0.9,
+    "tag": "bridge post"
+   },
+   {
+    "kind": "capsule",
+    "ax": -16.2,
+    "az": -4.22,
+    "bx": -16.2,
+    "bz": -4.22,
+    "radius": 0.06,
+    "minY": -0.3,
+    "maxY": 0.9,
+    "tag": "bridge post"
+   },
+   {
+    "kind": "capsule",
+    "ax": -13.399999999999999,
+    "az": -4.22,
+    "bx": -13.399999999999999,
+    "bz": -4.22,
+    "radius": 0.06,
+    "minY": -0.3,
+    "maxY": 0.9,
+    "tag": "bridge post"
+   },
+   {
+    "kind": "capsule",
+    "ax": -10.599999999999998,
+    "az": -4.22,
+    "bx": -10.599999999999998,
+    "bz": -4.22,
+    "radius": 0.06,
+    "minY": -0.3,
+    "maxY": 0.9,
+    "tag": "bridge post"
+   },
+   {
+    "kind": "capsule",
+    "ax": -7.799999999999997,
+    "az": -4.22,
+    "bx": -7.799999999999997,
+    "bz": -4.22,
+    "radius": 0.06,
+    "minY": -0.3,
+    "maxY": 0.9,
+    "tag": "bridge post"
+   },
+   {
+    "kind": "capsule",
+    "ax": -4.9999999999999964,
+    "az": -4.22,
+    "bx": -4.9999999999999964,
+    "bz": -4.22,
+    "radius": 0.06,
+    "minY": -0.3,
+    "maxY": 0.9,
+    "tag": "bridge post"
+   },
+   {
+    "kind": "capsule",
+    "ax": -2.1999999999999957,
+    "az": -4.22,
+    "bx": -2.1999999999999957,
+    "bz": -4.22,
+    "radius": 0.06,
+    "minY": -0.3,
+    "maxY": 0.9,
+    "tag": "bridge post"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.600000000000005,
+    "az": -4.22,
+    "bx": 0.600000000000005,
+    "bz": -4.22,
+    "radius": 0.06,
+    "minY": -0.3,
+    "maxY": 0.9,
+    "tag": "bridge post"
+   },
+   {
+    "kind": "capsule",
+    "ax": 3.4000000000000057,
+    "az": -4.22,
+    "bx": 3.4000000000000057,
+    "bz": -4.22,
+    "radius": 0.06,
+    "minY": -0.3,
+    "maxY": 0.9,
+    "tag": "bridge post"
+   },
+   {
+    "kind": "capsule",
+    "ax": 6.200000000000006,
+    "az": -4.22,
+    "bx": 6.200000000000006,
+    "bz": -4.22,
+    "radius": 0.06,
+    "minY": -0.3,
+    "maxY": 0.9,
+    "tag": "bridge post"
+   },
+   {
+    "kind": "capsule",
+    "ax": 9.000000000000007,
+    "az": -4.22,
+    "bx": 9.000000000000007,
+    "bz": -4.22,
+    "radius": 0.06,
+    "minY": -0.3,
+    "maxY": 0.9,
+    "tag": "bridge post"
+   },
+   {
+    "kind": "capsule",
+    "ax": 11.800000000000008,
+    "az": -4.22,
+    "bx": 11.800000000000008,
+    "bz": -4.22,
+    "radius": 0.06,
+    "minY": -0.3,
+    "maxY": 0.9,
+    "tag": "bridge post"
+   },
+   {
+    "kind": "capsule",
+    "ax": 14.600000000000009,
+    "az": -4.22,
+    "bx": 14.600000000000009,
+    "bz": -4.22,
+    "radius": 0.06,
+    "minY": -0.3,
+    "maxY": 0.9,
+    "tag": "bridge post"
+   },
+   {
+    "kind": "capsule",
+    "ax": 17.40000000000001,
+    "az": -4.22,
+    "bx": 17.40000000000001,
+    "bz": -4.22,
+    "radius": 0.06,
+    "minY": -0.3,
+    "maxY": 0.9,
+    "tag": "bridge post"
+   },
+   {
+    "kind": "capsule",
+    "ax": -19.0,
+    "az": 4.22,
+    "bx": -19.0,
+    "bz": 4.22,
+    "radius": 0.06,
+    "minY": -0.3,
+    "maxY": 0.9,
+    "tag": "bridge post"
+   },
+   {
+    "kind": "capsule",
+    "ax": -16.2,
+    "az": 4.22,
+    "bx": -16.2,
+    "bz": 4.22,
+    "radius": 0.06,
+    "minY": -0.3,
+    "maxY": 0.9,
+    "tag": "bridge post"
+   },
+   {
+    "kind": "capsule",
+    "ax": -13.399999999999999,
+    "az": 4.22,
+    "bx": -13.399999999999999,
+    "bz": 4.22,
+    "radius": 0.06,
+    "minY": -0.3,
+    "maxY": 0.9,
+    "tag": "bridge post"
+   },
+   {
+    "kind": "capsule",
+    "ax": -10.599999999999998,
+    "az": 4.22,
+    "bx": -10.599999999999998,
+    "bz": 4.22,
+    "radius": 0.06,
+    "minY": -0.3,
+    "maxY": 0.9,
+    "tag": "bridge post"
+   },
+   {
+    "kind": "capsule",
+    "ax": -7.799999999999997,
+    "az": 4.22,
+    "bx": -7.799999999999997,
+    "bz": 4.22,
+    "radius": 0.06,
+    "minY": -0.3,
+    "maxY": 0.9,
+    "tag": "bridge post"
+   },
+   {
+    "kind": "capsule",
+    "ax": -4.9999999999999964,
+    "az": 4.22,
+    "bx": -4.9999999999999964,
+    "bz": 4.22,
+    "radius": 0.06,
+    "minY": -0.3,
+    "maxY": 0.9,
+    "tag": "bridge post"
+   },
+   {
+    "kind": "capsule",
+    "ax": -2.1999999999999957,
+    "az": 4.22,
+    "bx": -2.1999999999999957,
+    "bz": 4.22,
+    "radius": 0.06,
+    "minY": -0.3,
+    "maxY": 0.9,
+    "tag": "bridge post"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.600000000000005,
+    "az": 4.22,
+    "bx": 0.600000000000005,
+    "bz": 4.22,
+    "radius": 0.06,
+    "minY": -0.3,
+    "maxY": 0.9,
+    "tag": "bridge post"
+   },
+   {
+    "kind": "capsule",
+    "ax": 3.4000000000000057,
+    "az": 4.22,
+    "bx": 3.4000000000000057,
+    "bz": 4.22,
+    "radius": 0.06,
+    "minY": -0.3,
+    "maxY": 0.9,
+    "tag": "bridge post"
+   },
+   {
+    "kind": "capsule",
+    "ax": 6.200000000000006,
+    "az": 4.22,
+    "bx": 6.200000000000006,
+    "bz": 4.22,
+    "radius": 0.06,
+    "minY": -0.3,
+    "maxY": 0.9,
+    "tag": "bridge post"
+   },
+   {
+    "kind": "capsule",
+    "ax": 9.000000000000007,
+    "az": 4.22,
+    "bx": 9.000000000000007,
+    "bz": 4.22,
+    "radius": 0.06,
+    "minY": -0.3,
+    "maxY": 0.9,
+    "tag": "bridge post"
+   },
+   {
+    "kind": "capsule",
+    "ax": 11.800000000000008,
+    "az": 4.22,
+    "bx": 11.800000000000008,
+    "bz": 4.22,
+    "radius": 0.06,
+    "minY": -0.3,
+    "maxY": 0.9,
+    "tag": "bridge post"
+   },
+   {
+    "kind": "capsule",
+    "ax": 14.600000000000009,
+    "az": 4.22,
+    "bx": 14.600000000000009,
+    "bz": 4.22,
+    "radius": 0.06,
+    "minY": -0.3,
+    "maxY": 0.9,
+    "tag": "bridge post"
+   },
+   {
+    "kind": "capsule",
+    "ax": 17.40000000000001,
+    "az": 4.22,
+    "bx": 17.40000000000001,
+    "bz": 4.22,
+    "radius": 0.06,
+    "minY": -0.3,
+    "maxY": 0.9,
+    "tag": "bridge post"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": 0.0,
+    "halfX": 16.25,
+    "halfZ": 4.3,
+    "yaw": 0.0,
+    "minY": -0.4,
+    "maxY": 0.0,
+    "tag": "road bridge deck"
+   },
+   {
+    "kind": "capsule",
+    "ax": -19.0,
+    "az": -4.22,
+    "bx": 19.0,
+    "bz": -4.22,
+    "radius": 0.08,
+    "minY": 0.1,
+    "maxY": 0.9,
+    "tag": "bridge rail"
+   },
+   {
+    "kind": "capsule",
+    "ax": -19.0,
+    "az": 4.22,
+    "bx": 19.0,
+    "bz": 4.22,
+    "radius": 0.08,
+    "minY": 0.1,
+    "maxY": 0.9,
+    "tag": "bridge rail"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "guardrail_end": {
+  "url": "/world/guardrail_end.glb",
+  "radius": 4.6,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": -2.925,
+    "az": -0.19,
+    "bx": -2.925,
+    "bz": -0.19,
+    "radius": 0.09,
+    "minY": 0.0,
+    "maxY": 0.74,
+    "tag": "guard post"
+   },
+   {
+    "kind": "capsule",
+    "ax": -0.975,
+    "az": -0.19,
+    "bx": -0.975,
+    "bz": -0.19,
+    "radius": 0.09,
+    "minY": 0.0,
+    "maxY": 0.74,
+    "tag": "guard post"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.975,
+    "az": -0.22526547102414207,
+    "bx": 0.975,
+    "bz": -0.22526547102414207,
+    "radius": 0.09,
+    "minY": 0.0,
+    "maxY": 0.6744444444444445,
+    "tag": "guard post"
+   },
+   {
+    "kind": "capsule",
+    "ax": 2.0,
+    "az": -0.3681647180100339,
+    "bx": 2.0,
+    "bz": -0.3681647180100339,
+    "radius": 0.09,
+    "minY": 0.0,
+    "maxY": 0.30306131034428685,
+    "tag": "guard post"
+   },
+   {
+    "kind": "box",
+    "x": -1.3,
+    "z": 0.0,
+    "halfX": 2.6,
+    "halfZ": 0.07,
+    "yaw": 0.0,
+    "minY": 0.4,
+    "maxY": 0.78,
+    "tag": "guard rail"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "guardrail_endr": {
+  "url": "/world/guardrail_endr.glb",
+  "radius": 4.6,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": 2.925,
+    "az": -0.19,
+    "bx": 2.925,
+    "bz": -0.19,
+    "radius": 0.09,
+    "minY": 0.0,
+    "maxY": 0.74,
+    "tag": "guard post"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.975,
+    "az": -0.19,
+    "bx": 0.975,
+    "bz": -0.19,
+    "radius": 0.09,
+    "minY": 0.0,
+    "maxY": 0.74,
+    "tag": "guard post"
+   },
+   {
+    "kind": "capsule",
+    "ax": -0.975,
+    "az": -0.22526547102414207,
+    "bx": -0.975,
+    "bz": -0.22526547102414207,
+    "radius": 0.09,
+    "minY": 0.0,
+    "maxY": 0.6744444444444445,
+    "tag": "guard post"
+   },
+   {
+    "kind": "capsule",
+    "ax": -2.0,
+    "az": -0.3681647180100339,
+    "bx": -2.0,
+    "bz": -0.3681647180100339,
+    "radius": 0.09,
+    "minY": 0.0,
+    "maxY": 0.30306131034428685,
+    "tag": "guard post"
+   },
+   {
+    "kind": "box",
+    "x": 1.3,
+    "z": 0.0,
+    "halfX": 2.6,
+    "halfZ": 0.07,
+    "yaw": 0.0,
+    "minY": 0.4,
+    "maxY": 0.78,
+    "tag": "guard rail"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ }
+}

@@ -1,0 +1,217 @@
+{
+  "provider": "Poly Haven",
+  "license": "CC0-1.0",
+  "license_url": "https://polyhaven.com/license",
+  "assets": [
+    {
+      "asset": "forrest_ground_01",
+      "author": "Rob Tuytel",
+      "source": "https://polyhaven.com/a/forrest_ground_01",
+      "license": "CC0-1.0",
+      "license_url": "https://polyhaven.com/license",
+      "physical_width_m": 2,
+      "maps": {
+        "diff": {
+          "file": "ground-diff.jpg",
+          "resolution": "2k",
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/forrest_ground_01/forrest_ground_01_diff_2k.jpg",
+          "md5": "18fa30c294be21805159ca6e73a5e5fa",
+          "color_space": "srgb"
+        },
+        "normal": {
+          "file": "ground-normal.jpg",
+          "resolution": "1k",
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/forrest_ground_01/forrest_ground_01_nor_gl_1k.jpg",
+          "md5": "ba4265df25aea293913d004b69ef9ab0",
+          "color_space": "linear"
+        },
+        "rough": {
+          "file": "ground-rough.jpg",
+          "resolution": "1k",
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/forrest_ground_01/forrest_ground_01_rough_1k.jpg",
+          "md5": "72dacf5b829cafc025f08ca64e92e5eb",
+          "color_space": "linear"
+        }
+      }
+    },
+    {
+      "asset": "bark_brown_02",
+      "author": "Rob Tuytel",
+      "source": "https://polyhaven.com/a/bark_brown_02",
+      "license": "CC0-1.0",
+      "license_url": "https://polyhaven.com/license",
+      "physical_width_m": 1,
+      "maps": {
+        "diff": {
+          "file": "bark-diff.jpg",
+          "resolution": "2k",
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/bark_brown_02/bark_brown_02_diff_2k.jpg",
+          "md5": "11a2a6039bb5b93f12dcf1689838545b",
+          "color_space": "srgb"
+        },
+        "normal": {
+          "file": "bark-normal.jpg",
+          "resolution": "1k",
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/bark_brown_02/bark_brown_02_nor_gl_1k.jpg",
+          "md5": "1cad3fe0349a44df2d4d1c2859c79920",
+          "color_space": "linear"
+        },
+        "rough": {
+          "file": "bark-rough.jpg",
+          "resolution": "1k",
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/bark_brown_02/bark_brown_02_rough_1k.jpg",
+          "md5": "bbcde696e5b9418cdcb2abe638965417",
+          "color_space": "linear"
+        }
+      }
+    },
+    {
+      "asset": "mossy_rock",
+      "author": "Rob Tuytel",
+      "source": "https://polyhaven.com/a/mossy_rock",
+      "license": "CC0-1.0",
+      "license_url": "https://polyhaven.com/license",
+      "physical_width_m": 3,
+      "maps": {
+        "diff": {
+          "file": "rock-diff.jpg",
+          "resolution": "1k",
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/mossy_rock/mossy_rock_diff_1k.jpg",
+          "md5": "a57fbbf55269eb64f8d40708fe3af26c",
+          "color_space": "srgb"
+        },
+        "normal": {
+          "file": "rock-normal.jpg",
+          "resolution": "1k",
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/mossy_rock/mossy_rock_nor_gl_1k.jpg",
+          "md5": "59370f9b3d068271c2bccfb414dc325b",
+          "color_space": "linear"
+        },
+        "rough": {
+          "file": "rock-rough.jpg",
+          "resolution": "1k",
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/mossy_rock/mossy_rock_rough_1k.jpg",
+          "md5": "7eadb38815ad2569104d827ad8ac1572",
+          "color_space": "linear"
+        }
+      }
+    },
+    {
+      "asset": "ganges_river_pebbles",
+      "author": "Amal Kumar",
+      "source": "https://polyhaven.com/a/ganges_river_pebbles",
+      "license": "CC0-1.0",
+      "license_url": "https://polyhaven.com/license",
+      "physical_width_m": 2.2,
+      "maps": {
+        "diff": {
+          "file": "riverbed-diff.jpg",
+          "resolution": "1k",
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/ganges_river_pebbles/ganges_river_pebbles_diff_1k.jpg",
+          "md5": "0dabfef242e8801c333a60d610dfa396",
+          "color_space": "srgb"
+        },
+        "normal": {
+          "file": "riverbed-normal.jpg",
+          "resolution": "1k",
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/ganges_river_pebbles/ganges_river_pebbles_nor_gl_1k.jpg",
+          "md5": "6a64e7646e0b556056d52dc67c793a7c",
+          "color_space": "linear"
+        },
+        "rough": {
+          "file": "riverbed-rough.jpg",
+          "resolution": "1k",
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/ganges_river_pebbles/ganges_river_pebbles_rough_1k.jpg",
+          "md5": "3ce5d468c2e6094c7898c94958fe57ab",
+          "color_space": "linear"
+        }
+      }
+    },
+    {
+      "asset": "rough_wood",
+      "author": "Rob Tuytel",
+      "source": "https://polyhaven.com/a/rough_wood",
+      "license": "CC0-1.0",
+      "license_url": "https://polyhaven.com/license",
+      "physical_width_m": 0.5,
+      "maps": {
+        "diff": {
+          "file": "wood-diff.jpg",
+          "resolution": "2k",
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/rough_wood/rough_wood_diff_2k.jpg",
+          "md5": "f5f9c55696f047ceaa49dc97c5aa5526",
+          "color_space": "srgb"
+        },
+        "normal": {
+          "file": "wood-normal.jpg",
+          "resolution": "1k",
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rough_wood/rough_wood_nor_gl_1k.jpg",
+          "md5": "1c9829c9023f74c74eaeba28e56e5144",
+          "color_space": "linear"
+        },
+        "rough": {
+          "file": "wood-rough.jpg",
+          "resolution": "1k",
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rough_wood/rough_wood_rough_1k.jpg",
+          "md5": "ef62954e4ea0e9cd78757ce79e6eeb58",
+          "color_space": "linear"
+        }
+      }
+    },
+    {
+      "asset": "worn_asphalt",
+      "author": "Amal Kumar",
+      "source": "https://polyhaven.com/a/worn_asphalt",
+      "license": "CC0-1.0",
+      "license_url": "https://polyhaven.com/license",
+      "physical_width_m": 2,
+      "maps": {
+        "diff": {
+          "file": "road-diff.jpg",
+          "resolution": "1k",
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/worn_asphalt/worn_asphalt_diff_1k.jpg",
+          "md5": "8777234b139e454eaabcda0eb8115e45",
+          "color_space": "srgb"
+        },
+        "normal": {
+          "file": "road-normal.jpg",
+          "resolution": "1k",
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/worn_asphalt/worn_asphalt_nor_gl_1k.jpg",
+          "md5": "706a5c4e817c4d927029920578c01312",
+          "color_space": "linear"
+        },
+        "rough": {
+          "file": "road-rough.jpg",
+          "resolution": "1k",
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/worn_asphalt/worn_asphalt_rough_1k.jpg",
+          "md5": "7a1258305d51852b6378508d57dcbe2e",
+          "color_space": "linear"
+        }
+      }
+    },
+    {
+      "asset": "brown_mud_leaves_01",
+      "author": "Rob Tuytel",
+      "source": "https://polyhaven.com/a/brown_mud_leaves_01",
+      "license": "CC0-1.0",
+      "license_url": "https://polyhaven.com/license",
+      "physical_width_m": 1.3,
+      "maps": {
+        "diff": {
+          "file": "leaves-diff.jpg",
+          "resolution": "1k",
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/brown_mud_leaves_01/brown_mud_leaves_01_diff_1k.jpg",
+          "md5": "5340848384f9bb19bfa6e7ac459683d7",
+          "color_space": "srgb"
+        },
+        "normal": {
+          "file": "leaves-normal.jpg",
+          "resolution": "1k",
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/brown_mud_leaves_01/brown_mud_leaves_01_nor_gl_1k.jpg",
+          "md5": "3698df51ef8262ddf2248ffca1e73196",
+          "color_space": "linear"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "cloudless-day.hdr": {
+    "title": "SILENCE cloudless daylight radiance",
+    "author": "Original generated game asset",
+    "type": "1024 \u00d7 512 Radiance RGBE high dynamic range equirectangular environment",
+    "method": "Analytic Rayleigh-style zenith/horizon radiance, without clouds or a baked sun. The solar disc and twilight are animated in the sky shader.",
+    "generator": "scripts/assets/generate-skies.py"
+  },
+  "starfield-night.hdr": {
+    "title": "SILENCE night-sky radiance",
+    "author": "Original generated game asset",
+    "type": "2048 \u00d7 1024 Radiance RGBE high dynamic range equirectangular environment",
+    "method": "Original diffuse galactic haze and starlight radiance. The low-resolution raster stars have been replaced by 4200 deterministic spherical points resolved at framebuffer resolution in game/sky.ts, with varied apparent magnitude and subtle color temperature. Sidereal rotation follows the celestial pole. Artistic distribution, not an astronomical catalogue.",
+    "generator": "scripts/assets/generate-skies.py"
+  },
+  "daytime-visible-palette": {
+    "source": "Archived native 1774 \u00d7 887 reference; image variant removed from the game",
+    "sampling": "Median RGB of all 1774 pixels in each listed row, ordered horizon to zenith",
+    "rows": [
+      443,
+      388,
+      332,
+      277,
+      221,
+      166,
+      111,
+      55,
+      0
+    ],
+    "srgb_hex": [
+      "#88B9E6",
+      "#62A0E0",
+      "#4287D3",
+      "#3074C5",
+      "#2466B9",
+      "#1D5CAF",
+      "#1955A6",
+      "#18509D",
+      "#185197"
+    ],
+    "rendering": "The original daylight HDRI still supplies PBR illumination. The background uses these exact palette samples with inverse ACES exposure compensation and sky-only grading bypass; atmospheric fog and twilight still affect apparent colors."
+  },
+  "procedural-clouds": {
+    "method": "Original deterministic tiled multi-scale noise, advected in world space at 900 m. Shared cloud optical density occludes sun, moon, galactic haze and stellar points. No photographic clouds or AI sky variants are loaded.",
+    "source": "game/sky.ts"
+  }
+}

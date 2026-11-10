@@ -1,0 +1,154 @@
+{
+  "provider": "Poly Haven",
+  "assets": [
+    {
+      "asset": "fern_02",
+      "source": "https://polyhaven.com/a/fern_02",
+      "license": "CC0-1.0",
+      "license_url": "https://polyhaven.com/license",
+      "files": [
+        {
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/fern_02/fern_02_1k.gltf",
+          "file": "fern_02/fern_02.gltf",
+          "md5": "cf276874d37bfb73c299504a6b355b77"
+        },
+        {
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/fern_02/fern_02_arm_1k.jpg",
+          "file": "fern_02/textures/fern_02_arm_1k.jpg",
+          "md5": "1bbb2b22951f450720d28e17d93a2987"
+        },
+        {
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/fern_02/fern_02_diff_1k.jpg",
+          "file": "fern_02/textures/fern_02_diff_1k.jpg",
+          "md5": "82c18a6cfd5ae91c37c0e078f591181c"
+        },
+        {
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/fern_02/fern_02_nor_gl_1k.jpg",
+          "file": "fern_02/textures/fern_02_nor_gl_1k.jpg",
+          "md5": "43aed63dff79554f6064627515afd9d7"
+        },
+        {
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/8k/fern_02/fern_02.bin",
+          "file": "fern_02/fern_02.bin",
+          "md5": "c061e9255f7d36ae9ce0e92ef3e100b2"
+        },
+        {
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/fern_02/fern_02_alpha_1k.png",
+          "file": "fern_02/alpha.png",
+          "md5": "1421e5e36946c23a7ddcc907de89025c"
+        }
+      ]
+    },
+    {
+      "asset": "grass_medium_02",
+      "source": "https://polyhaven.com/a/grass_medium_02",
+      "license": "CC0-1.0",
+      "license_url": "https://polyhaven.com/license",
+      "files": [
+        {
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/grass_medium_02/grass_medium_02_1k.gltf",
+          "file": "grass_medium_02/grass_medium_02.gltf",
+          "md5": "dd8f166a6399238553bc3b2931677b68"
+        },
+        {
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/grass_medium_02/grass_medium_02_nor_gl_1k.jpg",
+          "file": "grass_medium_02/textures/grass_medium_02_nor_gl_1k.jpg",
+          "md5": "90b4c27b0c0ff058bd37b88bb70784c1"
+        },
+        {
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/grass_medium_02/grass_medium_02_diff_1k.jpg",
+          "file": "grass_medium_02/textures/grass_medium_02_diff_1k.jpg",
+          "md5": "4bb5230e09358d60dd767331685b2d36"
+        },
+        {
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/grass_medium_02/grass_medium_02_arm_1k.jpg",
+          "file": "grass_medium_02/textures/grass_medium_02_arm_1k.jpg",
+          "md5": "2b7a7e6f8b71fd2da62cf172d4784bbb"
+        },
+        {
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/4k/grass_medium_02/grass_medium_02.bin",
+          "file": "grass_medium_02/grass_medium_02.bin",
+          "md5": "145041ae03fe02783a0adbd1cdcb4988"
+        },
+        {
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/grass_medium_02/grass_medium_02_alpha_1k.png",
+          "file": "grass_medium_02/alpha.png",
+          "md5": "b231cd6a1b5eb7ae21e7c2e626f8318c"
+        }
+      ]
+    },
+    {
+      "asset": "grass_bermuda_01",
+      "source": "https://polyhaven.com/a/grass_bermuda_01",
+      "license": "CC0-1.0",
+      "license_url": "https://polyhaven.com/license",
+      "files": [
+        {
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/grass_bermuda_01/grass_bermuda_01_1k.gltf",
+          "file": "grass_bermuda_01/grass_bermuda_01.gltf",
+          "md5": "a1bdd74118d2387a42dba4f605226f87"
+        },
+        {
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/grass_bermuda_01/grass_bermuda_01_nor_gl_1k.jpg",
+          "file": "grass_bermuda_01/textures/grass_bermuda_01_nor_gl_1k.jpg",
+          "md5": "73a585e0963ff6bf3cefa845cbee0645"
+        },
+        {
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/grass_bermuda_01/grass_bermuda_01_diff_1k.jpg",
+          "file": "grass_bermuda_01/textures/grass_bermuda_01_diff_1k.jpg",
+          "md5": "234be9f52cfcd3380c7f782baaa841c3"
+        },
+        {
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/grass_bermuda_01/grass_bermuda_01_arm_1k.jpg",
+          "file": "grass_bermuda_01/textures/grass_bermuda_01_arm_1k.jpg",
+          "md5": "87c58d5d3345d579eab570f7eb446313"
+        },
+        {
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/8k/grass_bermuda_01/grass_bermuda_01.bin",
+          "file": "grass_bermuda_01/grass_bermuda_01.bin",
+          "md5": "2940aa3405004b62983fd70bede8e47f"
+        },
+        {
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/grass_bermuda_01/grass_bermuda_01_alpha_1k.png",
+          "file": "grass_bermuda_01/alpha.png",
+          "md5": "274285abb11b3b7a0fd277b9923d1074"
+        }
+      ]
+    },
+    {
+      "asset": "pine_tree_01",
+      "source": "https://polyhaven.com/a/pine_tree_01",
+      "license": "CC0-1.0",
+      "license_url": "https://polyhaven.com/license",
+      "modification": "Isolated top-left connected shoot component with 8px padding; cropped all maps to matching bounds; diffuse contains alpha; other UV islands removed from mask.",
+      "crop_box": [
+        28,
+        37,
+        233,
+        460
+      ],
+      "files": [
+        {
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/pine_tree_01/pine_tree_01_twig_diff_1k.png",
+          "source_md5": "a4fa4a55aab9231915a4023ea9841577",
+          "file": "pine/pine-diff.png"
+        },
+        {
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/pine_tree_01/pine_tree_01_twig_alpha_1k.png",
+          "source_md5": "641911a5a3f543911dad04ebb26e7bca",
+          "file": "pine/pine-alpha.png"
+        },
+        {
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/pine_tree_01/pine_tree_01_twig_nor_gl_1k.png",
+          "source_md5": "1c437201b679e4b5e6a10af8e9b9b523",
+          "file": "pine/pine-normal.png"
+        },
+        {
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/pine_tree_01/pine_tree_01_twig_rough_1k.png",
+          "source_md5": "8ef8f0d1cbd36b1e4578eb729fa6f0b7",
+          "file": "pine/pine-rough.png"
+        }
+      ]
+    }
+  ]
+}

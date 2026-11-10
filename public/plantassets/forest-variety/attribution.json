@@ -1,0 +1,91 @@
+{
+  "license": "CC0-1.0",
+  "provider": "Poly Haven",
+  "assets": [
+    {
+      "source": "https://polyhaven.com/a/tree_small_02",
+      "source_url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/tree_small_02/tree_small_02_leaves_diff_1k.jpg",
+      "file": "broadleaf-diff.jpg"
+    },
+    {
+      "source": "https://polyhaven.com/a/tree_small_02",
+      "source_url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/tree_small_02/tree_small_02_leaves_alpha_1k.jpg",
+      "file": "broadleaf-alpha.jpg"
+    },
+    {
+      "source": "https://polyhaven.com/a/tree_small_02",
+      "source_url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/tree_small_02/tree_small_02_leaves_nor_gl_1k.jpg",
+      "file": "broadleaf-normal.jpg"
+    },
+    {
+      "source": "https://polyhaven.com/a/tree_small_02",
+      "source_url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/tree_small_02/tree_small_02_leaves_rough_1k.jpg",
+      "file": "broadleaf-rough.jpg"
+    },
+    {
+      "source": "https://polyhaven.com/a/rock_boulder_dry",
+      "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rock_boulder_dry/rock_boulder_dry_diff_1k.jpg",
+      "file": "granite-diff.jpg"
+    },
+    {
+      "source": "https://polyhaven.com/a/rock_boulder_dry",
+      "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rock_boulder_dry/rock_boulder_dry_nor_gl_1k.jpg",
+      "file": "granite-normal.jpg"
+    },
+    {
+      "source": "https://polyhaven.com/a/rock_boulder_dry",
+      "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rock_boulder_dry/rock_boulder_dry_rough_1k.jpg",
+      "file": "granite-rough.jpg"
+    },
+    {
+      "source": "https://polyhaven.com/a/dark_rock",
+      "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/dark_rock/dark_rock_diff_1k.jpg",
+      "file": "slate-diff.jpg"
+    },
+    {
+      "source": "https://polyhaven.com/a/dark_rock",
+      "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/dark_rock/dark_rock_nor_gl_1k.jpg",
+      "file": "slate-normal.jpg"
+    },
+    {
+      "source": "https://polyhaven.com/a/dark_rock",
+      "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/dark_rock/dark_rock_rough_1k.jpg",
+      "file": "slate-rough.jpg"
+    },
+    {
+      "source": "https://polyhaven.com/a/jolcham_oak_bark_01",
+      "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/jolcham_oak_bark_01/jolcham_oak_bark_01_diff_1k.jpg",
+      "file": "oak-diff.jpg"
+    },
+    {
+      "source": "https://polyhaven.com/a/jolcham_oak_bark_01",
+      "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/jolcham_oak_bark_01/jolcham_oak_bark_01_nor_gl_1k.jpg",
+      "file": "oak-normal.jpg"
+    },
+    {
+      "source": "https://polyhaven.com/a/jolcham_oak_bark_01",
+      "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/jolcham_oak_bark_01/jolcham_oak_bark_01_rough_1k.jpg",
+      "file": "oak-rough.jpg"
+    },
+    {
+      "source": "https://www.cgbookcase.com/textures/birch-bark-01",
+      "provider": "cgbookcase",
+      "license": "CC0-1.0",
+      "note": "Normal map is DirectX; normalScale.y inverted in shader.",
+      "files": [
+        {
+          "source_url": "https://cgbookcase.b-cdn.net/textures/thumbnails/BirchBark01_1K/BirchBark01_1K_BaseColor.png",
+          "file": "birch-diff.png"
+        },
+        {
+          "source_url": "https://cgbookcase.b-cdn.net/textures/thumbnails/BirchBark01_1K/BirchBark01_1K_Normal.png",
+          "file": "birch-normal.png"
+        },
+        {
+          "source_url": "https://cgbookcase.b-cdn.net/textures/thumbnails/BirchBark01_1K/BirchBark01_1K_Roughness.png",
+          "file": "birch-rough.png"
+        }
+      ]
+    }
+  ]
+}

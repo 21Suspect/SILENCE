@@ -1,0 +1,981 @@
+{
+  "round": 5,
+  "judge": "sonnet",
+  "assets": [
+    {
+      "asset": "stump_axe",
+      "silhouette": 6,
+      "construction": 5,
+      "scale": 6,
+      "materials": 5,
+      "wear": 5,
+      "detail": 5,
+      "overall": 5.17,
+      "pass": false,
+      "verdict": "NO-SHIP",
+      "defects": [
+        {
+          "severity": "Major",
+          "where": "axe head, close view (view 6) and views 2/4",
+          "what": "Head is a thin curved crescent about 8 cm wide: no poll, no eye wrapping the handle, no cheeks, no bevelled wedge. It reads as a sickle or pick tip, not an axe bit, and it is under-sized against a 90 cm handle. The 'rectangle rammed in' problem is gone but the replacement is not yet a believable axe head.",
+          "fix": "Rebuild the head as a wedge: 5x4 cm poll block at the back, a visible eye collar that the handle wedge passes through, cheeks tapering to a 14 cm bit with a bevelled edge. Bury only 4-5 cm of the bit and split the wood along the grain on both sides of it."
+        },
+        {
+          "severity": "Major",
+          "where": "stump top, views 3 and 6",
+          "what": "Perfectly concentric, evenly spaced sine-wave rings with eight straight dark pie-slice seams radiating from the centre. It reads as a vector pattern, and the fresh cream colour does not match a moss-rooted, weathered stump.",
+          "fix": "Use eccentric rings of varying width, delete the straight radial seams (keep two real checks that taper), grey and darken the top toward the rim, add chop gouges and dents around the blade."
+        },
+        {
+          "severity": "Minor",
+          "where": "wood chips on stump top, view 6",
+          "what": "Three flat grey slivers lie on the top; they are the wrong colour for fresh splinters and have no thickness.",
+          "fix": "Make 3-4 pale cream wedge-shaped chips with thickness, two beside the cut and one fallen off the edge."
+        },
+        {
+          "severity": "Minor",
+          "where": "bark, views 2 and 4",
+          "what": "A pair of dark knots that looks like a face repeats at about a third of the height and again lower down.",
+          "fix": "Offset or rotate the bark UVs on the lower section so knots do not repeat in matched pairs."
+        },
+        {
+          "severity": "Minor",
+          "where": "handle, view 6",
+          "what": "Thin (about 3 cm) with a flat paddle end and one dark crack stroke; no darkened grip area, no oval section.",
+          "fix": "Oval 3.5x2.8 cm section, slight swell at the knob, polished and darkened over the hand zone, rain-greyed elsewhere."
+        }
+      ],
+      "read_at_game_distance": "Yes at 4 m: a chopping stump with a long-handled tool standing in it, but the head is too small and dark to tell a hatchet from a hook and the pale cream top glows against the mossy roots."
+    },
+    {
+      "asset": "outhouse",
+      "silhouette": 7,
+      "construction": 6,
+      "scale": 7,
+      "materials": 5,
+      "wear": 5,
+      "detail": 6,
+      "overall": 5.5,
+      "pass": false,
+      "verdict": "SHIP WITH NOTES",
+      "defects": [
+        {
+          "severity": "Major",
+          "where": "all wall planks, views 1, 2, 3, 6",
+          "what": "The same cross-shaped knot repeats at regular intervals down every plank, and a faint pale horizontal band crosses all boards at about 1 m height. It reads as a tiling seam, not a water line.",
+          "fix": "Randomise per-plank UV offset and flip, remove the horizontal band, add vertical rain streaks and darker grain at the plank bottoms where splash lands."
+        },
+        {
+          "severity": "Major",
+          "where": "door top edge, view 3 and zoom",
+          "what": "Door boards stop at three different heights, leaving a stepped gap that shows the dark interior above the leaf. There are no splintered ends, no fallen board and no nail holes, so the damage has no cause.",
+          "fix": "Either make the leaf a clean rectangle or break the boards with jagged splinter ends, show the empty nail holes on the top batten, and leave one fallen board near the door."
+        },
+        {
+          "severity": "Minor",
+          "where": "door battens and straps, view 3",
+          "what": "The audit lists two batten+strap groups as floating (accepted as door hardware). The top strap is a flat grey plate with no pin or fasteners; the bottom strap is a thin rust-brown strip.",
+          "fix": "Sink the battens 2 mm into the leaf, add 2 bolts or nails per strap and a rolled hinge barrel on the top one."
+        },
+        {
+          "severity": "Minor",
+          "where": "interior, view 4",
+          "what": "Seat box is a plain dark block with no seat hole, lid or cut-out.",
+          "fix": "Cut a seat hole with a hinged lid and a worn rim."
+        },
+        {
+          "severity": "Minor",
+          "where": "plank texture, view 6",
+          "what": "At 20 cm the plank texture is soft and smeared.",
+          "fix": "Raise texel density on the walls or add a high-frequency detail normal."
+        }
+      ],
+      "read_at_game_distance": "Yes: a weathered plank outhouse with a rusting tin roof reads clearly at 4 m; the repeated knot marks and the pale band only betray themselves up close."
+    },
+    {
+      "asset": "picnic_table",
+      "silhouette": 8,
+      "construction": 6,
+      "scale": 8,
+      "materials": 5,
+      "wear": 5,
+      "detail": 5,
+      "overall": 5.58,
+      "pass": false,
+      "verdict": "SHIP WITH NOTES",
+      "defects": [
+        {
+          "severity": "Major",
+          "where": "table top and bench tops, views 2 and 6",
+          "what": "Pale smeared blotches repeat across every board and the texture goes blurry at close range. It reads as dirty smear or camouflage rather than lichen or moss.",
+          "fix": "Put moss and green in grain cracks, board joints and edges only; keep silver-grey grain elsewhere; raise texel density on the top boards."
+        },
+        {
+          "severity": "Minor",
+          "where": "all joints, views 1-3",
+          "what": "No bolts, screws or nail heads anywhere: legs, diagonal braces and bench supports simply touch.",
+          "fix": "Add carriage bolts (two per leg-to-support crossing, one at each diagonal brace end) with rust bleed down the wood."
+        },
+        {
+          "severity": "Minor",
+          "where": "boards, view 6",
+          "what": "Perfectly flat boards with no cupping, end checks or cracked board.",
+          "fix": "Add slight cupping, end-grain checks and one split board on a bench."
+        },
+        {
+          "severity": "Minor",
+          "where": "leg bottoms, views 1/3",
+          "what": "Legs end in clean flat cuts with no ground rot or splash staining.",
+          "fix": "Darken and soften the bottom 10 cm of each leg and add a little soil/moss at the feet."
+        }
+      ],
+      "read_at_game_distance": "Yes, instantly a picnic table with a tin can on top; the pale smears on the top read as bird droppings or tiling at 3 m."
+    },
+    {
+      "asset": "sawhorse",
+      "silhouette": 7,
+      "construction": 5,
+      "scale": 7,
+      "materials": 6,
+      "wear": 5,
+      "detail": 5,
+      "overall": 5.42,
+      "pass": false,
+      "verdict": "SHIP WITH NOTES",
+      "defects": [
+        {
+          "severity": "Major",
+          "where": "bow saw on the log, views 1, 2, 6",
+          "what": "The saw is two uprights and a top bar with a thin rod; there is no toothed blade between the uprights and no kerf in the log, so it floats on top of the log like a goalpost.",
+          "fix": "Add a 3 cm wide toothed blade spanning the uprights, drop it into a visible kerf cut in the log top, and add the twisted-cord tensioner."
+        },
+        {
+          "severity": "Minor",
+          "where": "nail heads at leg tops, views 1/3",
+          "what": "Four 1 cm nail heads (flagged by the audit as floating groups, accepted as fasteners) sit about 1 mm off the wood.",
+          "fix": "Sink each head 1 mm into the leg and add a 2 cm rust streak below it."
+        },
+        {
+          "severity": "Minor",
+          "where": "A-frame apex and braces, views 1 and 3",
+          "what": "Legs and braces just overlap: no half-lap at the apex over the top rail, no bolt through the brace.",
+          "fix": "Cut a half-lap at each leg apex and put a bolt or double nail through each brace crossing."
+        },
+        {
+          "severity": "Minor",
+          "where": "log, views 1-3",
+          "what": "Plain cylinder with a visibly faceted end (about 12 sides) and no limb stubs or bark damage.",
+          "fix": "Raise the end to 24 sides, add 3-4 limb stubs and an axe-flattened bearing face on top."
+        }
+      ],
+      "read_at_game_distance": "Yes: a log on a sawbuck, but the saw reads as a goalpost-shaped frame because no blade is visible."
+    },
+    {
+      "asset": "pallet",
+      "silhouette": 8,
+      "construction": 5,
+      "scale": 9,
+      "materials": 6,
+      "wear": 5,
+      "detail": 6,
+      "overall": 5.0,
+      "pass": false,
+      "verdict": "NO-SHIP",
+      "defects": [
+        {
+          "severity": "Major",
+          "where": "AUTOMATIC GATE: audit floatingGroups = 3",
+          "what": "Three groups of 3 parts, each a 1.2 m x 0.13 m x 0.03 m member at z = +0.35, 0 and -0.35 and 0.12 m above ground, are not connected to the rest. They match deck boards plus their nails, which are not hanging or wall-mounted parts. In views 1 and 2 a deck board end sits over open air with a visible gap under it.",
+          "fix": "Sink those three boards 1-2 mm into the blocks/stringers so they join the main group, or if the lift is deliberate damage, show the snapped nail and a splintered end so it reads as intentional."
+        },
+        {
+          "severity": "Minor",
+          "where": "short board over the hole, view 1 zoom",
+          "what": "The short deck board has its free end hanging over the gap with nothing under it.",
+          "fix": "Support it on the centre stringer or show it snapped off with a splintered end."
+        },
+        {
+          "severity": "Minor",
+          "where": "nails, views 1 and 4",
+          "what": "Only one nail is visible per board end; real deck boards take two or three per stringer.",
+          "fix": "Add 2-3 nails per board per stringer, a couple bent or missing."
+        },
+        {
+          "severity": "Minor",
+          "where": "bottom runners, views 1-3",
+          "what": "The ground-level pieces at the corners are short stubs.",
+          "fix": "Make them full-length bottom boards with chamfered ends."
+        },
+        {
+          "severity": "Minor",
+          "where": "wear, all views",
+          "what": "Uniform grey weathering with no black grime or ground wetness on the bottom boards.",
+          "fix": "Darken and dampen the lowest 4 cm and add moss/dirt on the feet."
+        }
+      ],
+      "read_at_game_distance": "Yes: reads as a worn wooden pallet at 4 m; the visible gap in the deck is a nice touch."
+    },
+    {
+      "asset": "wheelbarrow",
+      "silhouette": 7,
+      "construction": 5,
+      "scale": 7,
+      "materials": 5,
+      "wear": 5,
+      "detail": 5,
+      "overall": 5.33,
+      "pass": false,
+      "verdict": "NO-SHIP",
+      "defects": [
+        {
+          "severity": "Major",
+          "where": "tub rust-through hole, centre, view 5 and zoom",
+          "what": "A black radial starburst with white sparkle pixels sits in the middle of the hole: a degenerate triangle fan or bad normals. It is a visible shading artifact from above, and if confirmed as broken normals it is a Blocker.",
+          "fix": "Delete the fan, cap the hole boundary with clean geometry or remove the hole, then recompute normals."
+        },
+        {
+          "severity": "Major",
+          "where": "tub-to-frame joint, views 1, 2, 4",
+          "what": "The tub just rests on the cross-bars with no brackets, straps or bolts. The rim is visibly octagonal (view 6).",
+          "fix": "Add two U-straps and four bolts to tie the tub to the frame; subdivide the rim to 16+ sides or smooth the normals."
+        },
+        {
+          "severity": "Minor",
+          "where": "tub surface, view 6",
+          "what": "Scratch streaks are spread uniformly across the whole tub like noise.",
+          "fix": "Concentrate wear where a shovel and load hit it: inside floor, front lip, handle ends; leave the sides mostly clean."
+        },
+        {
+          "severity": "Minor",
+          "where": "legs and wheel fork, views 1 and 3",
+          "what": "Thin square posts with no foot plate or brace; the wheel axle has no visible nut or bolt.",
+          "fix": "Add foot plates, a diagonal brace per leg, and an axle bolt and nut."
+        }
+      ],
+      "read_at_game_distance": "Yes, it reads as a wheelbarrow; the smooth grey tub looks more like plastic than painted steel."
+    },
+    {
+      "asset": "shovel",
+      "silhouette": 5,
+      "construction": 4,
+      "scale": 4,
+      "materials": 5,
+      "wear": 5,
+      "detail": 3,
+      "overall": 3.67,
+      "pass": false,
+      "verdict": "NO-SHIP",
+      "defects": [
+        {
+          "severity": "Major",
+          "where": "overall proportions, all views",
+          "what": "1.79 m long: taller than a 1.75 m person's chin if stood up, and about 0.4 m too long for a spade; the 25 cm blade looks small at the end of it.",
+          "fix": "Shorten to about 1.15-1.25 m for a spade (or 1.45 m long-handle), make the blade 0.20x0.28 m with a rolled shoulder."
+        },
+        {
+          "severity": "Major",
+          "where": "blade and socket, views 3, 4, 6",
+          "what": "Flat plate with a slight tip upturn, no tread step, no dished profile, and the collar is a short rust-brown tube with no weld line or rivet.",
+          "fix": "Dish the blade, add a bevelled digging edge, a turned tread step, a conical socket collar with two rivets through the wood."
+        },
+        {
+          "severity": "Major",
+          "where": "D-grip, views 1, 2, 5",
+          "what": "The grip is a thin grey wire loop, the same grey as the shaft; it reads as a wire hoop, not a hand grip.",
+          "fix": "Make a wooden D-handle with a 3 cm cross bar clamped by a forged strap, or a forged flat D."
+        },
+        {
+          "severity": "Minor",
+          "where": "shaft, view 6",
+          "what": "Straight grey stick with faint grain and no grip polish or splits.",
+          "fix": "Darken where hands grip, add a crack near the socket and rust bleed onto the wood below the collar."
+        }
+      ],
+      "read_at_game_distance": "Marginal: lying on the ground it reads as a long stick with a small paddle; only the wire D-grip says shovel."
+    },
+    {
+      "asset": "bucket",
+      "silhouette": 7,
+      "construction": 5,
+      "scale": 7,
+      "materials": 4,
+      "wear": 4,
+      "detail": 5,
+      "overall": 4.67,
+      "pass": false,
+      "verdict": "NO-SHIP",
+      "defects": [
+        {
+          "severity": "Major",
+          "where": "body inside and out, all views",
+          "what": "Mottled rust-brown with random pale blotches covers every surface, including the inside: camouflage-like noise, not rust or galvanising.",
+          "fix": "Use a galvanised grey base; concentrate rust at the bottom seam, rim bead, hoop edges and handle ears; keep the rest clean grey."
+        },
+        {
+          "severity": "Major",
+          "where": "two white bands, views 1-3",
+          "what": "Two bright silver/white bands read as plastic tape, and the bucket reads as a hybrid of wooden pail and tin pail.",
+          "fix": "Pick one: tin bucket with one rolled bead and a bottom seam, or wooden pail with two iron hoops; drop the second band."
+        },
+        {
+          "severity": "Minor",
+          "where": "interior floor, views 1 and 4",
+          "what": "Pure black disc at the bottom looks like a hole.",
+          "fix": "Give the floor the same metal, with a puddle, dirt and a bottom seam."
+        },
+        {
+          "severity": "Minor",
+          "where": "walls and rim, views 1 and 3",
+          "what": "Visible faceting (about 16 sides) at the rim and wall.",
+          "fix": "Go to 32 radial segments or smooth the normals."
+        },
+        {
+          "severity": "Minor",
+          "where": "handle ears, view 3",
+          "what": "The bail passes through small rings with no riveted ear plates.",
+          "fix": "Add riveted ear plates and a worn spot on the grip."
+        }
+      ],
+      "read_at_game_distance": "Yes, a rusty bucket; the mottled brown and white tape-like hoops make it look more like a clay pot."
+    },
+    {
+      "asset": "cans",
+      "silhouette": 3,
+      "construction": 4,
+      "scale": 6,
+      "materials": 4,
+      "wear": 4,
+      "detail": 2,
+      "overall": 2.92,
+      "pass": false,
+      "verdict": "NO-SHIP",
+      "defects": [
+        {
+          "severity": "Blocker",
+          "where": "all five objects, all views",
+          "what": "Plain brown cylinders with no rolled rim, no recessed lid, no body ribs, no label and no pull ring. The standing ones show a radial crack pattern on top that looks like end grain (views 2, 3, 5). The asset does not read as the object it is named for.",
+          "fix": "Rebuild with a rolled top bead, a recessed lid with a ring pull or a peeled-back lid, two pressed body ribs and a bottom chime; tin/galvanised base colour."
+        },
+        {
+          "severity": "Major",
+          "where": "surface, all views",
+          "what": "Identical brown cloud mottling on every can: camouflage, not rust.",
+          "fix": "Give each can a different state: faded paper label scraps, rust only at rims and seams, one nearly clean."
+        },
+        {
+          "severity": "Minor",
+          "where": "variation, all views",
+          "what": "All five are the same undented shape.",
+          "fix": "Add one crushed can and one with the lid cut and bent up."
+        }
+      ],
+      "read_at_game_distance": "No: from 3-5 m these read as corks or short log stubs, not tin cans."
+    },
+    {
+      "asset": "bottles",
+      "silhouette": 6,
+      "construction": 6,
+      "scale": 7,
+      "materials": 4,
+      "wear": 2,
+      "detail": 3,
+      "overall": 3.33,
+      "pass": false,
+      "verdict": "NO-SHIP",
+      "defects": [
+        {
+          "severity": "Major",
+          "where": "all four bottles, all views",
+          "what": "Opaque, uniformly glossy green and brown with no transparency, no thickness variation, no mould seam, no embossing and no label remnant; it reads as plastic.",
+          "fix": "Use a semi-transparent glass material or a dark tinted spec with visible thicker areas near the base; add a mould seam, a punt, and a lip ring."
+        },
+        {
+          "severity": "Major",
+          "where": "wear, all views",
+          "what": "Spotless: no dirt, scuffs, leaf litter or soil contact marks.",
+          "fix": "Dirt the lower third of standing bottles, mud one side of the lying ones, chip one neck."
+        },
+        {
+          "severity": "Minor",
+          "where": "shape, view 2",
+          "what": "The brown bottles have a lumpy, bulging shoulder and every bottle shares one profile apart from colour.",
+          "fix": "Give two clean distinct profiles (beer and wine) and fix the lumpy shoulder."
+        }
+      ],
+      "read_at_game_distance": "Partly: they read as bottles, but opaque and glossy like toy plastic."
+    },
+    {
+      "asset": "canline",
+      "silhouette": 6,
+      "construction": 6,
+      "scale": 6,
+      "materials": 5,
+      "wear": 5,
+      "detail": 4,
+      "overall": 4.67,
+      "pass": false,
+      "verdict": "NO-SHIP",
+      "defects": [
+        {
+          "severity": "Major",
+          "where": "cord, views 1-5",
+          "what": "The line is about 3 mm thick; at game distance it vanishes and the 12 cans appear to hover in a row.",
+          "fix": "Thicken to a 1.5 cm twisted cord or wire with a visible highlight, and wrap it 2-3 turns around each post with a staple."
+        },
+        {
+          "severity": "Minor",
+          "where": "can placement, view 6",
+          "what": "All 12 cans hang at the same drop, perfectly vertical and evenly spaced: procedural look.",
+          "fix": "Jitter drop length (10-25 cm), tilt and spin some cans, vary spacing, tangle two on a loop of cord."
+        },
+        {
+          "severity": "Minor",
+          "where": "cans, view 6",
+          "what": "Plain cylinders with no rim, no rib and no punched hole or knot where the cord ties on.",
+          "fix": "Add the rolled rim, a punched hole and a knot above each can."
+        },
+        {
+          "severity": "Minor",
+          "where": "posts, views 1 and 3",
+          "what": "Straight untapered sticks with little character.",
+          "fix": "Add taper, a split top and a different lean per post."
+        }
+      ],
+      "read_at_game_distance": "Partly: two posts and a row of tiny dark squares; the cord is sub-pixel at 4 m so the cans seem to float."
+    },
+    {
+      "asset": "totem",
+      "silhouette": 7,
+      "construction": 5,
+      "scale": 7,
+      "materials": 6,
+      "wear": 5,
+      "detail": 6,
+      "overall": 5.5,
+      "pass": false,
+      "verdict": "SHIP WITH NOTES",
+      "defects": [
+        {
+          "severity": "Major",
+          "where": "hanging line, views 1-5",
+          "what": "One 1-2 px strand from the beam to the head carries the whole effigy; at 3-5 m it disappears and the figure floats.",
+          "fix": "Use a rope of at least 1.5 cm with a visible knot at the beam and a loop around the head collar; consider two ropes."
+        },
+        {
+          "severity": "Major",
+          "where": "crossbeam to posts, views 1 and 4",
+          "what": "The crossbeam is laid across the post tops with no notch, lashing or bolt, and the left post pokes up through the beam in view 1.",
+          "fix": "Saddle-notch the beam onto each post top, add rope lashing with wraps or two bolts, and trim the post tops flush."
+        },
+        {
+          "severity": "Minor",
+          "where": "effigy joints, view 6",
+          "what": "Arms are straight sticks with no tie at the elbow; legs fuse into the stick bundle; the metal head can has one black dot only.",
+          "fix": "Add rope ties at elbows and knees, rust bleed around the can's hole, and a second dark hole or slit."
+        },
+        {
+          "severity": "Minor",
+          "where": "posts, view 3",
+          "what": "Straight untapered cylinders; a ladder of tiny marks on one post reads as a stripe.",
+          "fix": "Add taper and bark patches; make the marks proper pegs or remove them."
+        }
+      ],
+      "read_at_game_distance": "Yes, an unsettling hanging effigy in a log frame; the single thin cord is invisible at 4 m so the figure seems to float."
+    },
+    {
+      "asset": "trailmarker",
+      "silhouette": 5,
+      "construction": 5,
+      "scale": 6,
+      "materials": 6,
+      "wear": 5,
+      "detail": 3,
+      "overall": 4.0,
+      "pass": false,
+      "verdict": "NO-SHIP",
+      "defects": [
+        {
+          "severity": "Major",
+          "where": "sign plate, views 1, 3, 4",
+          "what": "A tiny flat dark plate with a blank cream rectangle above a small arrow; it reads as an unfinished decal. It sits flat on a round post with gaps at both sides and has no fasteners.",
+          "fix": "Paint a legible blaze (stripe or diamond) in chipped paint, curve the plate or add a backing block, add two nails."
+        },
+        {
+          "severity": "Major",
+          "where": "post, all views (56 tris)",
+          "what": "Eight-sided prism, untapered, flat-topped, with no checks, lean, base moss or rot.",
+          "fix": "Raise to 12 sides, add slight taper, bevelled or split top, a 2 cm lean and moss and soil at the base."
+        },
+        {
+          "severity": "Minor",
+          "where": "scale, view 3",
+          "what": "Plate is about 10 cm tall on a 1.47 m post.",
+          "fix": "Enlarge the plate to at least 18x12 cm."
+        }
+      ],
+      "read_at_game_distance": "Yes, a bare post; the sign plate is too small and blank to notice at 4 m."
+    },
+    {
+      "asset": "cairn",
+      "silhouette": 6,
+      "construction": 5,
+      "scale": 6,
+      "materials": 5,
+      "wear": 6,
+      "detail": 4,
+      "overall": 4.67,
+      "pass": false,
+      "verdict": "NO-SHIP",
+      "defects": [
+        {
+          "severity": "Blocker",
+          "where": "top of at least three stones, views 1, 3, 4 and zoom",
+          "what": "A black stippled patch with white sparkle pixels sits at the apex of several stones (top stone in view 1, and between stones 2 and 3): degenerate normals or a UV pole singularity.",
+          "fix": "Merge vertices at the poles, recompute normals, re-bake so the apex is not black."
+        },
+        {
+          "severity": "Major",
+          "where": "four bottom stones, views 2 and 6",
+          "what": "Near-identical flat octagonal slabs with straight facet edges look like stacked pancakes or cut discs, not field stones.",
+          "fix": "Use irregular lumpy slabs with different footprints, chipped edges and varied thickness; at least 16 outline segments with noise."
+        },
+        {
+          "severity": "Minor",
+          "where": "moss and speckle, all views",
+          "what": "Moss sits uniformly on every top face and the grey speckle is evenly spread: noise.",
+          "fix": "Put moss on shaded faces and crevices only, dirt and leaf litter at the base."
+        },
+        {
+          "severity": "Minor",
+          "where": "scale, view 6",
+          "what": "0.57 m tall is small for a cairn read from 5 m.",
+          "fix": "Raise to 0.8-1.0 m or widen the rubble base."
+        },
+        {
+          "severity": "Minor",
+          "where": "joints",
+          "what": "No wedge or chinking stones between the layers.",
+          "fix": "Add a few small wedge stones at contact points."
+        }
+      ],
+      "read_at_game_distance": "Yes, a mossy stack of stones; the stacked-pancake octagons and the black dots on top give it away at 3 m."
+    },
+    {
+      "asset": "mailbox",
+      "silhouette": 6,
+      "construction": 4,
+      "scale": 7,
+      "materials": 4,
+      "wear": 3,
+      "detail": 4,
+      "overall": 3.83,
+      "pass": false,
+      "verdict": "NO-SHIP",
+      "defects": [
+        {
+          "severity": "Major",
+          "where": "hood, tray and rear, views 1 and 3 and zoom",
+          "what": "Hood and tray are two sheets with a visible seam; the end plate stops mid-height, leaving the hood open so you see dark through it; the flag is a flat red plate pushed through the hood with no slot or pivot.",
+          "fix": "Close the back with an end cap, add a flag slot with a pivot rivet, join hood to tray with a rolled seam."
+        },
+        {
+          "severity": "Major",
+          "where": "front door, views 3 and 4",
+          "what": "The door is a flat plate hanging beside the post at an odd angle, with no hinge barrel, latch or handle.",
+          "fix": "Hinge it on the bottom front edge with a rolled hinge and a small latch, either closed or open 90 degrees into the correct plane."
+        },
+        {
+          "severity": "Major",
+          "where": "paint, all views",
+          "what": "Two flat olive greens, no scratches, no rust, no rain streaks, no fade.",
+          "fix": "Rust at the seams and corners, scratched paint at the lip, sun fade on top, streaks from the flag."
+        },
+        {
+          "severity": "Minor",
+          "where": "mount, view 1 zoom",
+          "what": "Box sits on a thin plate with a loose grey wood block poking out under one end.",
+          "fix": "Replace with a proper mounting shelf with two screws; remove the block."
+        }
+      ],
+      "read_at_game_distance": "Yes, a post-mounted rural mailbox silhouette; flat clean paint makes it look like a toy."
+    },
+    {
+      "asset": "guardrail",
+      "silhouette": 6,
+      "construction": 6,
+      "scale": 7,
+      "materials": 5,
+      "wear": 5,
+      "detail": 4,
+      "overall": 4.75,
+      "pass": false,
+      "verdict": "NO-SHIP",
+      "defects": [
+        {
+          "severity": "Major",
+          "where": "rail profile, views 3, 4, 6",
+          "what": "The rail is a smooth half-pipe with a lip, not a W-beam or recognisable box-beam, with a uniform skin and no splice.",
+          "fix": "Make a true W-beam (two ridges) with a lap splice at one post and slotted bolts, rolled end terminal."
+        },
+        {
+          "severity": "Major",
+          "where": "posts and bolts, views 3 and 6",
+          "what": "Four plain boxes with a single bolt each; no block-outs, washers or end terminal.",
+          "fix": "Add spacer blocks, washers, two bolts per post and a rolled end."
+        },
+        {
+          "severity": "Minor",
+          "where": "wear, views 3 and 4",
+          "what": "Rust is a thin streak along the lower edge; posts have no ground-line rot, lean or impact dent.",
+          "fix": "Add a lean on one post, ground-line rot, a mid-span impact dent and rust at every bolt."
+        }
+      ],
+      "read_at_game_distance": "Yes at distance: a low rail on posts."
+    },
+    {
+      "asset": "fence",
+      "silhouette": 6,
+      "construction": 5,
+      "scale": 7,
+      "materials": 6,
+      "wear": 5,
+      "detail": 3,
+      "overall": 4.17,
+      "pass": false,
+      "verdict": "NO-SHIP",
+      "defects": [
+        {
+          "severity": "Major",
+          "where": "rail-to-post joints, views 1, 4, 6",
+          "what": "Rails pass straight through the posts with no mortise, nail or wire; the middle and bottom rails stop mid-air with clean round-cut ends.",
+          "fix": "If broken, splinter the ends, rest the fallen rail on the ground and show the empty mortise; if intact, restore and add nails."
+        },
+        {
+          "severity": "Major",
+          "where": "span, all views",
+          "what": "Only two posts over 4.75 m with ruler-straight rails; no sag and no support.",
+          "fix": "Add a mid post or reduce the span to 2.4 m per rail; add slight sag."
+        },
+        {
+          "severity": "Minor",
+          "where": "detail, all views",
+          "what": "No peeled bark patches, nails, staples or ground rot.",
+          "fix": "Add peeled bark, lichen, nail heads and soft rot at the post bases."
+        },
+        {
+          "severity": "Minor",
+          "where": "moss, view 6",
+          "what": "Moss appears only on the foreground rail.",
+          "fix": "Put moss on the north faces and at the post bases consistently."
+        }
+      ],
+      "read_at_game_distance": "Yes: a broken rail fence; the clean sawn rail ends give the break away."
+    },
+    {
+      "asset": "chair",
+      "silhouette": 3,
+      "construction": 3,
+      "scale": 4,
+      "materials": 6,
+      "wear": 5,
+      "detail": 3,
+      "overall": 3.5,
+      "pass": false,
+      "verdict": "NO-SHIP",
+      "defects": [
+        {
+          "severity": "Blocker",
+          "where": "whole asset, all views",
+          "what": "I cannot tell what this is. A vertical plank (the seat), two thick bars and a ladder-like frame lying on the floor. It only makes sense as a toppled chair, and even then nothing reads as a back, a seat and four legs.",
+          "fix": "Decide: upright chair, or a deliberately overturned chair rotated so the back with its slats and four matching legs are clearly visible."
+        },
+        {
+          "severity": "Major",
+          "where": "thin posts to thick bars, views 1-3",
+          "what": "Roughly 2 cm sticks meet 6 cm bars at the bar's mid-length like a T with no tenon, peg or brace.",
+          "fix": "Make all four legs matching 4x4 cm posts joined to rails with pegged tenons and a lower stretcher."
+        },
+        {
+          "severity": "Minor",
+          "where": "detail, all views",
+          "what": "No nails, screws, seat wear or chip marks.",
+          "fix": "Add pegs, a worn seat centre and a cracked rail."
+        }
+      ],
+      "read_at_game_distance": "No: I cannot read this as a chair at any distance. It looks like a plank standing beside a few beams and a ladder frame on the ground."
+    },
+    {
+      "asset": "toolbox",
+      "silhouette": 6,
+      "construction": 4,
+      "scale": 7,
+      "materials": 4,
+      "wear": 3,
+      "detail": 4,
+      "overall": 3.83,
+      "pass": false,
+      "verdict": "NO-SHIP",
+      "defects": [
+        {
+          "severity": "Major",
+          "where": "lid, views 1, 2, 3, 6",
+          "what": "Zero-thickness curved sheet that overhangs the body, with corners curling up like paper; you can see the red underside through it.",
+          "fix": "Give the lid a rolled 1.5 mm edge, two end caps, and a back hinge with a pin; keep it flush to the body."
+        },
+        {
+          "severity": "Major",
+          "where": "wear story, all views",
+          "what": "The lid is mottled dark brown with cloud noise while the body is almost pristine red: no cause.",
+          "fix": "Start rust at the lid seam, hinge, rivets, corners and bottom; keep the lid red with chipped paint exposing rust."
+        },
+        {
+          "severity": "Minor",
+          "where": "stray strip, views 1 and 3",
+          "what": "A thin diagonal strip lies across the lid beside the handle with no explanation.",
+          "fix": "Make it a visible wire or tape repair, or remove it."
+        },
+        {
+          "severity": "Minor",
+          "where": "latches and handle, view 4",
+          "what": "Two brown tabs with no hasp or catch; the black grip tube has no brackets or rivets.",
+          "fix": "Build a hasp and staple, add brackets and rivets for the handle."
+        }
+      ],
+      "read_at_game_distance": "Partly: a red box with a handle reads, but the curled-sheet lid looks wrong."
+    },
+    {
+      "asset": "firewood",
+      "silhouette": 6,
+      "construction": 4,
+      "scale": 6,
+      "materials": 5,
+      "wear": 5,
+      "detail": 5,
+      "overall": 4.58,
+      "pass": false,
+      "verdict": "NO-SHIP",
+      "defects": [
+        {
+          "severity": "Major",
+          "where": "AUTOMATIC GATE: roof sheet, audit floatingGroups = 1",
+          "what": "The sheet and its 2 weighting stones are 0.76 m up and touch neither posts nor logs; in views 2 and 3 its edges sit beside the post tops with no support or fixing.",
+          "fix": "Rest the sheet on notched post tops or a purlin (sink 1 cm so it registers as connected) and nail or tie it down."
+        },
+        {
+          "severity": "Major",
+          "where": "log ends, views 2 and 3",
+          "what": "Every log end is a visible 8-gon with pie-slice grain, same diameter and length, like octagonal prisms.",
+          "fix": "Use 12-16 sides, vary diameters (8-18 cm) and lengths, add split wedge-shaped pieces and ring-and-check end grain."
+        },
+        {
+          "severity": "Major",
+          "where": "roof sheet, view 6",
+          "what": "Flat bluish-grey sheet with no corrugation, thickness or fixings; it reads as bending paper.",
+          "fix": "Use corrugated tin as on the outhouse with rust at edges and nail holes, or a real tarp with grommets and rope."
+        },
+        {
+          "severity": "Minor",
+          "where": "posts, views 1 and 3",
+          "what": "Thin sticks with no bracing or back rail.",
+          "fix": "Add a back rail and a diagonal brace."
+        },
+        {
+          "severity": "Minor",
+          "where": "stack, view 2",
+          "what": "Perfect stepped pyramid with regular rows.",
+          "fix": "Let the stack lean, add loose logs on the ground and one fallen from the top row."
+        }
+      ],
+      "read_at_game_distance": "Yes: a woodpile under a tin sheet; the roof appears to hover next to the posts."
+    },
+    {
+      "asset": "antler_post",
+      "silhouette": 5,
+      "construction": 4,
+      "scale": 6,
+      "materials": 5,
+      "wear": 3,
+      "detail": 3,
+      "overall": 3.67,
+      "pass": false,
+      "verdict": "NO-SHIP",
+      "defects": [
+        {
+          "severity": "Major",
+          "where": "antlers, views 1, 3, 6",
+          "what": "Smooth uniform cream cylinders with no bone texture, no tapered tines, no burr; fixed via a roughly 4 cm grey clip on the side of the post, not a skull plate or cap.",
+          "fix": "Taper tines to points, add pearled burr bases and ridged bone texture; mount on a nailed skull plate or a cap on the post top."
+        },
+        {
+          "severity": "Major",
+          "where": "antler wear, all views",
+          "what": "Antlers are pristine cream next to a stained post.",
+          "fix": "Add yellow-brown staining, hairline cracks, moss at the burrs and droppings on the tines."
+        },
+        {
+          "severity": "Minor",
+          "where": "post marks, view 6",
+          "what": "A row of tiny dark marks down one side reads as stray nails.",
+          "fix": "Make them proper nails or deeper cut tally marks; add taper."
+        }
+      ],
+      "read_at_game_distance": "Partly: a bare post with a pair of pale branches reads as a coat rack or sapling before it reads as antlers."
+    },
+    {
+      "asset": "roadbridge",
+      "silhouette": 5,
+      "construction": 4,
+      "scale": 6,
+      "materials": 4,
+      "wear": 4,
+      "detail": 3,
+      "overall": 3.67,
+      "pass": false,
+      "verdict": "NO-SHIP",
+      "defects": [
+        {
+          "severity": "Major",
+          "where": "review framing, views 1-4",
+          "what": "The sheet shows the bridge at the horizon, so I cannot judge anything but the silhouette of the rails. The audit says 6.34 m tall but I see a flat deck at ground level with no piers, abutments or underside in any view; low confidence.",
+          "fix": "Re-render with a camera on the deck and one under the span; make sure the ground plane is not hiding the substructure; if there is none, add piers and abutment walls."
+        },
+        {
+          "severity": "Major",
+          "where": "deck and rails, views 5 and 6",
+          "what": "Dark mesh-textured deck with two orange hairlines (expansion joints?) and a thick pipe rail on thin square posts that look unanchored to the deck.",
+          "fix": "Add base plates and bolts to every post, a kerb and scuppers, and real steel expansion-joint plates with rust bleed."
+        },
+        {
+          "severity": "Minor",
+          "where": "wear, all views",
+          "what": "Uniform dark with no rust streaks at joints or water stains under scuppers.",
+          "fix": "Add rust streaks at joints and tide marks below the scuppers."
+        }
+      ],
+      "read_at_game_distance": "Cannot judge: at 44.7 m it sits on the horizon in views 1-4 as a thin line; as far as I can see it is a flat deck at ground level with pipe rails and no piers."
+    },
+    {
+      "asset": "drum",
+      "silhouette": 8,
+      "construction": 6,
+      "scale": 9,
+      "materials": 6,
+      "wear": 5,
+      "detail": 6,
+      "overall": 5.83,
+      "pass": false,
+      "verdict": "SHIP WITH NOTES",
+      "defects": [
+        {
+          "severity": "Major",
+          "where": "label plate, views 1 and 6",
+          "what": "Flat rectangular plate lies over the curved body and the middle rolling hoop: its right edge stands off the drum and the hoop disappears behind it.",
+          "fix": "Wrap the plate to the body curvature or make it a decal, and run the hoop over it or cut around it."
+        },
+        {
+          "severity": "Major",
+          "where": "paint wear, views 1 and 4",
+          "what": "The upper two thirds are flat unblemished red with no dents, scuffs or stains; rust is a hard-edged band on the lower third.",
+          "fix": "Add 2-3 dents, vertical rust streaks from the rim and bungs, scuffs at the hoops, and feather the lower rust upward in drips."
+        },
+        {
+          "severity": "Minor",
+          "where": "lid, view 2",
+          "what": "The lid top reads pink-white, lighter than the body, like a different material.",
+          "fix": "Match the lid paint to the body, add a rust ring around the bungs and a dark chime."
+        },
+        {
+          "severity": "Minor",
+          "where": "bungs, view 1",
+          "what": "Two shallow dishes with no plug or threads.",
+          "fix": "One capped bung with a hex plug and one open with a threaded collar."
+        }
+      ],
+      "read_at_game_distance": "Yes: instantly a rusty DIESEL drum, the best-reading prop in this set."
+    },
+    {
+      "asset": "tire",
+      "silhouette": 6,
+      "construction": 5,
+      "scale": 6,
+      "materials": 4,
+      "wear": 3,
+      "detail": 3,
+      "overall": 3.75,
+      "pass": false,
+      "verdict": "NO-SHIP",
+      "defects": [
+        {
+          "severity": "Major",
+          "where": "AUTOMATIC GATE (assuming background-prop class): 4800 triangles",
+          "what": "The background small-prop budget is 2.5k and this single tire is 4800.",
+          "fix": "Cut to 2.5k or less by reducing the sidewall segments and baking lug detail into the normal map; if it is meant to be an interactable prop, say so."
+        },
+        {
+          "severity": "Major",
+          "where": "lugs, views 1, 3, 6",
+          "what": "A jagged sawtooth runs around the sidewall edge and reads as melted candle drips or crown crenellations, not tread blocks.",
+          "fix": "Model rectangular tread blocks across the tread with grooves between them; keep the sidewall smooth with a moulded ridge and lettering."
+        },
+        {
+          "severity": "Major",
+          "where": "material, all views",
+          "what": "Flat matte dark grey like clay: no rubber sheen, sidewall cracking, dust or sun bleaching.",
+          "fix": "Add radial sidewall cracks, grey UV bleaching, packed dirt in the lugs and a damp dark inner liner."
+        },
+        {
+          "severity": "Minor",
+          "where": "rim hole, views 1-3",
+          "what": "Pure black void with no bead or visible inner liner.",
+          "fix": "Add the bead and inner liner, with leaves and mud in the bottom."
+        }
+      ],
+      "read_at_game_distance": "Yes, a big tire, but it reads as soft clay with a crenellated edge rather than rubber with tread."
+    },
+    {
+      "asset": "jerrycan",
+      "silhouette": 7,
+      "construction": 4,
+      "scale": 7,
+      "materials": 4,
+      "wear": 5,
+      "detail": 6,
+      "overall": 4.75,
+      "pass": false,
+      "verdict": "NO-SHIP",
+      "defects": [
+        {
+          "severity": "Major",
+          "where": "two large side faces, views 1-5",
+          "what": "They read as soft cloth sheets pinned over a box: creased X, curled lower corners, and a dark gap between the panel edge and the body at the left of view 1.",
+          "fix": "Make a single pressed-steel body with the embossed X as a shallow stamped ridge, welded seams and no loose panel overlap."
+        },
+        {
+          "severity": "Major",
+          "where": "rusty vertical rods, views 1-3",
+          "what": "Rust-brown rods run down the rear corners and look like loose pipes.",
+          "fix": "Replace with welded seam lines, with rust only along the seam and bottom edge."
+        },
+        {
+          "severity": "Major",
+          "where": "handle, views 1 and 2",
+          "what": "Three thin arched wire loops with a rod through them; a jerrycan carries a flat pressed bar grip with finger openings.",
+          "fix": "Make a flat top grip with three openings integrated into the top plate."
+        },
+        {
+          "severity": "Minor",
+          "where": "budget",
+          "what": "4956 triangles passes the 8k interactable budget but is double the 2.5k background budget.",
+          "fix": "Confirm it is an interactable; if it is scenery, cut to 2.5k."
+        },
+        {
+          "severity": "Minor",
+          "where": "cap, views 1-3",
+          "what": "Nice strap but no chain, gasket or threads.",
+          "fix": "Add the chain and a rubber gasket; dent the corners."
+        }
+      ],
+      "read_at_game_distance": "Yes, a green jerrycan silhouette; the sides look like cloth pinned over a box."
+    }
+  ]
+}
