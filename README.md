@@ -1,5 +1,7 @@
 # SILENCE
 
+PLAY HERE: https://silence-forest-fabian-nov26.sebion.chatgpt.site/
+
 A first-person psychological horror vignette in a dense, fogbound conifer forest. The world has contextual interaction prompts and a fullscreen pause menu; exploration remains in first person. Walk, listen, and allow the light to fade.
 
 ## Play
