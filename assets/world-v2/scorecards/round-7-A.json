@@ -1,0 +1,64 @@
+{"round":7,"judge":"sonnet","assets":[
+{"asset":"antler_post","silhouette":6,"construction":5,"scale":7,"materials":5,"wear":4,"detail":4,"overall":4.8,"verdict":"NO-SHIP","defects":[
+{"severity":"Major","where":"Tiles 1-6, antlers","what":"Antlers are smooth, pale, untextured tubes with spike tips; read as plastic/pipe, no bone grain, no burr at the base.","fix":"Add bone texture with longitudinal grain, darker stained base, knobbly burr ring where the antler meets the skull plate."},
+{"severity":"Major","where":"Tile 6 close-up, left side of post near top","what":"Antlers are held by a single flat grey plate bracket screwed on the side; no skull, no bone plate, odd for a hunting trophy post.","fix":"Mount a skull cap on the post top (or a wooden shield) and seat the antler bases into it."},
+{"severity":"Minor","where":"Tiles 1-4, post","what":"Post is a bare cylinder with a few nail marks at roughly even spacing; no split, lean or moss, flat top.","fix":"Add a weathered chamfered top, vertical split, and moss at the base."}],
+"read_at_game_distance":"Reads as a pole with antlers; the pale tubes look fake and the bracket looks like a coat hook."},
+{"asset":"bottles","silhouette":7,"construction":7,"scale":7,"materials":5,"wear":3,"detail":4,"overall":4.3,"verdict":"NO-SHIP","defects":[
+{"severity":"Major","where":"All tiles","what":"Bottles are flat uniform green/brown with a clean plastic gloss; no glass transparency, dirt, moss, scratches, labels or soil contact.","fix":"Use semi-transparent dark glass with dirt and dust film, half-buried in leaf litter, with a scuffed lower rim."},
+{"severity":"Minor","where":"Tile 4, bottom centre bottle","what":"Faceted cylinder edges are visible on the large lying green bottle (polygonal outline).","fix":"Raise radial segments to 16+ or smooth the normals on the body."},
+{"severity":"Minor","where":"Tiles 1-6","what":"All four bottles share an identical profile with no variation (chip, missing neck, label).","fix":"Vary one bottle (broken neck, label remnant) and add the lip ring."}],
+"read_at_game_distance":"Fine as green and brown bottles from 2 m but looks like clean plastic toys."},
+{"asset":"bucket","silhouette":8,"construction":7,"scale":8,"materials":6,"wear":6,"detail":6,"overall":6.4,"verdict":"SHIP WITH NOTES","defects":[
+{"severity":"Major","where":"Tiles 1-3, 6, base band","what":"Row of black triangles at the base reads as holes cut through the metal but are painted flat black; looks like a decal strip.","fix":"Either model them as real notches in the bottom hoop or remove."},
+{"severity":"Major","where":"Tiles 1-6, body","what":"Grey-silver blotches over orange rust are the same mottled noise everywhere, looking like camouflage rather than rust that starts at seams, the rim and the bottom.","fix":"Concentrate rust at the base, the seam and the rim; keep the upper wall mostly dull galvanised."},
+{"severity":"Minor","where":"Tiles 1-5, handle grip","what":"Wooden/cloth grip is a smooth tube with faceted end.","fix":"Round the ends and add a wire tie."}],
+"read_at_game_distance":"Clearly a rusty bucket; only the base band and noisy blotches look off."},
+{"asset":"cabin","silhouette":8,"construction":6,"scale":7,"materials":7,"wear":6,"detail":8,"overall":6.5,"verdict":"SHIP WITH NOTES","defects":[
+{"severity":"Major","where":"Audit floating: group at (3.71,0.61,0) lowest 0.52 m; tile 1 near stump at left","what":"Small 0.48 m item hovers 0.52 m above ground; likely the axe in the stump but needs to be confirmed to touch the stump top.","fix":"Sink the blade into the stump so the head overlaps the wood."},
+{"severity":"Major","where":"Tile 6 close-up, top of window","what":"Gap between window lintel and log above shows dark slats/bars through; frame floats below the log course.","fix":"Add a lintel log above the window and close the opening to the frame."},
+{"severity":"Major","where":"Tiles 3,4,5 roof","what":"Roof sheets are lifted and rafters exposed, which reads as damage but the lifted sheet edges float with air gaps and visible sky.","fix":"Show a bent sheet resting on the purlins, with a cut hole sized to the missing sheet."},
+{"severity":"Minor","where":"Audit: two groups at (-0.8,1.72,3.7) and (-0.8,2.06,3.7)","what":"Hanging lantern and its wire are deliberate hanging parts (OK) but not visible in sheet.","fix":"Confirm wire is attached to the porch beam."}],
+"read_at_game_distance":"Strong cabin silhouette with good log ends and chimney; porch rails and lifted roof sheets look slightly loose."},
+{"asset":"cairn","silhouette":7,"construction":6,"scale":7,"materials":6,"wear":7,"detail":5,"overall":5.7,"verdict":"NO-SHIP","defects":[
+{"severity":"Major","where":"Tiles 1,2,4,5,6, top stone","what":"Top stone has a pinched star-shaped crease or pucker on the upper surface, a mesh artefact.","fix":"Rebuild the top stone with a smooth dome or flat face."},
+{"severity":"Major","where":"All tiles","what":"Same speckled grey-black pattern on every stone with identical scale; reads as a repeated texture.","fix":"Offset UVs and vary scale per stone; add lichen only on top faces."},
+{"severity":"Minor","where":"Tile 2, third stone from top","what":"Stones are lens-shaped discs with little contact patch; the stack would topple.","fix":"Give each stone a flat bearing face."}],
+"read_at_game_distance":"Reads as a stack of stones; moss is nice but faceted discs look manufactured."},
+{"asset":"camp","silhouette":6,"construction":5,"scale":6,"materials":5,"wear":5,"detail":6,"overall":5.0,"verdict":"NO-SHIP","defects":[
+{"severity":"Major","where":"Audit floating group at (1.73,0.35,1.13), size 0.08x0.16x0.03, lowest 0.33 m","what":"A small part floats with no contact (probably a tag or peg), failing the auto gate.","fix":"Attach it to the cooler or the tent or drop it to the ground."},
+{"severity":"Major","where":"Tiles 1,2,5,6, brown tarp-and-mound","what":"Brown smooth-lumped dirt mound under a tarp reads as a clay blob with a small stones row; unsupported and shapeless.","fix":"Model a tarp over a pile of gear with folds and ropes, or remove."},
+{"severity":"Major","where":"Tiles 1-3, tent","what":"Tent is a flat green plane with no seams, pegs hidden and ridge line thin; canvas has the same cloud-noise everywhere.","fix":"Add seams, grommets, sag between guy lines and stitching."},
+{"severity":"Minor","where":"Tile 4, clothesline pole","what":"Two tall poles with prop sticks lean at very different angles.","fix":"Plant props at consistent angles."}],
+"read_at_game_distance":"Reads as a camp from the tent and fire ring; scattered items feel placed in a row and the mound is off."},
+{"asset":"canline","silhouette":6,"construction":6,"scale":7,"materials":5,"wear":5,"detail":5,"overall":5.3,"verdict":"NO-SHIP","defects":[
+{"severity":"Major","where":"Tiles 1-5","what":"Cans hang from the wire at near-equal spacing and same height pattern, rhythm too regular; strings are hairlines.","fix":"Vary spacing and drop length, and use real twine thickness."},
+{"severity":"Major","where":"Tile 2, right pole","what":"Right pole leans much harder than the left and has no guy or anchor; the strung wire would pull it over.","fix":"Add a guy stay or equalise the lean."},
+{"severity":"Minor","where":"Tile 6 close-up","what":"Cans are plain cylinders with a flat top; no open lip or label.","fix":"Open the top and add a rim."}],
+"read_at_game_distance":"Reads at range as a wire with cans; the cans are tiny and simple."},
+{"asset":"cans","silhouette":6,"construction":6,"scale":7,"materials":5,"wear":5,"detail":5,"overall":5.3,"verdict":"NO-SHIP","defects":[
+{"severity":"Major","where":"Tiles 1-6, can lids and ends","what":"Same star-crack decal on every can end; identical across all cans.","fix":"Vary the end textures and rotate UVs."},
+{"severity":"Major","where":"Tiles 1,3,6, open can lid","what":"Pale flat lid is a faceted 10-gon disc, untextured, standing on edge like a sign.","fix":"Bend the lid with a rolled edge and raise segments to 16+."},
+{"severity":"Minor","where":"Tiles 1,3,4, orange paper label","what":"Flat orange label panel looks painted-on with a hard seam.","fix":"Add torn, partial label paper with a wrapped edge."}],
+"read_at_game_distance":"Reads as rusty cans; the repeated end decal and faceted lid show up at 1 m."},
+{"asset":"chair","silhouette":4,"construction":5,"scale":6,"materials":6,"wear":6,"detail":5,"overall":4.7,"verdict":"NO-SHIP","defects":[
+{"severity":"Blocker","where":"Tiles 1-6","what":"The model sits toppled, with the seat panel vertical and the legs lying flat; the silhouette does not read as a chair and in tile 3 the rail log looks like a loose beam.","fix":"Confirm orientation; if it is meant to be a toppled chair, bend the legs to rest on the ground; otherwise export upright."},
+{"severity":"Major","where":"Tile 2, seat panel","what":"Wide panel has horizontal grain bands repeated across the whole surface with the same knot and crack mark at the same spot.","fix":"Break the seat into 3 boards with different grain."},
+{"severity":"Minor","where":"Tiles 1,3, armrest logs","what":"Armrests are thick log stubs with a single nail and no joint into the legs.","fix":"Add a notched or pegged joint."}],
+"read_at_game_distance":"Hard to recognise as a chair; reads as a pile of timber."},
+{"asset":"chapel","silhouette":8,"construction":6,"scale":7,"materials":6,"wear":6,"detail":7,"overall":6.4,"verdict":"SHIP WITH NOTES","defects":[
+{"severity":"Major","where":"Tiles 1,4,3, wall paint","what":"Dark peeling streaks repeat at the same heights across many planks, and the green ivy blotches at the base are the same shape.","fix":"Break up the peeling per-plank and vary the base growth."},
+{"severity":"Major","where":"Tile 6 close-up, siding","what":"Siding texture is smeared horizontally (stretched blur) with no plank grain and no gap between boards.","fix":"Raise texel density and add visible plank overlaps."},
+{"severity":"Minor","where":"Tile 1, roof near the windows","what":"Dark gaps at the eave above the windows show through to the interior; torn roof sheet hovers above the ridge.","fix":"Close the soffit with a fascia board and rest the lifted sheet on rafters."}],
+"read_at_game_distance":"Strong chapel silhouette with cupola and cemetery; paint streaks and base blotches look patterned."},
+{"asset":"crate","silhouette":7,"construction":6,"scale":6,"materials":6,"wear":5,"detail":6,"overall":5.5,"verdict":"NO-SHIP","defects":[
+{"severity":"Major","where":"Tiles 1,3,5, wall boards","what":"The same white scratch/knot decal with a cross tick recurs on board after board, as do broad pale bands on the lid edge (tile 4).","fix":"Offset UVs per board and remove the identical white decal."},
+{"severity":"Major","where":"Tiles 1,2,3, corner posts","what":"Corner posts splay outward and extend above the lid with nothing fixing the lid to them; lid seems to rest on the sides.","fix":"Cut the posts flush at lid height, add cleats under the lid."},
+{"severity":"Minor","where":"Tile 3 and 4, rust plate","what":"Single rust plate hasp has no hinge or lock.","fix":"Add a hinge pair and hasp."}],
+"read_at_game_distance":"Reads as a chunky crate; repeated white blotches look like decals."},
+{"asset":"deerstand","silhouette":8,"construction":6,"scale":7,"materials":6,"wear":6,"detail":7,"overall":6.4,"verdict":"SHIP WITH NOTES","defects":[
+{"severity":"Major","where":"Tiles 3,4, upper cabin","what":"Ladder top passes beside a missing wall panel and ends on the floor edge with no hatch; the gap in the wall reads as a hole rather than an entrance.","fix":"Cut a proper hatch in the deck and add a handrail on each side of the opening."},
+{"severity":"Major","where":"Tiles 1,2,5, platform deck","what":"Cabin floor is a thin slab with no joists beneath; the four legs carry it only by a ring brace.","fix":"Add two cross joists under the deck and bolt them to the legs."},
+{"severity":"Minor","where":"Tiles 1,3,5, roof","what":"Wood blocks on the roof sheet and a thin corrugated sheet overhang with no purlins visible.","fix":"Add purlins and fix the sheet with screws."}],
+"read_at_game_distance":"Reads well as a hunting tower with X bracing; the cabin deck and ladder entry are weakest."}
+]}

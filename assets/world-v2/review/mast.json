@@ -1,0 +1,14 @@
+{
+ "looseParts": 388,
+ "connectedGroups": 3,
+ "groupsOnGround": 3,
+ "floatingGroups": 0,
+ "floating": [],
+ "sizeMetres": [
+  28.34,
+  37.64,
+  24.84
+ ],
+ "triangles": 9832,
+ "fileMB": 1.12
+}

@@ -115,10 +115,11 @@ class Model:
         # Ring: top, right, bottom, left, two corners each.
         ring = [(-hw + c, hh), (hw - c, hh), (hw, hh - c), (hw, -hh + c), (hw - c, -hh), (-hw + c, -hh), (-hw, -hh + c), (-hw, hh - c)]
         rnorm = [(0, 1), (0, 1), (1, 0), (1, 0), (0, -1), (0, -1), (-1, 0), (-1, 0)]
-        # A scan covers several metres of timber, not one repeat every 50 cm.
-        # A unique crop and stretch per board avoids aligned knots and stripes.
+        # Each board takes its own crop and a slightly different stretch of the scan. The scan is 0.5 m wide
+        # (texture-attribution.json), so the big enlargement is not done here: the material swaps between two
+        # lookups at unrelated scales instead, which is what stops knots lining up from board to board.
         if mat in ("wood", "wood_dark", "wood_clean", "wood_fresh", "white_paint", "logwood"):
-            grain *= self.rng.uniform(4.2, 6.8)
+            grain *= self.rng.uniform(.85, 1.3)
         off_u, off_v = self.rng.random() * 9, self.rng.random() * 9
         ring.append(ring[0])
         rnorm.append(rnorm[0])
@@ -371,6 +372,16 @@ class Model:
         p, n = np.asarray(p, float), norm(normal)
         self.lathe([(0, 0), (r * 1.6, 0), (r * 1.6, .25), (r, .3), (r, 1), (0, 1)], p, p + n * r * 1.2, mat, 6, density=.5)
 
+    def nail(self, p, normal, r=.005, mat="steel"):
+        """A nail or screw head: six triangles, just proud of the wood. Use `bolt` only where a head should stand up."""
+        p, n = np.asarray(p, float), norm(normal)
+        x, y, _ = frame_along(p, p + n)
+        c = p + n * r * .35
+        vs = [c] + [p + n * r * .12 + (x * math.cos(a) + y * math.sin(a)) * r for a in np.arange(6) * math.pi / 3]
+        ns = [n] + [norm(n + (x * math.cos(a) + y * math.sin(a)) * .8) for a in np.arange(6) * math.pi / 3]
+        uv = [(.5, .5)] + [(.5 + .5 * math.cos(a), .5 + .5 * math.sin(a)) for a in np.arange(6) * math.pi / 3]
+        self.add(mat, vs, ns, uv, [(0, 1 + i, 1 + (i + 1) % 6) for i in range(6)], metres_per_uv=2 * r, density=.6, wear=.6)
+
     def gusset(self, p, u, v, size=.16, t=.01, mat="steel"):
         """A triangular steel plate lapping two members, bolted through each."""
         p, u, v = np.asarray(p, float), norm(u), norm(v)
@@ -622,34 +633,53 @@ def build_material(name):
     g.link(pos, height.inputs[0])
     z = height.outputs["Z"]
     crevice = g.ao(0.22)
-    edge = g.math("SUBTRACT", 1.0, g.ao(0.02, inside=True))
+    # An arris is where the rounded-off normal leaves the true one. Unlike an inward occlusion probe this
+    # does not light up thin sheet, or a face that has another part buried just behind it.
+    bev = g.node("ShaderNodeBevel", samples=6)
+    bev.inputs["Radius"].default_value = .009
+    bdot = g.node("ShaderNodeVectorMath", operation="DOT_PRODUCT")
+    g.link(bev.outputs[0], bdot.inputs[0])
+    g.link(geo.outputs["Normal"], bdot.inputs[1])
+    edge = g.ramp(g.math("SUBTRACT", 1.0, bdot.outputs["Value"]), .004, .12)
     proc = r.get("proc")
     metal_out = None
     normal_out = None
 
     if proc in (None, "image") and "tex" in r:
-        mp = g.node("ShaderNodeMapping")
-        g.link(uvn.outputs[0], mp.inputs["Vector"])
-        mp.inputs["Scale"].default_value = (r["uv"], r["uv"], 1)
-        uv = mp.outputs[0]
         files = dict(wood=("wood-diff.jpg", "wood-normal.jpg", "wood-rough.jpg"), bark=("bark-diff.jpg", "bark-normal.jpg", "bark-rough.jpg"), rock=("rock-diff.jpg", "rock-normal.jpg", "rock-rough.jpg"))[r["tex"]]
-        diff = g.node("ShaderNodeTexImage", image=_image(files[0], True))
-        g.link(uv, diff.inputs[0])
-        nrm = g.node("ShaderNodeTexImage", image=_image(files[1], False))
-        g.link(uv, nrm.inputs[0])
-        rgh = g.node("ShaderNodeTexImage", image=_image(files[2], False))
-        g.link(uv, rgh.inputs[0])
+        # Every part already starts somewhere else in the scan (its UV offset). Two lookups at unrelated
+        # scales, swapped by a slow mask, stop the scan's own knots coming round again along one board.
+        own_uv = g.node("ShaderNodeVectorMath", operation="ADD")
+        g.link(pos, own_uv.inputs[0])
+        g.link(_grey(g, g.math("MULTIPLY", seed_red(g, seed), 53.0)), own_uv.inputs[1])
+        swap = g.ramp(g.noise(own_uv.outputs[0], 1.7, 3, .5), .44, .56)
+
+        def lookup(scale, shift):
+            mp = g.node("ShaderNodeMapping")
+            g.link(uvn.outputs[0], mp.inputs["Vector"])
+            mp.inputs["Scale"].default_value = (r["uv"] * scale[0], r["uv"] * scale[1], 1)
+            mp.inputs["Location"].default_value = (shift[0], shift[1], 0)
+            out = []
+            for f, srgb in zip(files, (True, False, False)):
+                t = g.node("ShaderNodeTexImage", image=_image(f, srgb))
+                g.link(mp.outputs[0], t.inputs[0])
+                out.append(t.outputs[0])
+            return out
+        a_, b_ = lookup((.62, .58), (0, 0)), lookup((.43, .37), (.37, .61))
+        diff_c, nrm_c, rgh_c = (g.mix(swap, x, y) for x, y in zip(a_, b_))
+        rgh_sep = g.node("ShaderNodeSeparateColor")
+        g.link(rgh_c, rgh_sep.inputs[0])
         nm = g.node("ShaderNodeNormalMap", uv_map="tile")
         nm.inputs["Strength"].default_value = 1.1
-        g.link(nrm.outputs[0], nm.inputs["Color"])
+        g.link(nrm_c, nm.inputs["Color"])
         normal_out = nm.outputs[0]
         hsv = g.node("ShaderNodeHueSaturation")
         hsv.inputs["Saturation"].default_value = 1 - r["desat"]
-        g.link(diff.outputs[0], hsv.inputs["Color"])
+        g.link(diff_c, hsv.inputs["Color"])
         vary = g.math("ADD", g.math("MULTIPLY", g.math("SUBTRACT", seed_red(g, seed), 0.5), r["vary"]), 1.0)
         base = g.mix(1.0, hsv.outputs[0], r["tint"], "MULTIPLY")
         base = g.mix(1.0, base, _grey(g, vary), "MULTIPLY")
-        rough = g.math("MULTIPLY", rgh.outputs[0], 1.05)
+        rough = g.math("MULTIPLY", rgh_sep.outputs[0], 1.05)
         if r.get("peel"):
             broad = g.noise(pos, .55, 3, .5)
             flake = g.noise(pos, 19, 7, .62)
@@ -660,35 +690,42 @@ def build_material(name):
             rough = g.mixf(g.math("SUBTRACT", 1.0, wear), rough, 0.55)
             normal_out = g.bump(g.math("MULTIPLY", wear, 1.0), 0.5, 0.004, normal_out)
         if r.get("edge"):
-            base = g.mix(g.math("MULTIPLY", g.ramp(edge, 0.05, 0.4), 0.3), base, r["edge"])
+            base = g.mix(g.math("MULTIPLY", edge, 0.3), base, r["edge"])
     elif proc == "metal":
         age = r.get("age", .4)
         fine, mid = g.noise(pos, 62, 6, .62), g.noise(pos, 13, 6, .58)
         broad = g.noise(pos, 1.3, 3, .5)
         wear_attr = seed_green(g, seed)
-        hard_edge = g.ramp(edge, .03, .3)
+        hard_edge = edge
         seam = g.math("SUBTRACT", 1.0, crevice)
         low = g.ramp(z, 1.0, .06)
-        # Rust belongs at edges, seams, low points and wherever the geometry says water sits.
-        cause = g.math("ADD", g.math("MULTIPLY", hard_edge, r.get("edgew", .34)), g.math("MULTIPLY", seam, r.get("seam", .3)))
-        cause = g.math("ADD", cause, g.math("MULTIPLY", low, .22))
-        cause = g.math("ADD", cause, g.math("MULTIPLY", wear_attr, .6))
-        cause = g.math("ADD", cause, g.math("MULTIPLY", g.math("SUBTRACT", broad, .5), .45))
-        score = g.math("ADD", cause, g.math("MULTIPLY", g.math("SUBTRACT", mid, .5), .42))
-        score = g.math("ADD", score, g.math("MULTIPLY", g.math("SUBTRACT", fine, .5), .3))
-        rustmask = g.ramp(score, 1.0 - age * .95 - .2, 1.0 - age * .95 - .12)
-        # Pinholes appear even on sound paint, but sparsely.
-        pin = g.ramp(g.math("ADD", fine, g.math("MULTIPLY", age, .08)), .74, .77)
+        # Rust needs a cause: an edge, a seam, a low point, or wherever the model says water sits. Noise only
+        # roughens the outline of what those start; on its own it never reaches the threshold, so sound
+        # paint stays sound instead of breaking out in blotches.
+        cause = g.math("ADD", g.math("MULTIPLY", hard_edge, r.get("edgew", .5)), g.math("MULTIPLY", seam, r.get("seam", .3)))
+        cause = g.math("ADD", cause, g.math("MULTIPLY", low, .2))
+        cause = g.math("ADD", cause, g.math("MULTIPLY", wear_attr, .72))
+        breakup = g.math("ADD", .68, g.math("MULTIPLY", mid, .64))
+        score = g.math("ADD", g.math("MULTIPLY", cause, breakup), age * .34)
+        score = g.math("ADD", score, g.math("MULTIPLY", g.math("SUBTRACT", broad, .5), .2))
+        score = g.math("ADD", score, g.math("MULTIPLY", g.math("SUBTRACT", fine, .5), .14))
+        rustmask = g.ramp(score, .5, .57)
+        # A few pinholes, and only in the patches that are already going.
+        pin = g.math("MULTIPLY", g.ramp(fine, .78, .81), g.ramp(g.math("ADD", broad, age * .3), .6, .75))
         rustmask = g.math("MAXIMUM", rustmask, pin)
+        halo = g.math("MULTIPLY", g.ramp(score, .43, .5), .32)
         tone = g.noise(pos, 28, 5, .62)
-        rust = g.mix(g.ramp(tone, .34, .66), (.085, .042, .024), (.235, .105, .045))
+        rust = g.mix(g.ramp(tone, .3, .7), (.062, .034, .022), (.15, .072, .036))
         # Sun chalks the paint on what faces the sky; a soft dirt film gathers lower down.
         chalk = g.math("MULTIPLY", g.ramp(up_z, .2, .9), .22)
         paint = g.mix(chalk, r["paint"], tuple(min(1, c * 1.35 + .05) for c in r["paint"]))
         paint = g.mix(g.math("MULTIPLY", g.ramp(broad, .36, .66), .22), paint, tuple(c * .78 for c in r["paint"]))
-        # Run-off stains: translucent, below whatever is rusting, never a hard shape.
-        run = g.math("MULTIPLY", g.ramp(g.noise(g.stretch(pos, 32, 32, .9), 1.0, 4, .5), .52, .76), .42 * min(1, age * 1.6))
-        paint = g.mix(run, paint, (.12, .06, .035), "MULTIPLY")
+        # Rust bleeds a brown stain into the paint round it; faint run-off streaks below.
+        paint = g.mix(halo, paint, (.2, .1, .055), "MULTIPLY")
+        run = g.math("MULTIPLY", g.ramp(g.noise(g.stretch(pos, 32, 32, .9), 1.0, 4, .5), .56, .8), .2 * min(1, age * 1.6))
+        paint = g.mix(run, paint, (.16, .09, .05), "MULTIPLY")
+        chip = g.math("MULTIPLY", g.ramp(g.math("ADD", g.math("MULTIPLY", hard_edge, .8), g.math("MULTIPLY", fine, .5)), .72, .8), min(1.0, .35 + age))
+        paint = g.mix(chip, paint, (.1, .085, .075))
         base = g.mix(rustmask, paint, rust)
         rough = g.mixf(rustmask, r["rough"], .88)
         metal_out = g.mixf(rustmask, r["metal"], 0.0)
@@ -750,8 +787,8 @@ def build_material(name):
         stain = g.ramp(g.noise(g.stretch(pos, 26, 26, .55), 1.0, 5, .55), .5, .74)
         wear_attr = seed_green(g, seed)
         base = g.mix(g.math("MULTIPLY", stain, g.math("ADD", .25, g.math("MULTIPLY", wear_attr, .6))), base, (.16, .15, .13), "MULTIPLY")
-        tide = g.ramp(g.math("ADD", z, g.math("MULTIPLY", g.math("SUBTRACT", g.noise(pos, 5, 4, .55), .5), .5)), .85, .3)
-        base = g.mix(g.math("MULTIPLY", tide, .8), base, (.1, .105, .07), "MULTIPLY")
+        tide = g.ramp(g.math("ADD", z, g.math("ADD", g.math("MULTIPLY", g.math("SUBTRACT", g.noise(pos, .9, 4, .55), .5), 1.5), g.math("MULTIPLY", g.math("SUBTRACT", g.noise(pos, 6, 4, .6), .5), .35))), .75, .1)
+        base = g.mix(g.math("MULTIPLY", tide, .7), base, (.1, .105, .07), "MULTIPLY")
         normal_out = g.bump(h_, .6, .008)
     elif proc == "cloth":
         # Multiscale woven fibres, dirt, faded patches. Avoid undersampled wave

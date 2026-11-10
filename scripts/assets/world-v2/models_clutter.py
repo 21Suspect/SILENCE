@@ -14,57 +14,109 @@ ART = os.path.join(ROOT, "assets/world-v2/art")
 
 
 def outhouse():
-    m = Model("outhouse", tex=1024, seed=201)
+    """Board-and-batten privy on timber skids. The door is a ledged-and-braced one, hung on two strap hinges and left open."""
+    m = Model("outhouse", tex=2048, seed=201)
     W, D, H = .62, .72, 2.1
-    m.box((0, .06, 0), (2 * W + .1, .12, 2 * D + .1), "wood_dark", chamfer=.01)
+    DROP = .3
+    top_at = lambda z: H - DROP * (D - z) / (2 * D)
+    # Two skids on the ground, a floor frame on them, four corner posts and a plate all round under the roof.
+    for x in (-W, W):
+        m.beam((x, .05, -D - .12), (x, .05, D + .12), .12, .1, "wood_dark", chamfer=.012)
+    for z in (-D, D):
+        m.beam((-W - .04, .14, z), (W + .04, .14, z), .08, .08, "wood_dark")
     for sx in (-1, 1):
         for sz in (-1, 1):
-            h = H if sz > 0 else H - .3
-            m.beam((sx * W, .1, sz * D), (sx * W, h, sz * D), .08, .08, "wood_dark")
+            m.beam((sx * W, .1, sz * D), (sx * W, top_at(sz * D), sz * D), .08, .08, "wood_dark")
     for z in (-D, D):
-        h = H if z > 0 else H - .3
-        m.beam((-W, h, z), (W, h, z), .08, .1, "wood_dark")
+        m.beam((-W - .04, top_at(z), z), (W + .04, top_at(z), z), .08, .09, "wood_dark")
     for x in (-W, W):
-        m.beam((x, H, D), (x, H - .3, -D), .08, .1, "wood_dark")
-    # Vertical boards on three sides, on two rails.
+        m.beam((x, top_at(D), D), (x, top_at(-D), -D), .08, .09, "wood_dark")
+    # Floor boards.
+    for x in np.arange(-W + .07, W, .15):
+        m.plank((x, .19, -D + .03), (x, .19, D - .03), .145, .022, warp=.002, segs=1)
+    # Boards stand outside the frame and run right up under the tin: no daylight at the eaves.
+    OUT = .052
     def side_boards(a, b, normal, h0):
         a, b = np.asarray(a, float), np.asarray(b, float)
         L = float(np.linalg.norm(b - a))
-        for t in np.arange(.06, L, .155):
-            p = a + (b - a) * t / L
-            top = h0(p)
-            m.plank((p[0], .12, p[2]), (p[0], top - m.rng.uniform(0, .02), p[2]), .15, .02, up=normal, warp=.003, segs=1)
-    slope = lambda p: H - .3 * (D - p[2]) / (2 * D)
-    side_boards((-W - .03, 0, -D), (-W - .03, 0, D), (-1, 0, 0), slope)
-    side_boards((W + .03, 0, -D), (W + .03, 0, D), (1, 0, 0), slope)
-    side_boards((-W, 0, -D - .03), (W, 0, -D - .03), (0, 0, -1), lambda p: H - .3)
+        n = int(round(L / .152))
+        for i in range(n):
+            p = a + (b - a) * (i + .5) / n
+            m.plank((p[0], .09 - m.rng.uniform(0, .02), p[2]), (p[0], h0(p), p[2]), L / n - .004, .02, up=normal, warp=.003, segs=1)
+            for y in (.5, 1.5):
+                m.nail((p[0] + normal[0] * .01, y + m.rng.uniform(-.012, .012), p[2] + normal[2] * .01), normal, .005)
+    roof_under = lambda p: top_at(p[2]) + .075
+    side_boards((-W - OUT, 0, -D - .04), (-W - OUT, 0, D + .04), (-1, 0, 0), roof_under)
+    side_boards((W + OUT, 0, -D - .04), (W + OUT, 0, D + .04), (1, 0, 0), roof_under)
+    side_boards((-W - .04, 0, -D - OUT), (W + .04, 0, -D - OUT), (0, 0, -1), lambda p: top_at(-D) + .06)
+    # The rails the boards are nailed to, let in between the posts.
     for y in (.5, 1.5):
-        m.beam((-W, y, -D), (-W, y, D), .05, .06, "wood_dark")
-        m.beam((W, y, -D), (W, y, D), .05, .06, "wood_dark")
-    # Door hanging open on two strap hinges, with the crescent cut out of its top board.
-    hx, hz = -W + .02, D + .05
-    a = math.radians(38)
-    dx, dz = math.cos(a), math.sin(a)
-    for i in range(7):
-        t = (i + .5) * .165
-        p = np.array((hx + dx * t, .14, hz + dz * t))
-        top = 1.95 if i != 3 else 1.74
-        m.plank(p, p + (0, top - .14, 0), .16, .022, up=(-dz, 0, dx), warp=.003, segs=1)
-    for y in (.35, 1.65):
-        m.plank((hx, y, hz + .03), (hx + dx * 1.1, y, hz + dz * 1.1 + .03), .09, .02, up=(-dz, 0, dx), mat="wood_dark", segs=1)
-        m.box((hx + dx * .1, y, hz + dz * .1 + .05), (.26, .05, .006), "steel", yaw=-a, chamfer=.002)
-    # Seat box inside.
-    m.box((0, .36, -.25), (1.2, .46, .9), "wood", chamfer=.012)
-    m.cyl((0, .595, -.25), (0, .6, -.25), .13, "void", 16)
-    # Tin roof on two purlins.
-    for z in (-.55, .55):
-        m.beam((-W - .15, H + .02 - .3 * (D - z) / (2 * D), z), (W + .15, H + .02 - .3 * (D - z) / (2 * D), z), .05, .05, "wood_dark")
+        for x in (-W, W):
+            m.beam((x, y, -D + .04), (x, y, D - .04), .07, .06, "wood_dark")
+        m.beam((-W + .04, y, -D), (W - .04, y, -D), .07, .06, "wood_dark", up=(0, 0, 1))
+    # Front: a head board over the doorway and a narrow board down each jamb.
+    m.plank((-W - .06, top_at(D) - .03, D + OUT), (W + .06, top_at(D) - .03, D + OUT), .2, .02, up=(0, 0, 1), warp=.002, segs=1)
+    for sx in (-1, 1):
+        m.plank((sx * (W + .01), .09, D + OUT), (sx * (W + .01), top_at(D) - .13, D + OUT), .1, .02, up=(0, 0, 1), warp=.002, segs=1)
+    # Door: seven boards on three ledges and two braces, standing open on its hinges.
+    DW, DB, DT = 2 * W - .12, .16, 1.93
+    close = m.at((-W + .06, 0, D + OUT + .022), math.radians(-52))
+    n = 7
+    for i in range(n):
+        x = (i + .5) * DW / n
+        m.plank((x, DB, 0), (x, DT - m.rng.uniform(0, .012), 0), DW / n - .004, .022, up=(0, 0, 1), warp=.002, segs=1)
+    for y in (DB + .2, 1.05, DT - .2):
+        m.plank((.03, y, -.022), (DW - .03, y, -.022), .1, .022, up=(0, 0, -1), mat="wood_dark", warp=.001, segs=1)
+        for i in range(n):
+            m.nail(((i + .5) * DW / n, y + (.02 if i % 2 else -.02), .011), (0, 0, 1), .005)
+    for y0, y1 in ((DB + .26, .99), (1.11, DT - .26)):
+        m.plank((.08, y0, -.022), (DW - .08, y1, -.022), .09, .022, up=(0, 0, -1), mat="wood_dark", warp=.001, segs=1)
+    # Strap hinges: the strap is bolted along the ledge line, its knuckle turns on a pin driven into the post.
+    for y in (DB + .2, DT - .2):
+        m.box((.2, y, .013), (.44, .045, .005), "steel", chamfer=.0015)
+        m.cyl((-.012, y - .04, .012), (-.012, y + .04, .012), .011, "steel", 8)
+        m.box((-.04, y, .004), (.06, .07, .005), "steel", chamfer=.0015)
+        for x in (.06, .2, .36):
+            m.bolt((x, y, .0155), (0, 0, 1), .006, "steel_bare")
+    # A turned wooden pull, and the hook that used to hold it shut.
+    m.cyl((DW - .1, 1.05, .011), (DW - .1, 1.05, .05), .016, "wood_dark", 8)
+    m.tube([(DW - .03, 1.2, .013), (DW - .03, 1.2, .03), (DW + .0, 1.17, .03), (DW + .015, 1.1, .03), (DW + .01, 1.06, .03)], .0035, "steel_bare", 5)
+    # The crescent sawn through the top of the door.
+    cx, cy, ro = DW / 2, DT - .33, .075
+    cv, cn, cuv, cf = [], [], [], []
+    K = 12
+    for k in range(K + 1):
+        t = -1.25 + 2.5 * k / K
+        outer = (cx - .02 + math.cos(t) * ro, cy + math.sin(t) * ro)
+        inner = (cx + .022 + math.cos(t * .8) * ro * .78, cy + math.sin(t) * ro * .96)
+        if inner[0] > outer[0]:
+            inner = outer
+        cv += [(outer[0], outer[1], .0138), (inner[0], inner[1], .0138)]
+        cn += [(0, 0, 1)] * 2
+        cuv += [(outer[0], outer[1]), (inner[0], inner[1])]
+        if k:
+            cf.append((2 * k - 2, 2 * k - 1, 2 * k + 1, 2 * k))
+    m.add("void", cv, cn, cuv, cf, metres_per_uv=1)
+    close()
+    # Seat: a boxed bench across the back with a hinged lid board and the hole.
+    m.box((0, .2 + .21, -D + .27), (2 * W - .08, .42, .5), "wood", chamfer=.01)
+    m.plank((-W + .04, .635, -D + .27), (W - .04, .635, -D + .27), .52, .025, mat="wood", warp=.001, segs=1)
+    m.cyl((0, .645, -D + .3), (0, .65, -D + .3), .12, "void", 18)
+    # Tin on two purlins that bear on the plates, nailed through the crests.
+    for z in (-D + .08, D - .08):
+        m.beam((-W - .2, top_at(z) + .07, z), (W + .2, top_at(z) + .07, z), .06, .05, "wood_dark")
+    slope = np.array((0, -DROP / (2 * D), -1.0))
     for i in range(3):
-        m.tin_sheet((-W - .2 + i * .52, H + .1 + i % 2 * .008, D + .18), (1, 0, 0), (0, -.36, -1.8), .56, 1.84, waves=3)
+        x0 = -W - .24 + i * .52
+        m.tin_sheet((x0, top_at(D + .22) + .108 + i % 2 * .006, D + .22), (1, 0, 0), slope * 1.9, .56, 1.94, waves=3)
+        for z in (-D + .08, D - .08):
+            for dx in (.09, .28, .47):
+                m.nail((x0 + dx, top_at(z) + .122, z), (0, 1, 0), .008, "steel_bare")
     m.collide_box(0, -D, W + .06, .05, 0, H, tag="outhouse wall")
     m.collide_box(-W, 0, .05, D + .06, 0, H, tag="outhouse wall")
     m.collide_box(W, 0, .05, D + .06, 0, H, tag="outhouse wall")
-    m.collide_box(0, -.25, .62, .46, 0, .6, tag="outhouse seat")
+    m.collide_box(0, -D + .27, W, .27, 0, .65, tag="outhouse seat")
+    m.collide_box(-W + .06 + .36, D + .55, .05, .5, 0, 1.95, yaw=math.radians(-52) + math.pi / 2, tag="outhouse door")
     m.radius = 2
     return m
 

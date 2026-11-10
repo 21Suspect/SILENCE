@@ -1,0 +1,52 @@
+{"round":7,"judge":"sonnet","assets":[
+{"asset":"rock_c","silhouette":6,"construction":6,"scale":7,"materials":7,"wear":7,"detail":6,"overall":6.4,"verdict":"SHIP WITH NOTES","defects":[
+{"severity":"Major","where":"Tile 1 and 2, large front face","what":"Face reads as a flat planar slab with a hard vertical crease (tile 1 centre); looks like a cut block, not weathered boulder","fix":"Break the plane with 20-30 cm undulations and round the crease edge"},
+{"severity":"Major","where":"Tile 3, centre notch","what":"Rectangular step/notch with two dark vertical shadow bands looks like a stacked box","fix":"Round the notch corners and give it a sloped fracture face"},
+{"severity":"Minor","where":"Tile 6 close-up","what":"Moss/lichen blotch noise is uniform and soft, slightly blurry; ~10 m footprint with texture stretched","fix":"Add larger-scale moss gradient concentrated on top and crevices, sharper fine grain"}],
+"read_at_game_distance":"Reads as a mossy boulder; planar faces are noticeable up close."},
+{"asset":"rock_d","silhouette":5,"construction":6,"scale":7,"materials":7,"wear":6,"detail":5,"overall":5.8,"verdict":"NO-SHIP","defects":[
+{"severity":"Major","where":"Tiles 1, 2, 5","what":"Silhouette is a faceted pyramid/wedge with hard planar creases (tile 1 centre ridge, tile 2 apex); looks low-poly blocked","fix":"Add secondary chips, rounded breaks and uneven ridge line; avoid single apex"},
+{"severity":"Major","where":"Tile 3, top","what":"Top is a flat slab with a pinched dent and ragged right-hand lip, reads as clay","fix":"Re-sculpt top with a tilted fracture plane and sharper broken edge"},
+{"severity":"Minor","where":"Tiles 1-4","what":"Same speckled moss texture everywhere, no directional wear (no streaking, no moss concentrated at base)","fix":"Add rain streaks and darker damp band at base; moss on upper ledges"}],
+"read_at_game_distance":"Reads as rock but the pyramid wedge shape looks artificial."},
+{"asset":"sawhorse","silhouette":7,"construction":5,"scale":6,"materials":7,"wear":6,"detail":6,"overall":5.9,"verdict":"NO-SHIP","defects":[
+{"severity":"Blocker","where":"All tiles, 2.51 m long and 1.49 m tall, saw frame behind log","what":"Whole thing is oversized for a sawhorse (about 2.5 m span); the log is 2.5 m and the saw frame floats on the log with only a thin post touching it (tile 1, tile 6)","fix":"Shorten to ~1.0-1.2 m beam and 0.8 m height, or keep log but make horse proportioned; seat saw frame into a kerf in the log with blade visible"},
+{"severity":"Major","where":"Tile 1 and 3, legs","what":"Leg pairs do not join the top beam with notches; legs splay inconsistently and cross braces are short stubs that look pinned on","fix":"Cut birdsmouth notches at the beam and run cross braces between leg pairs with visible nails"},
+{"severity":"Minor","where":"Tile 3, log","what":"Bark knots repeat at even spacing along the log top","fix":"Randomise knot spacing and sizes"}],
+"read_at_game_distance":"Reads as a log on trestles, scale feels off."},
+{"asset":"shovel","silhouette":7,"construction":6,"scale":7,"materials":7,"wear":7,"detail":6,"overall":6.5,"verdict":"SHIP WITH NOTES","defects":[
+{"severity":"Minor","where":"Tile 1, blade","what":"Blade has an odd cut notch on the top edge that reads as a defect, not wear","fix":"Make it a clean bend or tear with rust at the edge"},
+{"severity":"Minor","where":"Tiles 2, 3, 6, socket","what":"Ferrule sleeve is thick rust-orange cylinder with identical round rivets, looks like pasted tube","fix":"Taper the socket into the blade with a seam and vary rust"},
+{"severity":"Minor","where":"Tile 3 and 4, D-handle","what":"D-handle is a thin flat triangle, too light and open","fix":"Thicken to a closed grip with a cross bar"}],
+"read_at_game_distance":"Reads clearly as a rusty shovel lying on the ground."},
+{"asset":"stump_axe","silhouette":6,"construction":5,"scale":5,"materials":5,"wear":6,"detail":6,"overall":5.2,"verdict":"NO-SHIP","defects":[
+{"severity":"Major","where":"Tiles 1-6, chopping top","what":"Growth rings are a uniform wavy sand ripple pattern repeated across the whole top, reads like sand or fingerprint, not wood","fix":"Use irregular ring spacing, radial cracks and darker heartwood"},
+{"severity":"Major","where":"Tile 2, 3, axe","what":"Axe handle is about 1.4 m and leans sharply; head looks like a tiny wedge with little bite into the wood, the handle ends in an odd pointed knob (tile 6)","fix":"Shorten handle to ~0.9 m, embed a proper axe bit with visible kerf, and round the knob end"},
+{"severity":"Minor","where":"Tile 1, 4, top surface","what":"Small grey crosses and dashes on the top look like random decals","fix":"Remove or turn into real splinters and chips"}],
+"read_at_game_distance":"Reads as stump with axe, but top texture looks like sand."},
+{"asset":"tire","silhouette":5,"construction":5,"scale":7,"materials":5,"wear":5,"detail":4,"overall":4.8,"verdict":"NO-SHIP","defects":[
+{"severity":"Major","where":"All tiles, sidewall","what":"Sidewall is a lumpy slab with vertical streaks, no tread, no sidewall lettering or ridges; reads as a rubber blob","fix":"Model a rounded torus with tread blocks, bead rings and moulded sidewall detail"},
+{"severity":"Major","where":"Tile 1-3, hole","what":"Centre is a pure black void, no rim bead edge or inner liner visible","fix":"Show inner bead lip and a lighter inner sidewall"},
+{"severity":"Minor","where":"Tile 4, hole","what":"A patch of beige texture inside the hole looks like a stray decal","fix":"Replace with leaf litter or dirt that has a cause"}],
+"read_at_game_distance":"Reads as a tire from afar but crude; the shape is a lumpy cylinder."},
+{"asset":"toolbox","silhouette":6,"construction":5,"scale":7,"materials":5,"wear":5,"detail":5,"overall":5.0,"verdict":"NO-SHIP","defects":[
+{"severity":"Major","where":"Tiles 1-5, lid","what":"Lid is a flat brown plate sitting inside the box rim, textured with camouflage-like blotches that are unrelated to the red paint","fix":"Make lid same red metal with a hinge and edge lip, rust only at edges"},
+{"severity":"Major","where":"Tile 1, 3, handle and crossed sticks","what":"Two thin crossed rods float on the lid like loose sticks, and the handle has a single tall post at one end","fix":"Remove rods; mount handle on two brackets at each end"},
+{"severity":"Minor","where":"Tile 3, 4, latches","what":"Latches are flat tabs without hasp or catch","fix":"Add a hinged hasp with a rivet"}],
+"read_at_game_distance":"Reads as a red box with a lid, muddy blotches on top."},
+{"asset":"totem","silhouette":7,"construction":6,"scale":6,"materials":6,"wear":6,"detail":6,"overall":6.0,"verdict":"SHIP WITH NOTES","defects":[
+{"severity":"Major","where":"Tiles 1-5, effigy","what":"Figure hangs from a hook with spindly stick bundle; legs and arms are thin sticks that look sparse and unconnected, with arm ends floating (tile 1)","fix":"Bind arms and legs to the torso with visible lashing and thicken limbs"},
+{"severity":"Minor","where":"Tile 3, right post","what":"Post carries small evenly spaced tick marks like a ladder pattern","fix":"Vary notch spacing or make them clear carvings"},
+{"severity":"Minor","where":"Tile 6","what":"Beam is only butted to posts, no notch or lashing visible","fix":"Add a notched joint with rope wraps or bolts"}],
+"read_at_game_distance":"Reads as an eerie hanging effigy on a gallows frame; effective silhouette."},
+{"asset":"trailmarker","silhouette":6,"construction":6,"scale":7,"materials":6,"wear":6,"detail":5,"overall":5.7,"verdict":"SHIP WITH NOTES","defects":[
+{"severity":"Minor","where":"Tiles 3, 4, plaque","what":"Plaque is tiny with a blank beige square above an arrow; looks like a placeholder","fix":"Add a painted blaze or trail number and fasten with visible nails"},
+{"severity":"Minor","where":"Tile 2, 5, post","what":"Post is straight uniform cylinder with regular band marks at even spacing","fix":"Add taper, a cut top bevel and irregular knots"},
+{"severity":"Minor","where":"Tile 1, 2, plaque","what":"Plaque is paper-thin with no fasteners","fix":"Thicken and add two nail heads"}],
+"read_at_game_distance":"Reads as a wooden post with a small sign; plaque too small to read."},
+{"asset":"wheelbarrow","silhouette":7,"construction":5,"scale":7,"materials":6,"wear":6,"detail":6,"overall":5.8,"verdict":"NO-SHIP","defects":[
+{"severity":"Major","where":"Tiles 1, 2, handles and legs","what":"Handles run level with plain legs; leg posts are square sticks that stop short of the frame with unclear joints, and handle ends are black tubes","fix":"Add a leg bracket bolted to the handle, curved handle and wood grip ends"},
+{"severity":"Major","where":"Tile 1, 3, tray","what":"Tray sits on rusty brackets above the frame with air gaps between tray and wood","fix":"Seat tray on the cross members with bolts through its underside"},
+{"severity":"Minor","where":"Tile 2, 6, tray","what":"Pale grey scuffs repeat on the tray interior in identical diagonal dashes","fix":"Vary scuff direction and add rust at the seams and the bottom"}],
+"read_at_game_distance":"Reads clearly as a wheelbarrow; bright grey tray is a bit clean for the wear."}
+]}

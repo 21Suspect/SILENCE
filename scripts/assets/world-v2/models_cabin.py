@@ -84,9 +84,9 @@ def cabin():
         b = np.array((W + .55, RIDGE + .05, 0.0))
         return a, b, np.array((0.0, -eave * slope - .02, sign * eave))
     a, b, out = roof(1)
-    m.gable_roof_tin(a, b, 0, out, skip=(5,), curl={2: .5})
+    m.gable_roof_tin(a, b, 0, out, curl={2: .16})
     a, b, out = roof(-1)
-    m.gable_roof_tin(a, b, 0, out, curl={6: .3})
+    m.gable_roof_tin(a, b, 0, out, curl={6: .12})
     # Ridge cap.
     for x0 in np.arange(-W - .55, W + .5, .9):
         def cap(u, v, x0=x0):
@@ -128,7 +128,7 @@ def cabin():
         if i == 3:
             continue
         x0 = -W - .15 + i * (2 * W + .3) / n
-        m.tin_sheet((x0, ledger_y + .175 + i % 2 * .007, D + .05), (1, 0, 0), (0, -drop, run), (2 * W + .3) / n + .05, math.hypot(drop, run), droop=.0, curl=.14 if i == 6 else 0)
+        m.tin_sheet((x0, ledger_y + .175 + i % 2 * .007, D + .05), (1, 0, 0), (0, -drop, run), (2 * W + .3) / n + .05, math.hypot(drop, run), droop=.0, curl=.06 if i == 6 else 0)
     # Steps up to the porch.
     for i, (dz, y) in enumerate(((2.42, FLOOR - .14), (2.74, FLOOR - .28))):
         for w in (-.13, .13):
@@ -177,15 +177,14 @@ def cabin():
             tilt = rng.uniform(-.14, .14)
             m.plank((lo - .24, y - tilt, z + .1), (hi + .24, y + tilt, z + .1), .17, .03, mat="wood", up=(0, 0, 1))
     window(*front_window[:2], front_window[2], front_window[3], D + .03)
-    window(*back_window[:2], back_window[2], back_window[3], -D - .03, 2)
+    close = m.at((0, 0, -D), math.pi)
+    window(*back_window[:2], back_window[2], back_window[3], .03, 2)
+    close()
 
-    # The side window is at x=W; build it rotated.
-    z0, z1 = side_window[:2]
-    for z in (z0, z1):
-        m.beam((W + .03, side_window[2], z), (W + .03, side_window[3], z), .1, .07, "wood_dark")
-    for y in (side_window[2], side_window[3]):
-        m.beam((W + .03, y, z0 - .03), (W + .03, y, z1 + .03), .12, .07, "wood_dark")
-    m.box((W + .02, (side_window[2] + side_window[3]) / 2, 0), (.01, side_window[3] - side_window[2], z1 - z0), "glass", chamfer=.001)
+    # The side window is in the gable wall: the same window, turned.
+    close = m.at((W, 0, 0), math.pi / 2)
+    window(side_window[0], side_window[1], side_window[2], side_window[3], .03, 2)
+    close()
 
     # Fieldstone chimney on the left gable: mortar core, stones laid in running bond.
     cx, cz = -W - .46, -.55
@@ -256,10 +255,16 @@ def cabin():
     m.box((2.78, FLOOR + .56, -1.85), (.85, .05, 1.0), "wood")
     m.box((2.78, FLOOR + .62, -1.85), (.75, .08, .92), "canvas", chamfer=.03)
 
-    # Hanging lantern; the runtime can light it.
-    m.lathe([(0, 0), (.075, .05), (.09, .2), (.055, .55), (.075, .62), (.075, .7), (0, .72)], (-.8, py - .62, D + 1.2), (-.8, py - .26, D + 1.2), "tin", 8)
-    m.tube([(-.8, py - .26, D + 1.2), (-.8, py - .05, D + 1.2)], .006, "steel_bare", 4)
-    m.hook("lantern", (-.8, py - .45, D + 1.2))
+    # Storm lantern on a wire hook over a porch rafter; the runtime can light it.
+    lx, lz = rafters[3], D + 1.2
+    raft_y = ledger_y + .1 + (py + .15 - ledger_y - .1) * (lz - D - .12) / 2.1
+    m.lathe([(0, 0), (.075, .05), (.09, .2), (.055, .55), (.075, .62), (.075, .7), (0, .72)], (lx, py - .62, lz), (lx, py - .26, lz), "tin", 10)
+    m.tube([(lx, py - .27, lz), (lx, raft_y - .07, lz), (lx + .05, raft_y - .02, lz), (lx + .05, raft_y + .07, lz), (lx, raft_y + .075, lz), (lx - .045, raft_y + .06, lz)], .005, "steel_bare", 5)
+    m.hook("lantern", (lx, py - .45, lz))
+    # The sheet missing from the porch roof lies where it came down, one corner folded under.
+    def fallen(u, v):
+        return np.array((-W - 1.5 + u * .86 + v * .25, .03 + .016 * math.sin(u * 6 * math.pi) + .22 * max(0.0, v - .72) ** 1.3, D + .9 + v * 2.2 - u * .3))
+    m.surface("tin", fallen, 24, 5, (1.72, 4.4), wear=lambda u, v: .35 + .4 * abs(2 * u - 1) ** 2)
 
     # Someone wanted this read before anyone went in.
     from kit import poster_material, ROOT

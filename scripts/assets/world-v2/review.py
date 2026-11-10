@@ -24,6 +24,12 @@ argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 COMPANIONS = {"mine": ["minerock"]}
 FRONT_ONLY = {"mine": 15.0}
 FRAME = {"hut": 11.0, "fuse": .55, "stump_axe": 1.25, "cans": .6, "shovel": 1.0}
+# Game coordinates (x, y up, z). BODY: frame the views on this box instead of the whole bounds (a hut with 13 m of cable
+# is still a hut). CLOSE: where the sixth, close view stands and what it looks at.
+BODY = {"hut": ((0, 0, .3), 3.4, 3.2), "pole": ((0, 0, 0), 1.3, 10.0), "mast": ((0, 0, 0), 4.5, 37)}
+CLOSE = {"hut": ((1.3, 1.6, 6.4), (-.2, 1.35, 1.7)), "cabin": ((2.2, 1.65, 7.4), (.9, 1.5, 2.5)), "chapel": ((6.5, 1.65, 7.5), (2.5, 1.9, 2.0)),
+         "lookout": ((5.5, 1.65, 6.5), (0, 2.2, 0)), "mast": ((6, 1.65, 7), (0, 2.5, 0)), "pole": ((1.8, 1.65, 2.6), (0, 1.5, 0)),
+         "logstack": ((-1.5, 1.65, 12.5), (-3.5, 1.4, 6.5)), "camp": ((1.5, 1.6, 4.2), (-.5, .5, -.4)), "roadbridge": ((-17, -1.2, 14), (-6, -2.2, 0))}
 names = argv or sorted(f[:-4] for f in os.listdir(GLB) if f.endswith(".glb") and f[:-4] != "minerock")
 CONTACT = .02   # metres: closer than this counts as touching
 
@@ -118,13 +124,16 @@ def audit(obj):
                 continue
             joined = bool(tree(i).overlap(tree(int(j))))
             if not joined:
-                a, b = (i, int(j)) if len(parts[i]["v"]) < len(parts[int(j)]["v"]) else (int(j), i)
-                t = tree(b)
-                samples = np.concatenate([parts[a]["v"], parts[a]["v"][parts[a]["t"]].mean(axis=1)])
-                for v in samples:
-                    hit = t.find_nearest(tuple(v))
-                    if hit[3] is not None and hit[3] <= CONTACT:
-                        joined = True
+                # Both ways round: a small part in the middle of a long plain one is near none of the long one's corners.
+                for a, b in ((i, int(j)), (int(j), i)):
+                    t = tree(b)
+                    samples = np.concatenate([parts[a]["v"], parts[a]["v"][parts[a]["t"]].mean(axis=1)])
+                    for v in samples:
+                        hit = t.find_nearest(tuple(v))
+                        if hit[3] is not None and hit[3] <= CONTACT:
+                            joined = True
+                            break
+                    if joined:
                         break
             if joined:
                 parent[find(int(j))] = find(i)
@@ -153,6 +162,9 @@ def render(obj, name):
     centre = (lo + hi) / 2
     R = max(size.x, size.y) / 2
     H = size.z
+    if name in BODY:
+        c, R, H = BODY[name]
+        centre = Vector((c[0], -c[2], c[1] + H / 2))
     bpy.ops.mesh.primitive_plane_add(size=max(400, R * 12), location=(0, 0, -.005))
     ground = bpy.context.active_object
     gm = bpy.data.materials.new("ground")
@@ -187,9 +199,14 @@ def render(obj, name):
         cam = bpy.data.objects.new("c", bpy.data.cameras.new("c"))
         bpy.context.collection.objects.link(cam)
         cam.location = (centre.x + math.cos(a) * d, centre.y + math.sin(a) * d, z)
+        look = Vector((centre.x, centre.y, target_z))
         cam.data.lens = 28 if H >= 12 else 34
+        if i == 5 and name in CLOSE:
+            (cx, cy, cz), (tx, ty, tz) = CLOSE[name]
+            cam.location, look = (cx, -cz, cy), Vector((tx, -tz, ty))
+            cam.data.lens = 30
         cam.data.clip_end = 2000
-        cam.rotation_euler = (Vector((centre.x, centre.y, target_z)) - cam.location).to_track_quat("-Z", "Y").to_euler()
+        cam.rotation_euler = (look - cam.location).to_track_quat("-Z", "Y").to_euler()
         scene.camera = cam
         path = os.path.join(tmp, f"{i}.jpg")
         scene.render.filepath = path

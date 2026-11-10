@@ -1,0 +1,67 @@
+{"round":7,"judge":"sonnet","assets":[
+{"asset":"drum","silhouette":8,"construction":7,"scale":8,"materials":6,"wear":6,"detail":6,"overall":6.4,"verdict":"SHIP WITH NOTES","defects":[
+{"severity":"Major","where":"tiles 1,4,6 (left/lower body)","what":"Rust is one uniform blotchy band at the same height on every side, reads as a texture stripe not water-line rust","fix":"Vary rust per side, run it as streaks down from the rim ribs and the lid seam, keep the base clean in places"},
+{"severity":"Minor","where":"tile 3 right side","what":"Straight vertical seam line stops dead at the rib with no weld bead","fix":"Add a raised weld bead through the ribs or remove the seam"},
+{"severity":"Minor","where":"tile 2 lid","what":"Lid is washed-out flat pink and much lighter than the body, plain untextured","fix":"Paint it the body colour with rust rings round the bungs and dents"}],
+"read_at_game_distance":"Reads clearly as a rusty oil drum; DIESEL stencil legible; looks a bit clean and smooth."},
+{"asset":"fence","silhouette":6,"construction":4,"scale":7,"materials":6,"wear":5,"detail":4,"overall":4.7,"verdict":"NO-SHIP","defects":[
+{"severity":"Major","where":"tiles 1,2,4,5 bottom rail","what":"Lowest rail is attached at one post only; the other end lies on or hovers just above the ground, so it reads as floating/unsupported","fix":"Either rest the free end on the ground with a visible dent and broken end, or fix both ends to the posts"},
+{"severity":"Major","where":"all tiles, post/rail joints","what":"Round rails just poke through round posts with no notch, nail or wire; rails overshoot past the posts by 20-30 cm for no reason","fix":"Cut rails flush at the post, add notches or spikes and nail heads"},
+{"severity":"Minor","where":"tiles 1-5","what":"Only two posts over 4.75 m, smooth tube rails with no knots or cracks; very sparse","fix":"Add a middle post, split ends, knots, bark loss"}],
+"read_at_game_distance":"Reads as a rail fence but sparse and skeletal; the dangling lower rail looks like a mistake."},
+{"asset":"firewood","silhouette":7,"construction":6,"scale":7,"materials":6,"wear":6,"detail":6,"overall":6.2,"verdict":"SHIP WITH NOTES","defects":[
+{"severity":"Major","where":"tiles 1-5 log ends","what":"Log ends are visibly 7-8 sided facets with the same swirl end-grain texture on every log","fix":"Use 12+ sided logs with varied rings, splits and cut angles, randomise the end texture rotation"},
+{"severity":"Major","where":"tiles 2,5 roof","what":"Corrugated sheet bows up in the middle and touches nothing but the two end posts; no rafters or purlins and the sheet sits well above the pile","fix":"Add a ridge beam and rafters across the posts and flatten or slope the sheet onto them with nails"},
+{"severity":"Minor","where":"tile 6 and tops in tiles 1-5","what":"The two roof weights are identical dark lumps with the same swirl pattern, and the rust patches at both corners mirror each other","fix":"Use two different stones or logs and asymmetric rust"}],
+"read_at_game_distance":"Reads as a woodpile under tin; the faceted log ends are the giveaway."},
+{"asset":"fuse","silhouette":8,"construction":7,"scale":8,"materials":7,"wear":5,"detail":7,"overall":6.0,"verdict":"SHIP WITH NOTES","defects":[
+{"severity":"Minor","where":"all tiles","what":"Brand-new, no wear, scuffs or grime for a found object in an abandoned site","fix":"Add tarnish on the brass caps and dust on the ceramic body"},
+{"severity":"Minor","where":"tile 2 and 3","what":"Red stripe along the body reads as a seam","fix":"Wrap it into a band or move it under the label"},
+{"severity":"Minor","where":"tile 6","what":"Tabs are flat plates with plain holes","fix":"Add a rolled lip"}],
+"read_at_game_distance":"At 24 cm it is a small tube with brass ends; too small to judge detail from the sheet."},
+{"asset":"generator","silhouette":7,"construction":5,"scale":7,"materials":6,"wear":5,"detail":7,"overall":5.0,"verdict":"NO-SHIP","defects":[
+{"severity":"Blocker","where":"audit: 4 floating groups at y=1.25 m, centres (-0.5,+-0.12) and (-0.1,+-0.12); tiles 2,3,4 top cover bolts","what":"Bolt heads hover with no contact with the top cover, so the automatic gate fails","fix":"Sink the bolts 2 mm into the cover plate or lower them to the plate surface (y of cover top)"},
+{"severity":"Major","where":"tile 1 and 6, black box and tank","what":"Large dark box sits on the tank with a hard flat plain face, intersects the exhaust pipe and has no seam, vent or bolts","fix":"Give it panels, bolts, a vent and a clear mount, move the pipe clear"},
+{"severity":"Major","where":"tiles 1,4,5","what":"Tank has the same short horizontal dash decals repeated (and a cross in tile 5); radiator fins in tile 3 are a uniform stripe pattern","fix":"Replace dashes with real weld seams and a data plate, vary fin damage"},
+{"severity":"Minor","where":"tile 1 top-left, exhaust","what":"The rain cap is a thin flat plate floating on a bent pipe","fix":"Add a hinge and a visible weld"}],
+"read_at_game_distance":"Reads as an old air compressor, not a generator; silhouette convincing but the large dark slab looks like a block."},
+{"asset":"guardrail","silhouette":6,"construction":5,"scale":7,"materials":5,"wear":5,"detail":4,"overall":4.7,"verdict":"NO-SHIP","defects":[
+{"severity":"Major","where":"tiles 1,2,5,6","what":"Posts are plain smooth grey boxes with no bolts, spacer blocks or washers, and are tinted lighter than the rail; rail seems to rest on top of them","fix":"Add offset blocks, bolt heads, slotted holes, and make the posts darker with soil staining"},
+{"severity":"Major","where":"tile 6","what":"Rail reads as round tube rather than a W-beam profile","fix":"Model the W corrugation with two humps and a lap seam"},
+{"severity":"Minor","where":"tiles 3,4","what":"Rust is one speckle band along the lower edge, uniformly repeated for the whole 8 m, and the top is nearly clean","fix":"Rust at bolts and the post contacts, vary along the length"}],
+"read_at_game_distance":"Reads as a guardrail but flat; posts look like blocks."},
+{"asset":"guardrail_end","silhouette":6,"construction":4,"scale":7,"materials":5,"wear":5,"detail":4,"overall":4.5,"verdict":"NO-SHIP","defects":[
+{"severity":"Major","where":"tiles 1,4,5 left end","what":"Rail ramps down to a thin knife-edge point that disappears into the ground with no end terminal or buried anchor","fix":"Add a flared end terminal plate and anchor post, or cut the rail off at a visible edge above ground"},
+{"severity":"Major","where":"tiles 1,6 end post","what":"Last short post stands beside the sloped rail, not under it; the rail is unsupported along the ramp","fix":"Add a post under the ramp midpoint and bolt it"},
+{"severity":"Minor","where":"tiles 3,4","what":"Post blocks are plain boxes and the rust band is repeated from the straight section","fix":"Same as guardrail: bolts, blocks, varied rust"}],
+"read_at_game_distance":"Reads as a guardrail end, but the ramp vanishing into the ground looks wrong."},
+{"asset":"guardrail_endr","silhouette":6,"construction":4,"scale":7,"materials":5,"wear":5,"detail":4,"overall":4.5,"verdict":"NO-SHIP","defects":[
+{"severity":"Major","where":"tiles 1,2,5 right end","what":"Mirror of the left end: rail ramps to a point in the ground with no terminal","fix":"Add a flared end terminal and anchor"},
+{"severity":"Major","where":"tiles 1,2,6","what":"End posts are tiny stubs beside the ramp, nothing under it","fix":"Place a taller post under the ramp and bolt it"},
+{"severity":"Minor","where":"tile 6 posts","what":"Posts are plain boxes with no blocks or bolts","fix":"Add hardware"}],
+"read_at_game_distance":"Same as the left end; the mirror shows identical rust, which looks cloned next to its twin."},
+{"asset":"hut","silhouette":7,"construction":6,"scale":7,"materials":6,"wear":5,"detail":6,"overall":5.5,"verdict":"NO-SHIP","defects":[
+{"severity":"Major","where":"tile 6","what":"Close-up tile is entirely black, no close view was reviewed (missing render)","fix":"Re-render the close-up of the door and window so it can be judged"},
+{"severity":"Major","where":"tiles 2,3 wall bases","what":"Same dark grime gradient band at the same height on every wall, and the block grid is identical on every wall","fix":"Vary grime with splashes by the downpipe, vary block tone and add some cracks and chipped corners"},
+{"severity":"Minor","where":"tile 4 doorway","what":"Interior is an empty black box, the door slab is thin flat green, and the step slab is a loose tilted plate","fix":"Add a frame, hinges, a lock plate and set the step flush; give a hint of interior"},
+{"severity":"Minor","where":"tile 5 roof","what":"Roof is a plain concrete plate with a single vent","fix":"Add tar patches, drain, stains"}],
+"read_at_game_distance":"Reads as a concrete block utility hut; sensible but blank and clean."},
+{"asset":"jerrycan","silhouette":6,"construction":4,"scale":8,"materials":4,"wear":5,"detail":6,"overall":4.75,"verdict":"NO-SHIP","defects":[
+{"severity":"Major","where":"tiles 1,3,6 left edge","what":"Black gap/void between the front panel and the body corner, the panel looks like a separate sheet laid on the can","fix":"Make the side wall one continuous shell with rolled seams, no air gap"},
+{"severity":"Major","where":"tiles 2-5 faces","what":"Faces read as soft green cloth/tarp with wrinkles and a painted X, not stamped steel","fix":"Use crisp pressed X ribs with a crisp metal sheen, scratches and paint chips"},
+{"severity":"Major","where":"tiles 2-5 lower edge","what":"Same rust smear along the bottom of both faces","fix":"Stagger the rust, add streaks from the seams"},
+{"severity":"Minor","where":"top","what":"Three loop handles look like pipe bars with a rod through them; cap handle arbitrary rust-orange","fix":"One stamped handle cutout and a strap on the cap"}],
+"read_at_game_distance":"Reads as a green can but the shell looks like fabric and the corner gap shows."},
+{"asset":"logstack","silhouette":6,"construction":5,"scale":6,"materials":6,"wear":5,"detail":5,"overall":5.0,"verdict":"NO-SHIP","defects":[
+{"severity":"Blocker","where":"audit: 8 floating logs (lowest 0.45-0.97 m) in the three piles","what":"Upper logs sit above lower logs with no contact (floating gate fails); also this is a 15x20 m scene, not a prop","fix":"Drop each upper log until it touches the two lower logs and re-run the contact check"},
+{"severity":"Major","where":"tiles 2,3,5,6 shed roof","what":"Roof sheets sit at differing pitches with a gap between the panels where sky and a beam show, and corner overhangs stick out with nothing under them","fix":"Lay the sheets overlapping on common rafters at one pitch and add purlins"},
+{"severity":"Major","where":"tile 3 and 1 shed wall and log ends","what":"Wall is one flat plain plank slab and log ends are flat grey with no rings; bark texture identical on all logs","fix":"Plank gaps, nails, stain variation; ring texture and splits on the log ends; vary bark"},
+{"severity":"Minor","where":"tile 6","what":"Piles are held only by one post per end with a wire","fix":"Four stakes per pile"}],
+"read_at_game_distance":"Reads as a timber yard with piles and a shed, but the composition is huge and the roof looks broken."},
+{"asset":"lookout","silhouette":8,"construction":7,"scale":7,"materials":6,"wear":6,"detail":7,"overall":5.0,"verdict":"NO-SHIP","defects":[
+{"severity":"Blocker","where":"audit: floating group at (2.28, 6.0, 0.0), 2x6x5 cm","what":"A tiny part hovers at 6 m (lowest 5.98) with no contact, gate fails","fix":"Attach it to the nearest rail or post, or delete it"},
+{"severity":"Major","where":"tiles 1-3 all bays","what":"Every bay has the same X brace pattern and the same stair flights repeat; braces overlap the stair at flight crossings (tile 6)","fix":"Vary spacing and break some braces, route the stairs clear of the braces"},
+{"severity":"Minor","where":"tiles 1-4 cabin","what":"Cabin and roof read as dark slabs at this scale, so windows, glass and posts can't be checked; roof is dark in tiles 1-4 but pale in tile 5","fix":"Re-render a close-up of the cabin; confirm the roof is held by corner posts and the window frames have no gaps"},
+{"severity":"Minor","where":"tile 6 footings","what":"Concrete footings plain blocks, no anchor bolts or plates","fix":"Add base plates and bolts"}],
+"read_at_game_distance":"Strong silhouette that reads at range as a fire tower; cabin detail unverifiable from the sheet."}
+]}
