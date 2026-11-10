@@ -45,6 +45,15 @@ export function indoorsAt(x: number, z: number) {
   }
   return false;
 }
+/** What the walls of the building at this point are made of, if it is inside one: the creature knocks on them. */
+export function shelterAt(x: number, z: number): 'plank' | 'metal' | undefined {
+  for (const p of roofed) {
+    const f = p.footprint!, c = Math.cos(p.yaw), s = Math.sin(p.yaw), dx = x - p.x, dz = z - p.z;
+    const lx = dx * c - dz * s, lz = dx * s + dz * c;
+    if (Math.abs(lx - f.cx) < f.hx * INSIDE && Math.abs(lz - f.cz) < f.hz * INSIDE) return p.asset === 'hut' ? 'metal' : 'plank';   // the relay hut has a steel door and frame
+  }
+  return undefined;
+}
 /** Where a caught player wakes: on the ground just out from the cabin door, facing it. */
 export function cabinWakePoint() {
   const cabin = POI_PLACEMENTS.find(p => p.id === 'cabin');
@@ -152,6 +161,7 @@ export function createWorldV2(o: WorldV2Options) {
     },
     /** Inside the cabin, the relay hut, the chapel or the mine. */
     indoors: (p: { x: number; z: number }) => indoorsAt(p.x, p.z),
+    shelter: (p: { x: number; z: number }) => shelterAt(p.x, p.z),
     /** Where a caught player wakes. */
     wakePoint: cabinWakePoint,
     /** A restarted night: every objective back where it began, nobody on a ladder. */

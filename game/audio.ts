@@ -15,6 +15,10 @@ export type ForestAudioFrame = {
 type Point = { x: number; y: number; z: number };
 
 /** A deliberately quiet soundscape. Nothing is audible until a user gesture. */
+/** How many takes of each creature sound ship in public/audio/creature (see scripts/assets/audio/creature_sounds.py). */
+export const CREATURE_TAKES = { screech: 5, hiss: 6, branch: 6, call: 6, clicks: 8, knock_trunk: 4, knock_plank: 4, knock_metal: 4 } as const;
+export type CreatureSound = keyof typeof CREATURE_TAKES;
+
 export class ForestAudio {
   private context: AudioContext | null = null;
   private master: GainNode | null = null;
@@ -35,6 +39,8 @@ export class ForestAudio {
   private creakAt = 22 + Math.random() * 22;
   private lastStalkCue = -Infinity;
   private revealBuffer: AudioBuffer | null = null;
+  private samples = new Map<CreatureSound, AudioBuffer[]>();
+  private lastTake = new Map<CreatureSound, number>();
   private revealSource: AudioBufferSourceNode | null = null;
   private position: Point = { x: 0, y: 0, z: 0 };
 
@@ -48,6 +54,11 @@ export class ForestAudio {
     this.context = context;
     // Decode once after audio is unlocked; encounter playback retries until ready.
     void fetch('/audio/scary%20sound.mp3').then(r=>{if(!r.ok)throw new Error('Reveal audio unavailable');return r.arrayBuffer();}).then(bytes=>context.decodeAudioData(bytes)).then(buffer=>{if(!this.disposed)this.revealBuffer=buffer;}).catch(error=>console.warn('SILENCE: reveal audio could not load',error));
+    // The creature's voice: takes rendered by scripts/assets/audio/creature_sounds.py. Until one is decoded its sound is simply skipped.
+    for (const [group, count] of Object.entries(CREATURE_TAKES) as [CreatureSound, number][]) for (let take = 1; take <= count; take++) {
+      void fetch(`/audio/creature/${group}_${take}.mp3`).then(r => { if (!r.ok) throw new Error(`${group}_${take} unavailable`); return r.arrayBuffer(); }).then(bytes => context.decodeAudioData(bytes))
+        .then(buffer => { if (this.disposed) return; const list = this.samples.get(group) ?? []; list.push(buffer); this.samples.set(group, list); }).catch(error => console.warn('SILENCE: creature sound could not load.', error));
+    }
     const master = context.createGain();
     master.gain.value = 0;
     this.master = master;
@@ -232,73 +243,52 @@ export class ForestAudio {
     source.start();return true;
   }
 
-  /** Restrained positional invitation to look, separate from the reveal. */
-  stalkCue(position: Point): boolean {
-    if (!this.context || this.context.state !== 'running' || !this.master) return false;
-    const now = this.context.currentTime;
-    if (now - this.lastStalkCue < 14) return false;
-    this.lastStalkCue = now;
-    this.noiseHit({ duration: 0.17, level: 0.15, frequency: 1450, attack: 0.025, position, rate: 0.74 });
-    this.noiseHit({ duration: 0.8, level: 0.045, frequency: 740, type: 'bandpass', attack: 0.15, delay: 0.12, position });
-    this.tone({ frequency: 180, endFrequency: 82, duration: 0.36, level: 0.045, attack: 0.035, delay: 0.06, position });
+  /**
+   * One recorded take of a creature sound, from a point in the world. Takes never repeat back to back and
+   * each is played a touch faster or slower, so the animal never makes exactly the same noise twice.
+   * `reach` is the distance (m) at which it starts to fall away.
+   */
+  private sample(group: CreatureSound, position: Point, level: number, reach: number): boolean {
+    const takes = this.samples.get(group);
+    if (!this.context || this.context.state !== 'running' || !this.master || !takes?.length) return false;
+    let index = Math.floor(Math.random() * takes.length);
+    if (takes.length > 1 && index === this.lastTake.get(group)) index = (index + 1 + Math.floor(Math.random() * (takes.length - 1))) % takes.length;
+    this.lastTake.set(group, index);
+    const c = this.context, source = c.createBufferSource(), gain = c.createGain(), pan = c.createPanner();
+    source.buffer = takes[index]; source.playbackRate.value = .96 + Math.random() * .08; gain.gain.value = level;
+    pan.panningModel = 'HRTF'; pan.distanceModel = 'inverse'; pan.refDistance = reach; pan.maxDistance = 160; pan.rolloffFactor = 1;
+    pan.positionX.value = position.x; pan.positionY.value = position.y; pan.positionZ.value = position.z;
+    source.connect(gain).connect(pan).connect(this.master); this.track(source, [gain, pan]);
+    source.start();
     return true;
   }
 
-  /**
-   * The grab at full intensity, right at the face; quieter and at range when a hunt begins. A torn, falling
-   * shriek (detuned saws roughened by a fast square rasp) over a wet roar and a low growl. Synthesized.
-   */
-  screech(position: Point, intensity = 1): void {
-    if (!this.context || this.context.state !== 'running' || !this.master || !this.noise) return;
-    const c = this.context, at = c.currentTime, length = .7 + intensity * .55, level = .14 * intensity, end = at + length + .03;
-    const outlet = this.spatial(position);
-    const shape = c.createBiquadFilter(); shape.type = 'bandpass'; shape.Q.value = 1.3;
-    shape.frequency.setValueAtTime(2400, at); shape.frequency.exponentialRampToValueAtTime(950, at + length);
-    const envelope = c.createGain();
-    envelope.gain.setValueAtTime(.00001, at); envelope.gain.exponentialRampToValueAtTime(level, at + .025);
-    envelope.gain.setValueAtTime(level * .8, at + length * .5); envelope.gain.exponentialRampToValueAtTime(.00001, at + length);
-    shape.connect(envelope).connect(outlet);
-    const rasp = c.createOscillator(), depth = c.createGain();
-    rasp.type = 'square'; rasp.frequency.setValueAtTime(43, at); rasp.frequency.linearRampToValueAtTime(21, at + length); depth.gain.value = 150;
-    rasp.connect(depth); this.track(rasp, [depth]); rasp.start(at); rasp.stop(end);
-    for (let i = 0; i < 3; i++) {
-      const voice = c.createOscillator(), gain = c.createGain();
-      voice.type = i === 2 ? 'square' : 'sawtooth';
-      voice.frequency.setValueAtTime(1650 + i * 137, at); voice.frequency.exponentialRampToValueAtTime(560 + i * 47, at + length);
-      depth.connect(voice.frequency); gain.gain.value = i === 2 ? .35 : .6;
-      voice.connect(gain).connect(shape);
-      this.track(voice, i === 2 ? [gain, shape, envelope, ...(outlet === this.master ? [] : [outlet])] : [gain]);
-      voice.start(at); voice.stop(end + i * .001);
-    }
-    this.noiseHit({ duration: length * .9, level: .26 * intensity, frequency: 2900, type: 'bandpass', attack: .02, position, rate: 1.3 });
-    this.noiseHit({ duration: length * 1.15, level: .2 * intensity, frequency: 420, attack: .04, position, rate: .55 });
-    this.tone({ frequency: 96, endFrequency: 47, duration: length * 1.2, level: .11 * intensity, type: 'sawtooth', attack: .05, position });
+  /** Soft throat clicks from where it stands: close, unseen, and not trying to be heard. */
+  stalkCue(position: Point): boolean {
+    if (!this.context || this.context.state !== 'running') return false;
+    const now = this.context.currentTime;
+    if (now - this.lastStalkCue < 6) return false;
+    if (!this.sample('clicks', position, .9, 5)) return false;
+    this.lastStalkCue = now;
+    return true;
   }
 
-  /** Pinned by the torch: a dry hiss through the teeth. */
-  hiss(position: Point): void {
-    if (!this.context || this.context.state !== 'running') return;
-    this.noiseHit({ duration: .75, level: .11, frequency: 3400, type: 'highpass', attack: .05, position, rate: .9 });
-    this.noiseHit({ duration: .5, level: .06, frequency: 900, type: 'bandpass', attack: .02, position, delay: .06 });
-    this.tone({ frequency: 150, endFrequency: 96, duration: .5, level: .035, type: 'sawtooth', attack: .03, position });
-  }
+  /** It raps on what is beside it: a trunk outdoors, or the wall of whatever the player is hiding in. */
+  knock(position: Point, material: 'trunk' | 'plank' | 'metal' = 'trunk'): boolean { return this.sample(`knock_${material}`, position, .85, 7); }
+
+  /** The roar: the grab at full strength right at the face, quieter when a hunt begins at range. */
+  screech(position: Point, intensity = 1): void { this.sample('screech', position, .35 + .65 * intensity, 10); }
+
+  /** Pinned by the torch. */
+  hiss(position: Point): void { this.sample('hiss', position, .85, 6); }
 
   cue(kind: 'branch' | 'breath' | 'call', position: THREE.Vector3): void {
     if (!this.context || this.context.state !== 'running') return;
-    if (kind === 'branch') {
-      this.noiseHit({ duration: 0.08, level: 0.17, frequency: 1800, position });
-      this.tone({ frequency: 150, endFrequency: 70, duration: 0.24, level: 0.09, position });
-      for (let i = 0; i < 3; i++) this.noiseHit({ duration: 0.1, level: 0.06 / (i + 1), frequency: 700 + i * 900, delay: 0.09 + i * 0.12, position });
-    } else if (kind === 'breath') {
+    if (kind === 'branch') this.sample('branch', position, 1, 12);
+    else if (kind === 'call') this.sample('call', position, .9, 35);
+    else {
       this.noiseHit({ duration: 2.3, level: 0.055, frequency: 680, type: 'bandpass', attack: 0.65, position });
       this.noiseHit({ duration: 2.1, level: 0.017, frequency: 1400, type: 'bandpass', attack: 0.8, position, delay: 0.1 });
-    } else {
-      // The recognizable start of a distant animal call, with an imperfect trailing overtone.
-      for (let i = 0; i < 2; i++) {
-        const delay = i * 0.48;
-        this.tone({ frequency: 350 - i * 18, endFrequency: 205, duration: 0.52, level: 0.042, position, delay, type: 'triangle', attack: 0.065 });
-        this.noiseHit({ duration: 0.5, level: 0.05, frequency: 520, type: 'bandpass', attack: 0.045, position, delay });
-      }
     }
   }
 
