@@ -1,6 +1,7 @@
 import type * as THREE from 'three';
 import {createBreathing} from './breathing';
 import { riverX, waterHeightAt } from './world';
+import { volumeGain, type Settings } from './settings';
 
 type Surface = 'dirt' | 'road' | 'water';
 export type ForestAudioFrame = {
@@ -28,6 +29,13 @@ const smoothstep = (x: number, a: number, b: number) => { const t = Math.min(1, 
 export class ForestAudio {
   private context: AudioContext | null = null;
   private master: GainNode | null = null;
+  // The player's mix (Settings > Sound). Ambience and creature are groups the game's own gains feed into, and master sits last, so each
+  // slider multiplies with the fades below (master.gain, the buses, hush) instead of replacing them.
+  private userMaster: GainNode | null = null;
+  private ambienceGroup: GainNode | null = null;
+  private creatureGroup: GainNode | null = null;
+  private volume = { master: 1, ambience: 1, creature: 1 };
+  private listening = false;
   private noise: AudioBuffer | null = null;
   private field: {panner:PannerNode;gain:GainNode;point:Point;kind:number;level:number;initialized:boolean;relocating:boolean}[]=[];
   private breathing=createBreathing();
@@ -79,7 +87,13 @@ export class ForestAudio {
     compressor.ratio.value = 2.5;
     compressor.attack.value = 0.025;
     compressor.release.value = 0.3;
-    master.connect(compressor).connect(context.destination);
+    // sources -> [ambience | creature group] -> master (the game's fades) -> compressor -> player's master volume -> speakers.
+    // Footsteps, breathing and the torch click feed master directly. The master slider sits after the compressor so it is a plain volume knob.
+    const userMaster = context.createGain(), ambienceGroup = context.createGain(), creatureGroup = context.createGain();
+    userMaster.gain.value = this.volume.master; ambienceGroup.gain.value = this.volume.ambience; creatureGroup.gain.value = this.volume.creature;
+    ambienceGroup.connect(master); creatureGroup.connect(master);
+    this.userMaster = userMaster; this.ambienceGroup = ambienceGroup; this.creatureGroup = creatureGroup;
+    master.connect(compressor).connect(userMaster).connect(context.destination);
     const length = context.sampleRate * 8;
     this.noise = context.createBuffer(1, length, context.sampleRate);
     const white = this.noise.getChannelData(0);
@@ -87,7 +101,7 @@ export class ForestAudio {
 
     // The forest itself: real recordings on three buses. Nothing plays until its file has decoded.
     this.buses = { day: context.createGain(), night: context.createGain(), wind: context.createGain() };
-    for (const bus of Object.values(this.buses)) { bus.gain.value = 0; bus.connect(master); }
+    for (const bus of Object.values(this.buses)) { bus.gain.value = 0; bus.connect(ambienceGroup); }
     for (const name of [...AMBIENCE.day, ...AMBIENCE.night, ...AMBIENCE.wind, 'owls']) {
       void fetch(`/audio/ambience/${name}.mp3`).then(r => { if (!r.ok) throw new Error(`${name} unavailable`); return r.arrayBuffer(); }).then(bytes => context.decodeAudioData(bytes))
         .then(buffer => { if (!this.disposed) this.beds.set(name, buffer); }).catch(error => console.warn('SILENCE: ambience could not load.', error));
@@ -134,15 +148,15 @@ export class ForestAudio {
       const spatial=context.createPanner();spatial.panningModel='HRTF';spatial.rolloffFactor=0;
       this.field.push({panner:spatial,gain,point:{x:0,y:0,z:0},kind:fieldIndex,level:0,initialized:false,relocating:false});outlet=spatial;
     }
-    source.connect(filter).connect(gain).connect(outlet).connect(this.master!);
+    source.connect(filter).connect(gain).connect(outlet).connect(this.ambienceGroup!);
     this.track(source, [filter, gain, outlet]);
     source.start(0, Math.random() * 6);
     return gain;
   }
 
-  private spatial(point?: Point): AudioNode {
+  private spatial(point: Point | undefined, to: AudioNode): AudioNode {
     const context = this.context!;
-    if (!point) return this.master!;
+    if (!point) return to;
     const pan = context.createPanner();
     pan.panningModel = 'HRTF';
     pan.distanceModel = 'inverse';
@@ -152,13 +166,13 @@ export class ForestAudio {
     pan.positionX.value = point.x;
     pan.positionY.value = point.y;
     pan.positionZ.value = point.z;
-    pan.connect(this.master!);
+    pan.connect(to);
     return pan;
   }
 
   private noiseHit(options: {
     duration: number; level: number; frequency: number;
-    type?: BiquadFilterType; attack?: number; delay?: number; position?: Point; rate?: number;
+    type?: BiquadFilterType; attack?: number; delay?: number; position?: Point; rate?: number; to?: AudioNode;
   }): void {
     if (!this.context || !this.noise || !this.master || this.context.state !== 'running') return;
     const context = this.context;
@@ -175,16 +189,16 @@ export class ForestAudio {
     envelope.gain.setValueAtTime(0.00001, at);
     envelope.gain.exponentialRampToValueAtTime(Math.max(0.0001, options.level), at + attack);
     envelope.gain.exponentialRampToValueAtTime(0.00001, at + options.duration);
-    const outlet = this.spatial(options.position);
+    const to = options.to ?? this.master, outlet = this.spatial(options.position, to);
     source.connect(filter).connect(envelope).connect(outlet);
-    this.track(source, [filter, envelope, ...(outlet === this.master ? [] : [outlet])]);
+    this.track(source, [filter, envelope, ...(outlet === to ? [] : [outlet])]);
     source.start(at, Math.random() * 4);
     source.stop(at + options.duration + 0.025);
   }
 
   private tone(options: {
     frequency: number; endFrequency?: number; duration: number; level: number;
-    delay?: number; attack?: number; position?: Point; type?: OscillatorType;
+    delay?: number; attack?: number; position?: Point; type?: OscillatorType; to?: AudioNode;
   }): void {
     if (!this.context || this.context.state !== 'running' || !this.master) return;
     const context = this.context;
@@ -197,9 +211,9 @@ export class ForestAudio {
     envelope.gain.setValueAtTime(0.00001, at);
     envelope.gain.exponentialRampToValueAtTime(options.level, at + (options.attack || 0.012));
     envelope.gain.exponentialRampToValueAtTime(0.00001, at + options.duration);
-    const outlet = this.spatial(options.position);
+    const to = options.to ?? this.master, outlet = this.spatial(options.position, to);
     source.connect(envelope).connect(outlet);
-    this.track(source, [envelope, ...(outlet === this.master ? [] : [outlet])]);
+    this.track(source, [envelope, ...(outlet === to ? [] : [outlet])]);
     source.start(at);
     source.stop(at + options.duration + 0.02);
   }
@@ -248,14 +262,14 @@ export class ForestAudio {
 
   /** Localized spawn cue: HRTF bearing without losing audibility at range. */
   creatureReveal(position: Point): boolean {
-    if (!this.context || this.context.state !== 'running' || !this.master || !this.revealBuffer) return false;
+    if (!this.context || this.context.state !== 'running' || !this.creatureGroup || !this.revealBuffer) return false;
     this.revealSource?.stop();
     const source=this.context.createBufferSource(),gain=this.context.createGain();
     source.buffer=this.revealBuffer;gain.gain.value=.72;
     const panner=this.context.createPanner();panner.panningModel='HRTF';panner.rolloffFactor=0;panner.channelCount=1;panner.channelCountMode='explicit';
     panner.positionX.value=position.x;panner.positionY.value=position.y;panner.positionZ.value=position.z;
     this.revealPanner=panner;this.revealPoint=position;
-    source.connect(gain).connect(panner).connect(this.master);this.track(source,[gain,panner]);
+    source.connect(gain).connect(panner).connect(this.creatureGroup);this.track(source,[gain,panner]);
     this.revealSource=source;source.addEventListener('ended',()=>{if(this.revealSource===source){this.revealSource=null;this.revealPanner=null;this.revealPoint=null;}});
     source.start();return true;
   }
@@ -267,7 +281,7 @@ export class ForestAudio {
    */
   private sample(group: CreatureSound, position: Point, level: number, reach: number): boolean {
     const takes = this.samples.get(group);
-    if (!this.context || this.context.state !== 'running' || !this.master || !takes?.length) return false;
+    if (!this.context || this.context.state !== 'running' || !this.creatureGroup || !takes?.length) return false;
     let index = Math.floor(Math.random() * takes.length);
     if (takes.length > 1 && index === this.lastTake.get(group)) index = (index + 1 + Math.floor(Math.random() * (takes.length - 1))) % takes.length;
     this.lastTake.set(group, index);
@@ -275,7 +289,7 @@ export class ForestAudio {
     source.buffer = takes[index]; source.playbackRate.value = .96 + Math.random() * .08; gain.gain.value = level;
     pan.panningModel = 'HRTF'; pan.distanceModel = 'inverse'; pan.refDistance = reach; pan.maxDistance = 160; pan.rolloffFactor = 1;
     pan.positionX.value = position.x; pan.positionY.value = position.y; pan.positionZ.value = position.z;
-    source.connect(gain).connect(pan).connect(this.master); this.track(source, [gain, pan]);
+    source.connect(gain).connect(pan).connect(this.creatureGroup); this.track(source, [gain, pan]);
     source.start();
     return true;
   }
@@ -304,8 +318,9 @@ export class ForestAudio {
     if (kind === 'branch') this.sample('branch', position, 1, 12);
     else if (kind === 'call') this.sample('call', position, .9, 35);
     else {
-      this.noiseHit({ duration: 2.3, level: 0.055, frequency: 680, type: 'bandpass', attack: 0.65, position });
-      this.noiseHit({ duration: 2.1, level: 0.017, frequency: 1400, type: 'bandpass', attack: 0.8, position, delay: 0.1 });
+      const to = this.creatureGroup ?? undefined;
+      this.noiseHit({ duration: 2.3, level: 0.055, frequency: 680, type: 'bandpass', attack: 0.65, position, to });
+      this.noiseHit({ duration: 2.1, level: 0.017, frequency: 1400, type: 'bandpass', attack: 0.8, position, delay: 0.1, to });
     }
   }
 
@@ -391,18 +406,36 @@ export class ForestAudio {
     if (this.age > this.owlAt) {
       this.owlAt = this.age + 200 + Math.random() * 260;
       const buffer = this.beds.get('owls');
-      if (buffer && night > .8 && this.hushLevel < .2 && this.master) {
+      if (buffer && night > .8 && this.hushLevel < .2 && this.ambienceGroup) {
         const source = context.createBufferSource(), gain = context.createGain(), pan = context.createPanner(), length = 9 + Math.random() * 6, a = Math.random() * Math.PI * 2, d = 70 + Math.random() * 40;
         source.buffer = buffer; pan.panningModel = 'HRTF'; pan.rolloffFactor = 0;
         pan.positionX.value = info.position.x + Math.sin(a) * d; pan.positionY.value = info.position.y + 14; pan.positionZ.value = info.position.z + Math.cos(a) * d;
         gain.gain.setValueAtTime(0, now); gain.gain.linearRampToValueAtTime(.35, now + 1.5); gain.gain.setValueAtTime(.35, now + length - 2); gain.gain.linearRampToValueAtTime(0, now + length);
-        source.connect(gain).connect(pan).connect(this.master); this.track(source, [gain, pan]);
+        source.connect(gain).connect(pan).connect(this.ambienceGroup); this.track(source, [gain, pan]);
         source.start(now, Math.random() * Math.max(0, buffer.duration - length), length);
       }
     }
   }
 
-  suspend(): void { if (this.context?.state === 'running') void this.context.suspend(); }
+  /** The player's volume sliders, in percent. Applies at once (a short ramp, no clicks) if audio is running, otherwise as it starts. */
+  setVolumes(v: Pick<Settings, 'masterVolume' | 'ambienceVolume' | 'creatureVolume'>): void {
+    this.volume = { master: volumeGain(v.masterVolume), ambience: volumeGain(v.ambienceVolume), creature: volumeGain(v.creatureVolume) };
+    const now = this.context?.currentTime ?? 0;
+    this.userMaster?.gain.setTargetAtTime(this.volume.master, now, .04);
+    this.ambienceGroup?.gain.setTargetAtTime(this.volume.ambience, now, .04);
+    this.creatureGroup?.gain.setTargetAtTime(this.volume.creature, now, .04);
+  }
+
+  /** The pause menu's Sound page is open: the game is paused but the forest keeps running, so a slider can be heard while it moves. */
+  listen(on: boolean): void {
+    this.listening = on;
+    if (this.context && !this.disposed) void (on ? this.context.resume() : this.context.suspend());
+  }
+
+  suspend(): void {
+    if (this.listening && document.hasFocus() && !document.hidden) return;   // paused on the Sound page; leaving the window still silences it
+    if (this.context?.state === 'running') void this.context.suspend();
+  }
   resume(): void { if (this.context?.state === 'suspended' && !this.disposed) void this.context.resume(); }
   dispose(): void {
     this.disposed = true;
@@ -411,6 +444,7 @@ export class ForestAudio {
     if (this.context) void this.context.close();
     this.context = null;
     this.noise = null;
+    this.userMaster = null; this.ambienceGroup = null; this.creatureGroup = null;
     this.riverPanner = null;this.revealPanner=null;this.revealPoint=null;this.field=[];this.buses=null;this.voices={};this.beds.clear();
   }
 }

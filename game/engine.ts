@@ -60,7 +60,7 @@ export function createGame(container:HTMLElement) {
   collisions.replace('story',story.solidColliders);
   let forestCollisionVersion=-1,terrainCollisionVersion=-1;
   const atmosphere=createAtmosphere(renderer,scene,camera,terrain.water,sun);
-  const audio=new ForestAudio();
+  const audio=new ForestAudio();audio.setVolumes(settings);
   // One stream of sounds for the creature. The rebuilt world owns it (the objectives' noises go there); the
   // classic world has only what the engine adds: footsteps and the torch switch.
   type Noise=Extract<ObjectiveEvent,{type:'noise'}>;
@@ -230,7 +230,7 @@ export function createGame(container:HTMLElement) {
   renderer.domElement.addEventListener('touchend',touchEnd);renderer.domElement.addEventListener('touchcancel',touchEnd);
   const teleport=(x:number,z:number)=>{player.set(x,heightAt(x,z)+(flying?5:0),z);velocity.set(0,0,0);};
   const admin=createAdmin(container,{
-    settings,settingsChanged:()=>{try{localStorage.setItem('silence-settings',JSON.stringify(settings));}catch{}diagnosticRatio=undefined;fixedQuality=settings.quality!=='auto';renderBudget.pause();resize();filterTextures();},
+    settings,volumeChanged:()=>audio.setVolumes(settings),listening:(on)=>audio.listen(on),settingsChanged:()=>{try{localStorage.setItem('silence-settings',JSON.stringify(settings));}catch{}diagnosticRatio=undefined;fixedQuality=settings.quality!=='auto';renderBudget.pause();resize();filterTextures();},
     getState:()=>({hours,cycleSpeed,flying,position:player.toArray(),fps:Math.round(1000/frameAverage),solids:collisions.stats().solids}),
     setHours:(h)=>{hours=((h%24)+24)%24;},setSpeed:(speed)=>{cycleSpeed=speed;},
     setFlying:(value)=>{flying=value;velocity.set(0,0,0);if(!flying)player.y=characterSupportAt(player.x,player.z,player.y,heightAt,collisions);},
