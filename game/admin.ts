@@ -2,6 +2,7 @@ import {defaults,bindKey,keyLabel,type Settings,type Action,type VolumeKey} from
 import {WORLD_DESTINATIONS, pathX} from './world';
 import {WORLD_V2} from './world-flags';
 import {POI_PLACEMENTS,placeLocal} from './world-layout';
+import {createTapTracker} from './tap';
 type CreatureMode='natural'|'hunt'|'idle'|'walk'|'run'|'tree';
 type AdminOptions={
   getState:()=>{hours:number;cycleSpeed:number;flying:boolean;position:number[];fps:number;solids:number};
@@ -42,8 +43,12 @@ export function createAdmin(container:HTMLElement,options:AdminOptions){
     <footer id="silence-status"></footer></section>`;
   const backdrop=document.createElement('div');backdrop.className='silence-pause-backdrop';backdrop.hidden=true;container.appendChild(backdrop);
   container.appendChild(panel);
-  style.textContent+=` .silence-pause-backdrop{position:absolute;inset:0;background:#0009;z-index:5;backdrop-filter:blur(5px)}.silence-pause-backdrop[hidden]{display:none}.silence-admin{z-index:6;left:50%;top:50%;right:auto;transform:translate(-50%,-50%);width:min(650px,calc(100vw - 32px));box-sizing:border-box;max-height:calc(100dvh - 32px);padding:28px}.silence-admin nav{display:flex;gap:5px;border-bottom:1px solid #45514b;padding-bottom:14px}.silence-admin nav button{flex:1;font-size:12px;padding:10px 5px}.silence-admin [aria-selected=true]{background:#536052;color:#fff}.silence-admin h2{font-size:18px;font-weight:400;margin:24px 0 12px}.silence-admin [hidden]{display:none}.silence-admin .binding{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:7px}.silence-admin .binding button{min-width:110px}.silence-admin .close{font-size:13px;padding:8px 14px}.silence-mobile-pause[hidden]{display:none}.silence-mobile-pause{position:absolute;top:max(12px,env(safe-area-inset-top));right:14px;z-index:4;background:#1119;color:#ddd;border:1px solid #88958a66;border-radius:5px;padding:10px;display:none}@media(pointer:coarse){.silence-mobile-pause{display:block}}@media(max-width:480px){.silence-admin{padding:18px}.silence-admin nav button{font-size:11px}}`;
-  const mobile=document.createElement('button');mobile.className='silence-mobile-pause';mobile.textContent='Ⅱ';mobile.setAttribute('aria-label','Pause game');container.appendChild(mobile);
+  style.textContent+=` .silence-pause-backdrop{position:absolute;inset:0;background:#0009;z-index:5;backdrop-filter:blur(5px)}.silence-pause-backdrop[hidden]{display:none}.silence-admin{z-index:6;left:50%;top:50%;right:auto;transform:translate(-50%,-50%);width:min(650px,calc(100vw - 32px));box-sizing:border-box;max-height:calc(100dvh - 32px);padding:28px}.silence-admin nav{display:flex;gap:5px;border-bottom:1px solid #45514b;padding-bottom:14px}.silence-admin nav button{flex:1;font-size:12px;padding:10px 5px}.silence-admin [aria-selected=true]{background:#536052;color:#fff}.silence-admin h2{font-size:18px;font-weight:400;margin:24px 0 12px}.silence-admin [hidden]{display:none}.silence-admin .binding{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:7px}.silence-admin .binding button{min-width:110px}.silence-admin .close{font-size:13px;padding:8px 14px}@media(max-width:480px){.silence-admin{padding:18px}.silence-admin nav button{font-size:11px}}`;
+  style.textContent+=`
+    .silence-mobile-pause{position:absolute;top:0;left:0;z-index:7;width:calc(64px + env(safe-area-inset-left,0px));height:calc(64px + env(safe-area-inset-top,0px));padding:0;border:0;background:transparent;box-shadow:none;outline:none;appearance:none;touch-action:none;-webkit-tap-highlight-color:transparent;display:none}
+    @media(any-pointer:coarse){.silence-mobile-pause{display:block}}
+  `;
+  const mobile=document.createElement('button');mobile.type='button';mobile.className='silence-mobile-pause';mobile.setAttribute('aria-label','Pause game');container.appendChild(mobile);
   const tabs=Array.from(panel.querySelectorAll<HTMLButtonElement>('[data-tab]'));
   let page='graphics';
   function selectTab(name:string){page=name;for(const tab of tabs){const selected=tab.dataset.tab===name;tab.setAttribute('aria-selected',String(selected));tab.tabIndex=selected?0:-1;tab.id='tab-'+tab.dataset.tab;tab.setAttribute('aria-controls','page-'+tab.dataset.tab);}for(const page of panel.querySelectorAll<HTMLElement>('[data-page]')){page.hidden=page.dataset.page!==name;page.id='page-'+page.dataset.page;page.setAttribute('aria-labelledby','tab-'+page.dataset.page);}}
@@ -71,14 +76,34 @@ export function createAdmin(container:HTMLElement,options:AdminOptions){
   for(const input of sound){input.oninput=()=>{options.settings[input.dataset.sound as VolumeKey]=Number(input.value);refreshSound();options.volumeChanged();};input.onchange=()=>options.settingsChanged();}refreshSound();
   panel.querySelector<HTMLButtonElement>('#silence-reset')!.onclick=()=>{options.settings.bindings=defaults().bindings;capturing=undefined;renderBindings();options.settingsChanged();};
   const capture=(e:KeyboardEvent)=>{if(!open)return;if(capturing){e.preventDefault();e.stopImmediatePropagation();const action=capturing;if(e.code==='Escape'){capturing=undefined;message.textContent='';}else if(bindKey(options.settings,action,e.code)){capturing=undefined;message.textContent='';options.settingsChanged();}else message.textContent='Unavailable key';renderBindings();if(!capturing)(bindings.children[Object.keys(labels).indexOf(action)].querySelector('button') as HTMLButtonElement).focus();return;}if(e.key==='Tab'){const focusable=Array.from(panel.querySelectorAll<HTMLElement>('button,input,select,[tabindex="0"]')).filter(el=>el.tabIndex>=0&&el.getClientRects().length);const first=focusable[0],last=focusable[focusable.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}};window.addEventListener('keydown',capture,true);
-  mobile.onclick=()=>setOpen(true);
+  const mobileTap=createTapTracker();
+  let mobilePointer:number|undefined,mobileX=0,mobileY=0;
+  mobile.onpointerdown=e=>{
+    if(e.button!==0||mobilePointer!==undefined)return;
+    e.preventDefault();e.stopPropagation();
+    mobilePointer=e.pointerId;mobileX=e.clientX;mobileY=e.clientY;
+    mobileTap.begin(performance.now());mobile.setPointerCapture(e.pointerId);
+  };
+  mobile.onpointermove=e=>{
+    if(e.pointerId!==mobilePointer)return;
+    mobileTap.move(Math.hypot(e.clientX-mobileX,e.clientY-mobileY));
+    mobileX=e.clientX;mobileY=e.clientY;
+  };
+  mobile.onpointerup=e=>{
+    if(e.pointerId!==mobilePointer)return;
+    e.preventDefault();e.stopPropagation();mobilePointer=undefined;
+    mobileTap.move(Math.hypot(e.clientX-mobileX,e.clientY-mobileY));
+    if(mobileTap.end(performance.now()))setOpen(!open);
+  };
+  mobile.onpointercancel=mobile.onlostpointercapture=e=>{if(e.pointerId===mobilePointer){mobilePointer=undefined;mobileTap.cancel();}};
+  mobile.onclick=e=>{e.preventDefault();e.stopPropagation();if(e.detail===0)setOpen(!open);};
 
   const hour=panel.querySelector<HTMLInputElement>('#silence-hour')!,clock=panel.querySelector<HTMLOutputElement>('#silence-clock')!,speed=(panel.querySelector('#silence-cycle') as unknown as HTMLSelectElement),flying=panel.querySelector<HTMLInputElement>('#silence-fly')!,status=panel.querySelector<HTMLElement>('#silence-status')!;
   let open=false,lastRefresh=0;
   // The game is paused behind the menu, but its sound keeps running while the Sound page is up, so a slider can be heard.
   const hear=()=>{if(open)options.listening(page==='sound');};
   const refresh=()=>{const s=options.getState();if(document.activeElement!==hour)hour.value=String(s.hours);const minutes=Math.floor(s.hours*60);clock.value=`${String(Math.floor(minutes/60)).padStart(2,'0')}:${String(minutes%60).padStart(2,'0')}`;speed.value=String(s.cycleSpeed);flying.checked=s.flying;status.textContent=`${s.fps} FPS · ${s.position.map(n=>Math.round(n)).join(', ')} · ${s.solids.toLocaleString()} nearby solids`;};
-  const setOpen=(value:boolean)=>{if(open===value)return;open=value;capturing=undefined;renderBindings();panel.hidden=backdrop.hidden=!open;mobile.hidden=open;options.listening(false);options.visibility(open);hear();if(open){refresh();panel.querySelector<HTMLButtonElement>('.close')!.focus();}};
+  const setOpen=(value:boolean)=>{if(open===value)return;open=value;capturing=undefined;renderBindings();panel.hidden=backdrop.hidden=!open;mobile.setAttribute('aria-label',open?'Resume game':'Pause game');options.listening(false);options.visibility(open);hear();if(open){refresh();panel.querySelector<HTMLButtonElement>('.close')!.focus();}};
   panel.querySelector('.close')!.addEventListener('click',()=>setOpen(false));
   hour.addEventListener('input',()=>{options.setHours(Number(hour.value));refresh();});
   for(const button of panel.querySelectorAll<HTMLButtonElement>('[data-hour]'))button.addEventListener('click',()=>{options.setHours(Number(button.dataset.hour));refresh();});

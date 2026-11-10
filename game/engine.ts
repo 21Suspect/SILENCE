@@ -140,7 +140,8 @@ export function createGame(container:HTMLElement) {
     indoors:world2?.indoors(player)??false,untouchable:flying||!!grab,blackout:!!grab&&grabTimeline(grab.t).black>=1,
   });
   let hours=16,cycleSpeed=1,flying=false;
-  let started=false,disposed=false,raf=0,last=performance.now(),frameAverage=16.67;
+  let disposed=false,raf=0,last=performance.now(),frameAverage=16.67;
+  let pointerWasLocked=false,pointerLockPending=false;
   let drag=false,mouseX=0,mouseY=0;
   let fixedQuality=settings.quality!=='auto',profileUntil=0,benchmarking=false;
   let diagnosticRatio:number|undefined;
@@ -155,17 +156,20 @@ export function createGame(container:HTMLElement) {
   const temp=new THREE.Vector3();
   // Dev measurement only (window.__SILENCE__.perf): run the simulation as if the player were playing, with scripted keys and, optionally, the creature.
   let benchActive=false,benchCreature=false;const benchHeld=new Set<Action>(),perfHidden:THREE.Object3D[]=[];
-  const isActive=()=>!loading && ((benchActive&&!admin.open) || (started && !document.hidden && document.hasFocus() && !admin.open));
+  const isActive=()=>!loading && (benchActive||!document.hidden) && !admin.open;
 
   const held=(action:Action)=>(import.meta.env.DEV&&benchHeld.has(action))||keys.has(settings.bindings[action])||(settings.bindings[action]==='ShiftLeft'&&keys.has('ShiftRight'))||(settings.bindings[action]==='ControlLeft'&&keys.has('ControlRight'));
   const start=(touch=false)=>{
     if(admin.open)return;
-    started=true;
     void audio.start();
     void audio.resume();
     renderer.domElement.focus({preventScroll:true});
-    if(!touch && !coarse && document.pointerLockElement!==renderer.domElement){
-      try { const result=renderer.domElement.requestPointerLock(); if(result instanceof Promise) result.catch(()=>{}); } catch { /* Drag controls remain available inside embedded browsers. */ }
+    if(!touch && !coarse && !pointerLockPending && document.pointerLockElement!==renderer.domElement){
+      pointerLockPending=true;
+      try {
+        const result=renderer.domElement.requestPointerLock();
+        if(result instanceof Promise)void result.catch(()=>{}).finally(()=>{pointerLockPending=false;});
+      } catch { pointerLockPending=false; /* Drag controls remain available inside embedded browsers. */ }
     }
   };
   const mouseDown=(e:MouseEvent)=>{if(e.button!==0||admin.open||performance.now()-lastTouch<700)return;if(isActive())mouseTap.begin(performance.now());else mouseTap.cancel();drag=true;mouseX=e.clientX;mouseY=e.clientY;start();};
@@ -189,15 +193,30 @@ export function createGame(container:HTMLElement) {
     if(e.code===settings.bindings.rise&&!e.repeat&&isActive()&&!grab)world2?.letGo();
     if(e.code===settings.bindings.drop&&!e.repeat&&isActive()&&!grab&&world2?.drop())shadowDirty=true;
     if(e.code===OBJECTIVE_KEY&&!e.repeat&&isActive()&&!grab&&!Object.values(settings.bindings).includes(e.code))objectiveHud?.toggle();
-    if(e.code===settings.bindings.fullscreen && started && !e.repeat){
+    if(e.code===settings.bindings.fullscreen && !loading && !e.repeat){
       if(!document.fullscreenElement)void container.requestFullscreen?.().catch(()=>{});
       else void document.exitFullscreen();
     }
-    if(!started && [settings.bindings.forward,settings.bindings.back,settings.bindings.left,settings.bindings.right].includes(e.code))start();
+    if(!e.repeat && [settings.bindings.forward,settings.bindings.back,settings.bindings.left,settings.bindings.right].includes(e.code))start();
   };
   const keyUp=(e:KeyboardEvent)=>keys.delete(e.code);
-  const blur=()=>{mouseTap.cancel();touchTap.cancel();touchTapId=undefined;renderBudget.pause();started=false;keys.clear();velocity.set(0,0,0);drag=false;touchMove.set(0,0);touches.clear();void audio.suspend();};
-  const lockChange=()=>{if(document.pointerLockElement!==renderer.domElement){if(started&&!admin.open)admin.show();started=false;keys.clear();velocity.set(0,0,0);void audio.suspend();}else void audio.resume();};
+  const clearInput=()=>{keys.clear();velocity.set(0,0,0);drag=false;touchMove.set(0,0);touches.clear();mouseTap.cancel();touchTap.cancel();touchTapId=undefined;renderBudget.pause();};
+  const blur=()=>{clearInput();void audio.suspend();};
+  const focus=()=>{if(!admin.open&&!document.hidden)void audio.resume();};
+  const visibilityChange=()=>{if(document.hidden)blur();else{clearInput();focus();}};
+  const lockError=()=>{pointerLockPending=false;};
+  const lockChange=()=>{
+    pointerLockPending=false;
+    if(document.pointerLockElement===renderer.domElement){
+      if(admin.open){document.exitPointerLock();return;}
+      pointerWasLocked=true;
+      void audio.resume();
+    }else if(pointerWasLocked){
+      pointerWasLocked=false;
+      // Chrome can consume Escape while releasing the mouse, without a keydown.
+      admin.show();
+    }
+  };
   const touchStart=(e:TouchEvent)=>{
     if(admin.open)return;
     const canInteract=isActive();e.preventDefault();lastTouch=performance.now();start(true);
@@ -236,8 +255,8 @@ export function createGame(container:HTMLElement) {
   renderer.domElement.addEventListener('mousedown',mouseDown);
   window.addEventListener('mouseup',mouseUp);window.addEventListener('mousemove',mouseMove);
   window.addEventListener('keydown',keyDown);window.addEventListener('keyup',keyUp);
-  window.addEventListener('blur',blur);window.addEventListener('resize',resize);window.visualViewport?.addEventListener('resize',resize);window.addEventListener('orientationchange',blur);
-  document.addEventListener('pointerlockchange',lockChange);document.addEventListener('visibilitychange',blur);
+  window.addEventListener('blur',blur);window.addEventListener('focus',focus);window.addEventListener('resize',resize);window.visualViewport?.addEventListener('resize',resize);window.addEventListener('orientationchange',clearInput);
+  document.addEventListener('pointerlockchange',lockChange);document.addEventListener('pointerlockerror',lockError);document.addEventListener('visibilitychange',visibilityChange);
   renderer.domElement.addEventListener('touchstart',touchStart,{passive:false});
   renderer.domElement.addEventListener('touchmove',touchUpdate,{passive:false});
   renderer.domElement.addEventListener('touchend',touchEnd);renderer.domElement.addEventListener('touchcancel',touchEnd);
@@ -248,7 +267,15 @@ export function createGame(container:HTMLElement) {
     setHours:(h)=>{hours=((h%24)+24)%24;},setSpeed:(speed)=>{cycleSpeed=speed;},
     setFlying:(value)=>{flying=value;velocity.set(0,0,0);if(!flying)player.y=characterSupportAt(player.x,player.z,player.y,heightAt,collisions);},
     spawn:(mode)=>{camera.getWorldDirection(forward);encounters.spawn(player,forward,mode);},dismiss:()=>{encounters.dismiss(elapsed);shadowDirty=true;},teleport,
-    visibility:(open)=>{keys.clear();velocity.set(0,0,0);drag=false;touches.clear();touchMove.set(0,0);mouseTap.cancel();touchTap.cancel();renderBudget.pause();if(open){started=false;document.exitPointerLock();void audio.suspend();}else start();},
+    visibility:(open)=>{
+      clearInput();
+      if(open){
+        // Consume our own unlock before its asynchronous event can reopen the menu.
+        pointerWasLocked=false;
+        if(document.pointerLockElement===renderer.domElement)document.exitPointerLock();
+        void audio.suspend();
+      }else start(coarse);
+    },
   });
   resize();
   let frame=0;
@@ -611,8 +638,8 @@ export function createGame(container:HTMLElement) {
   raf=requestAnimationFrame(animate);
   return ()=>{
     disposed=true;veil.remove();if(warmupFence)gl.deleteSync(warmupFence);manager.onStart=oldStart;manager.onLoad=oldLoad;manager.onProgress=oldProgress;cancelAnimationFrame(raf);if(document.pointerLockElement===renderer.domElement)document.exitPointerLock();
-    window.removeEventListener('mouseup',mouseUp);window.removeEventListener('mousemove',mouseMove);window.removeEventListener('keydown',keyDown);window.removeEventListener('keyup',keyUp);window.removeEventListener('blur',blur);window.removeEventListener('resize',resize);window.visualViewport?.removeEventListener('resize',resize);window.removeEventListener('orientationchange',blur);
-    document.removeEventListener('pointerlockchange',lockChange);document.removeEventListener('visibilitychange',blur);
+    window.removeEventListener('mouseup',mouseUp);window.removeEventListener('mousemove',mouseMove);window.removeEventListener('keydown',keyDown);window.removeEventListener('keyup',keyUp);window.removeEventListener('blur',blur);window.removeEventListener('focus',focus);window.removeEventListener('resize',resize);window.visualViewport?.removeEventListener('resize',resize);window.removeEventListener('orientationchange',clearInput);
+    document.removeEventListener('pointerlockchange',lockChange);document.removeEventListener('pointerlockerror',lockError);document.removeEventListener('visibilitychange',visibilityChange);
     renderer.domElement.removeEventListener('mousedown',mouseDown);renderer.domElement.removeEventListener('touchstart',touchStart);renderer.domElement.removeEventListener('touchmove',touchUpdate);renderer.domElement.removeEventListener('touchend',touchEnd);renderer.domElement.removeEventListener('touchcancel',touchEnd);
     unsubscribeNoise();blackout.remove();objectiveHud?.dispose();world2?.dispose();admin.dispose();flashlight.dispose();sun.shadow.dispose();sky.dispose();audio.dispose();encounters.dispose();forest.dispose();story.dispose();terrain.dispose();atmosphere.dispose();
     scene.traverse(object=>{if(object instanceof THREE.Mesh){object.geometry.dispose();const mats=Array.isArray(object.material)?object.material:[object.material];for(const mat of mats){for(const v of Object.values(mat))if(v instanceof THREE.Texture)v.dispose();mat.dispose();}}});
