@@ -14,7 +14,8 @@ Third-party content retains its own license; the MIT license does not replace it
   `scripts/vite/sites-vite-plugin.LICENSE`.
 - npm dependencies retain the licenses distributed in their respective packages.
 
-The user-supplied creature reveal MP3 is excluded pending verified redistribution
-permission. To use your own licensed recording locally, put it at
-`public/audio/creature-reveal.mp3`. Do not commit it without recording its license.
+The recording `public/audio/scary sound.mp3` was supplied by Fabian Vinke, who
+confirmed permission to redistribute it with this project on November 10, 2026.
+It is third-party audio and is not relicensed under the project's MIT license.
+No separate license grant for reuse outside this project has been supplied.
 Reference images and local hosting/account configuration are not included.

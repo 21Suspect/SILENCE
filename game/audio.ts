@@ -47,7 +47,7 @@ export class ForestAudio {
     const context = new AudioContext({ latencyHint: 'interactive' });
     this.context = context;
     // Decode once after audio is unlocked; encounter playback retries until ready.
-    void fetch('/audio/creature-reveal.mp3').then(r=>{if(!r.ok)throw new Error('Reveal audio unavailable');return r.arrayBuffer();}).then(bytes=>context.decodeAudioData(bytes)).then(buffer=>{if(!this.disposed)this.revealBuffer=buffer;}).catch(error=>console.warn('SILENCE: reveal audio could not load',error));
+    void fetch('/audio/scary%20sound.mp3').then(r=>{if(!r.ok)throw new Error('Reveal audio unavailable');return r.arrayBuffer();}).then(bytes=>context.decodeAudioData(bytes)).then(buffer=>{if(!this.disposed)this.revealBuffer=buffer;}).catch(error=>console.warn('SILENCE: reveal audio could not load',error));
     const master = context.createGain();
     master.gain.value = 0;
     this.master = master;

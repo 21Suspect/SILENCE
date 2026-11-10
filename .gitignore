@@ -51,7 +51,6 @@ yarn-error.log*
 /scripts/assets/**/__pycache__/
 /assets/world-v2/atlas_*.png
 
-# Account-specific hosting and optional unlicensed audio
+# Account-specific hosting
 /.openai/*
 !/.openai/hosting.json
-/public/audio/creature-reveal.mp3

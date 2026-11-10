@@ -32,7 +32,8 @@ The second natural encounter uses a tall tree: it clings head-down 14–20 metre
 
 Original project content is MIT licensed. See [third-party notices](THIRD_PARTY_NOTICES.md)
 and [contribution guide](CONTRIBUTING.md) for asset licenses and the collaboration workflow.
-The optional supplied reveal recording is not included pending redistribution permission.
+The supplied reveal recording is included as `public/audio/scary sound.mp3` with
+redistribution permission confirmed by the project owner; see the third-party notices.
 
 ## Local development
 
