@@ -116,7 +116,7 @@ def outhouse():
     m.collide_box(-W, 0, .05, D + .06, 0, H, tag="outhouse wall")
     m.collide_box(W, 0, .05, D + .06, 0, H, tag="outhouse wall")
     m.collide_box(0, -D + .27, W, .27, 0, .65, tag="outhouse seat")
-    m.collide_box(-W + .06 + .36, D + .55, .05, .5, 0, 1.95, yaw=math.radians(-52) + math.pi / 2, tag="outhouse door")
+    # The open door has no collider: it would widen the footprint the game seats the whole privy on.
     m.radius = 2
     return m
 
