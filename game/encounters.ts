@@ -6,7 +6,7 @@ import {createFoot,swingFoot,advanceFoot,solveLeg,type FootState} from './creatu
 import {WORLD_RADIUS} from './world';
 import type {SolidCollider,createCollisionWorld} from './collision';
 import {createCreatureNavigation} from './creature-navigation';
-import {createCreatureModel} from './creature-model';
+import {createListener} from './listener';
 import {creatureInView,createOffscreenLatch,CREATURE_VIEW_RADIUS,type EncounterView} from './encounter-visibility';
 import {inDirectView,sightlineClear,createEncounterAwareness} from './creature-sighting';
 
@@ -26,7 +26,10 @@ export function createEncounters(
   const body = new THREE.Group();
   root.add(body);
   const navigation=createCreatureNavigation(heightAt,collisionWorld,waterSurfaceAt);
-  const sculpt=createCreatureModel(body);
+  // What the player sees is the Listener. The six invisible limbs below are only the encounter logic's sense of reach.
+  const listener=createListener(scene,heightAt,navigation,collisionWorld);
+  const sculpt={get ready(){return listener.ready;},secondary(_t:number,_r:number,_d:number,_m:unknown){},setLeg(_l:string,_b:THREE.Vector3,_s:THREE.Vector3,_j:THREE.Vector3,_f:THREE.Vector3,_t2:THREE.Vector3){},inspect(){return {ready:listener.ready,model:'listener'};},dispose(){listener.dispose();}};
+  let currentDarkness=0,treeCollider:(SolidCollider&{kind:'capsule'})|undefined,perchTime=0;
   type Limb={base:THREE.Vector3;shoulder:THREE.Vector3;rest:THREE.Vector3;side:number;index:number;label:string;foot:FootState;reachError:number;reachDistance:number;legClearance:number;shoulderWorld:THREE.Vector3;jointWorld:THREE.Vector3};
   const limbs:Limb[]=[];
   for(const side of [-1,1])for(let i=0;i<3;i++){
@@ -53,6 +56,7 @@ export function createEncounters(
       desired.set(target.x,target.y,target.z);limb.foot=createFoot(desired,limb.foot.group);
     }
     previousPosition.copy(root.position);velocity.set(0,0,0);motion.speed=motion.turnRate=0;gaitReady=true;gaitGroup=waveIndex=0;nextLift=0;
+    listener.reset();
   }
   function futureRest(limb:Limb,seconds:number,out:THREE.Vector3){
     const omega=motion.turnRate,theta=omega*seconds,yaw=root.rotation.y+theta,co=Math.cos(yaw),si=Math.sin(yaw);
@@ -172,6 +176,7 @@ export function createEncounters(
       limb.shoulderWorld.copy(shoulderPoint);body.localToWorld(limb.shoulderWorld);limb.jointWorld.copy(joint);body.localToWorld(limb.jointWorld);
       limb.reachError=Math.abs(joint.distanceTo(localFoot)-3.1);limb.reachDistance=shoulderPoint.distanceTo(localFoot);
     }
+    listener.walk(dt,time,root.position,root.rotation.y,attentionTarget,currentDarkness);
   }
   function moveCreature(dt:number,speed:number,direction:THREE.Vector3){
     const moved=navigation.move(root.position,direction.x,direction.z,speed,dt);
@@ -215,7 +220,7 @@ export function createEncounters(
   let headBone:THREE.Object3D|undefined,directSight=false,sightProbeIn=0,nextReposition=18,stalkSide=1,repositions=0,stuckTime=0,nextFlankShift=10;
   function directlyVisible(force=false){
     const view=getView?.()??fallbackView;
-    headBone??=root.getObjectByName('head');
+    headBone??=listener.head();
     if(headBone)headBone.getWorldPosition(sightPoints[0]);else body.localToWorld(sightPoints[0].set(0,1.45,.8));
     body.localToWorld(sightPoints[1].set(0,1.95,-.25));
     sightPoints[2].copy(limbs[0].shoulderWorld);sightPoints[3].copy(limbs[3].shoulderWorld);
@@ -252,6 +257,7 @@ export function createEncounters(
     boundsCenter.copy(root.position);boundsCenter.y+=2;
     let radius=CREATURE_VIEW_RADIUS;
     for(const limb of limbs){radius=Math.max(radius,boundsCenter.distanceTo(limb.foot.position)+.5,boundsCenter.distanceTo(limb.jointWorld)+.4);}
+    radius=Math.max(radius,listener.reach(boundsCenter));
     return creatureInView(getView?.()??fallbackView,boundsCenter,radius);
   }
   function recordTransition(kind:string,elapsed:number,inView:boolean){
@@ -312,6 +318,8 @@ export function createEncounters(
       l.shoulderWorld.copy(shoulderPoint);body.localToWorld(l.shoulderWorld);l.jointWorld.copy(joint);body.localToWorld(l.jointWorld);
       l.reachError=Math.abs(joint.distanceTo(localFoot)-3.1);l.reachDistance=shoulderPoint.distanceTo(localFoot);
     }
+    perchTime=treeCrawl.descending?perchTime:perchTime+dt;
+    if(treeCollider)listener.onTree(dt,time,treeCollider,treeCrawl.position,treeCrawl.rotation,.85,blend,perchTime,attentionTarget,currentDarkness);
   }
   function spawnTree(request:SpawnRequest,elapsed:number){
     if(root.visible)return false;
@@ -341,7 +349,7 @@ export function createEncounters(
       };
       const candidate=createTreeCrawl({x:c.ax,z:c.az,ground:base,radius:c.radius,height:c.maxY-base},angle,limbs.map(l=>l.rest),contact,(x,z)=>navigation.supportAt(x,z));
       if(creatureInView(getView?.()??fallbackView,candidate.position,6))return false;
-      treeCrawl=candidate;animateTree(0,elapsed);if(protectedNow()){treeCrawl=undefined;root.rotation.set(0,0,0);return false;}
+      treeCrawl=candidate;treeCollider=c;perchTime=0;listener.reset();animateTree(0,elapsed);if(protectedNow()){treeCrawl=undefined;root.rotation.set(0,0,0);return false;}
       directSight=false;sightProbeIn=0;dismissRequested=false;outsideReady=false;offscreen.reset();navigation.reset();
       bodyLift=bodyCrouch=lastMoveSpeed=0;shoulderWidth=1;motion.turnRate=0;
       root.visible=active=true;adminMode='natural';activeTime=watched=retreatTime=0;retreating=false;awareness.reset();if(request.mode==='natural')naturalCount++;if(audio.creatureReveal(root.position))awareness.revealed();recordTransition('tree-spawn',elapsed,false);return true;
@@ -390,17 +398,15 @@ export function createEncounters(
         const heightAt=horizontalLength>.002?((x:number,z:number)=>{const dx=bx-ax,dz=bz-az,t=Math.max(0,Math.min(1,((x-ax)*dx+(z-az)*dz)/horizontalLength));return ay+(by-ay)*t;}):undefined;
         c.push({kind:'capsule',ax,az,bx,bz,radius,minY:Math.min(ay,by)-radius,maxY:Math.max(ay,by)+radius,tag,heightAt});
       };
-      body.localToWorld(colliderA.set(0,1.45,.65));body.localToWorld(colliderB.set(0,1.9,-.65));
-      addCapsule(colliderA,colliderB,.55,'creature');
-      for(const limb of limbs){addCapsule(limb.shoulderWorld,limb.jointWorld,.17,'creature upper limb');addCapsule(limb.jointWorld,limb.foot.position,.12,'creature lower limb');}
+      listener.limbs(addCapsule);
       return c;
     },
     modelStatus(){return sculpt.inspect();},
     navigationStatus(){return{...navigation.inspect(),position:root.position.toArray(),yaw:root.rotation.y,speed:lastMoveSpeed,feet:limbs.map(l=>({label:l.label,swinging:l.foot.swinging,position:l.foot.position.toArray(),target:l.foot.target.toArray(),support:navigation.supportAt(l.foot.position.x,l.foot.position.z),clearance:navigation.footClearance(l.foot.position.x,l.foot.position.z),reachError:l.reachError,reachDistance:l.reachDistance,legClearance:l.legClearance,shoulder:l.shoulderWorld.toArray(),knee:l.jointWorld.toArray()}))};},
-    preview(x:number,z:number,yaw=0){pendingSpawn=undefined;dismissRequested=false;outsideReady=false;offscreen.reset();const spawn=navigation.safeSpawn(x,z);if(!spawn)return;root.position.set(spawn.x,spawn.y,spawn.z);root.rotation.y=yaw;previewDirection.set(Math.sin(yaw),0,Math.cos(yaw));root.visible=true;visualTest=true;navigation.reset();resetFeet();},
+    preview(x:number,z:number,yaw=0){pendingSpawn=undefined;dismissRequested=false;outsideReady=false;offscreen.reset();const spawn=navigation.safeSpawn(x,z);if(!spawn)return;root.position.set(spawn.x,spawn.y,spawn.z);root.rotation.y=yaw;previewDirection.set(Math.sin(yaw),0,Math.cos(yaw));root.visible=true;listener.root.visible=true;visualTest=true;navigation.reset();resetFeet();},
     previewStep(dt:number,time:number,speed:number){moveCreature(dt,speed,previewDirection);animateCreature(dt,time);return limbs.map(l=>({swinging:l.foot.swinging,position:l.foot.position.toArray(),reachError:l.reachError,reachDistance:l.reachDistance,legClearance:l.legClearance,shoulder:l.shoulderWorld.toArray(),knee:l.jointWorld.toArray()}));},
     update(dt:number,elapsed:number,player:THREE.Vector3,forward:THREE.Vector3,darkness:number,hours=16){
-      tick(dt,elapsed,player,forward,hours);
+      currentDarkness=darkness;tick(dt,elapsed,player,forward,hours);listener.root.visible=root.visible;
     },
     dispose(){scene.remove(root);sculpt.dispose();},
   };

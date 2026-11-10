@@ -241,6 +241,12 @@ export function createGame(container:HTMLElement) {
   if(import.meta.env.DEV)(window as unknown as {__SILENCE__:typeof diagnostic}).__SILENCE__=diagnostic;
 
   if(import.meta.env.DEV&&world2)(window as unknown as {__WORLD__:typeof world2.debug}).__WORLD__=world2.debug;
+  // Dev-only creature review stage: open the game with ?spider-lab.
+  let spiderLab:Awaited<ReturnType<typeof import('./spider-lab')['createSpiderLab']>>|undefined;
+  if(import.meta.env.DEV&&new URLSearchParams(location.search).has('spider-lab'))void import('./spider-lab').then(m=>{
+    spiderLab=m.createSpiderLab({scene,camera,heightAt,world:collisions,setHours:h=>{hours=h;},teleport,equip:()=>{flashlight.devEquip();},markShadows:()=>{shadowDirty=true;},darkness:()=>diagnostic.darkness});
+    (window as unknown as {__SPIDER__:typeof spiderLab}).__SPIDER__=spiderLab;
+  });
 
   function warmupRender(darkness:number){
     // Draw the rig and its depth material with both light configurations while
@@ -322,6 +328,7 @@ export function createGame(container:HTMLElement) {
     if(terrain.collisionVersion!==terrainCollisionVersion){terrainCollisionVersion=terrain.collisionVersion;collisions.replace('terrain',terrain.solidColliders);}
     const profile=import.meta.env.DEV&&now<profileUntil;
     const startEncounter=profile?performance.now():0;
+    if(import.meta.env.DEV&&spiderLab&&!loading)spiderLab.update(rawDelta);
     if(simulate){
       encounters.update(dt,elapsed,player,forward,darkness,hours);
       if(creatureWasVisible||creature.visible)collisions.replace('creature',encounters.solidColliders());
