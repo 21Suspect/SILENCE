@@ -2,7 +2,7 @@ import {defaults,bindKey,keyLabel,type Settings,type Action} from './settings';
 import {WORLD_DESTINATIONS, pathX} from './world';
 import {WORLD_V2} from './world-flags';
 import {POI_PLACEMENTS,placeLocal} from './world-layout';
-type CreatureMode='natural'|'idle'|'walk'|'run'|'tree';
+type CreatureMode='natural'|'hunt'|'idle'|'walk'|'run'|'tree';
 type AdminOptions={
   getState:()=>{hours:number;cycleSpeed:number;flying:boolean;position:number[];fps:number;solids:number};
   setHours:(hours:number)=>void;setSpeed:(speed:number)=>void;setFlying:(flying:boolean)=>void;
@@ -33,7 +33,7 @@ export function createAdmin(container:HTMLElement,options:AdminOptions){
     <label for="silence-hour">Time of day <output id="silence-clock">16:00</output></label><input id="silence-hour" type="range" min="0" max="23.99" step="0.01" aria-label="Time of day">
     <div class="row"><button data-hour="6.75">Dawn</button><button data-hour="12">Noon</button><button data-hour="18.5">Dusk</button><button data-hour="0">Night</button></div>
     <label for="silence-cycle">Day / night cycle</label><select id="silence-cycle"><option value="0">Paused</option><option value="1" selected>Normal · 24 minutes</option><option value="8">Fast · 3 minutes</option><option value="32">Preview · 45 seconds</option></select>
-    <hr><label for="silence-creature">Creature behavior</label><select id="silence-creature"><option value="natural">Natural encounter</option><option value="tree">Tree ambush · second encounter</option><option value="idle">Hold nearby · idle</option><option value="walk">Walk</option><option value="run">Run</option></select><div class="row"><button id="silence-spawn">Spawn out of view</button><button id="silence-dismiss">Dismiss</button></div>
+    <hr><label for="silence-creature">Creature behavior</label><select id="silence-creature"><option value="natural">Natural · bring it near, it decides</option><option value="hunt">Hunt · bring it near, hunting</option><option value="tree">Tree ambush</option><option value="idle">Hold nearby · idle</option><option value="walk">Walk</option><option value="run">Run</option></select><div class="row"><button id="silence-spawn">Spawn out of view</button><button id="silence-dismiss">Dismiss</button></div>
     <hr><label><input id="silence-fly" type="checkbox">Fly / noclip</label>
     <label for="silence-place">Explore</label><select id="silence-place"><option value="">Choose a destination…</option><option value="${pathX(12)},12">Forest trail</option>${WORLD_V2?'':'<option value="-18,-42">Abandoned shelter</option>'}${destinations.map(d=>`<option value="${d.x},${d.z}">${d.name}</option>`).join('')}</select>
     <footer id="silence-status"></footer></section>`;

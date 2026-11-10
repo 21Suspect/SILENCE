@@ -244,6 +244,45 @@ export class ForestAudio {
     return true;
   }
 
+  /**
+   * The grab at full intensity, right at the face; quieter and at range when a hunt begins. A torn, falling
+   * shriek (detuned saws roughened by a fast square rasp) over a wet roar and a low growl. Synthesized.
+   */
+  screech(position: Point, intensity = 1): void {
+    if (!this.context || this.context.state !== 'running' || !this.master || !this.noise) return;
+    const c = this.context, at = c.currentTime, length = .7 + intensity * .55, level = .14 * intensity, end = at + length + .03;
+    const outlet = this.spatial(position);
+    const shape = c.createBiquadFilter(); shape.type = 'bandpass'; shape.Q.value = 1.3;
+    shape.frequency.setValueAtTime(2400, at); shape.frequency.exponentialRampToValueAtTime(950, at + length);
+    const envelope = c.createGain();
+    envelope.gain.setValueAtTime(.00001, at); envelope.gain.exponentialRampToValueAtTime(level, at + .025);
+    envelope.gain.setValueAtTime(level * .8, at + length * .5); envelope.gain.exponentialRampToValueAtTime(.00001, at + length);
+    shape.connect(envelope).connect(outlet);
+    const rasp = c.createOscillator(), depth = c.createGain();
+    rasp.type = 'square'; rasp.frequency.setValueAtTime(43, at); rasp.frequency.linearRampToValueAtTime(21, at + length); depth.gain.value = 150;
+    rasp.connect(depth); this.track(rasp, [depth]); rasp.start(at); rasp.stop(end);
+    for (let i = 0; i < 3; i++) {
+      const voice = c.createOscillator(), gain = c.createGain();
+      voice.type = i === 2 ? 'square' : 'sawtooth';
+      voice.frequency.setValueAtTime(1650 + i * 137, at); voice.frequency.exponentialRampToValueAtTime(560 + i * 47, at + length);
+      depth.connect(voice.frequency); gain.gain.value = i === 2 ? .35 : .6;
+      voice.connect(gain).connect(shape);
+      this.track(voice, i === 2 ? [gain, shape, envelope, ...(outlet === this.master ? [] : [outlet])] : [gain]);
+      voice.start(at); voice.stop(end + i * .001);
+    }
+    this.noiseHit({ duration: length * .9, level: .26 * intensity, frequency: 2900, type: 'bandpass', attack: .02, position, rate: 1.3 });
+    this.noiseHit({ duration: length * 1.15, level: .2 * intensity, frequency: 420, attack: .04, position, rate: .55 });
+    this.tone({ frequency: 96, endFrequency: 47, duration: length * 1.2, level: .11 * intensity, type: 'sawtooth', attack: .05, position });
+  }
+
+  /** Pinned by the torch: a dry hiss through the teeth. */
+  hiss(position: Point): void {
+    if (!this.context || this.context.state !== 'running') return;
+    this.noiseHit({ duration: .75, level: .11, frequency: 3400, type: 'highpass', attack: .05, position, rate: .9 });
+    this.noiseHit({ duration: .5, level: .06, frequency: 900, type: 'bandpass', attack: .02, position, delay: .06 });
+    this.tone({ frequency: 150, endFrequency: 96, duration: .5, level: .035, type: 'sawtooth', attack: .03, position });
+  }
+
   cue(kind: 'branch' | 'breath' | 'call', position: THREE.Vector3): void {
     if (!this.context || this.context.state !== 'running') return;
     if (kind === 'branch') {

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { WORLD_V2 } from './world-flags';
+import { WORLD_V2, WORLD_SEED } from './world-flags';
 import { createWorldV2 } from './world-v2';
 import { channelOffset } from './world-noise';
 import {readSettings,type Action} from './settings';
@@ -14,10 +14,15 @@ import { createRenderBudget } from './quality';
 import { createCollisionWorld, moveCharacter, characterSupportAt } from './collision';
 import { createAdmin } from './admin';
 import { createSky } from './sky';
-import { biomeAt, riverSurfaceAt } from './world';
+import { biomeAt, riverSurfaceAt, WORLD_DESTINATIONS } from './world';
 import { createFlashlight } from './flashlight';
 import { createTapTracker } from './tap';
 import type { EncounterView } from './encounter-visibility';
+import { footstepLoudness, FLASHLIGHT_CLICK_LOUDNESS, type FootSurface, type NoiseEvent as CreatureNoise } from './creature-brain';
+import type { CreatureSenses, CreatureMode } from './encounters';
+import type { ObjectiveEvent } from './objectives';
+import { POI_PLACEMENTS } from './world-layout';
+import { initialLives, loseLife, respawnHours, deathCard, grabTimeline, NIGHT_START_HOURS, type DeathOutcome } from './lives';
 
 export function createGame(container:HTMLElement) {
   let saved:string|null=null;try{saved=localStorage.getItem('silence-settings');}catch{}
@@ -56,9 +61,17 @@ export function createGame(container:HTMLElement) {
   let forestCollisionVersion=-1,terrainCollisionVersion=-1;
   const atmosphere=createAtmosphere(renderer,scene,camera,terrain.water,sun);
   const audio=new ForestAudio();
-  const flashlight=createFlashlight(scene,camera,heightAt,collisions,()=>audio.flashlightClick());
+  // One stream of sounds for the creature. The rebuilt world owns it (the objectives' noises go there); the
+  // classic world has only what the engine adds: footsteps and the torch switch.
+  type Noise=Extract<ObjectiveEvent,{type:'noise'}>;
+  const classicNoise=new Set<(e:Noise)=>void>();
+  const noise={
+    emit:(e:Noise)=>{if(world2)world2.noise.emit(e);else for(const listener of classicNoise)listener(e);},
+    subscribe:(listener:(e:Noise)=>void)=>{if(world2)return world2.noise.subscribe(listener);classicNoise.add(listener);return()=>{classicNoise.delete(listener);};},
+  };
+  const flashlight=createFlashlight(scene,camera,heightAt,collisions,()=>{audio.flashlightClick();noise.emit({type:'noise',loudness:FLASHLIGHT_CLICK_LOUDNESS,source:'flashlight',x:player.x,z:player.z});});
   const world2=WORLD_V2?createWorldV2({scene,camera,container,heightAt,collisions,flashlight,water:terrain.water,viewHeight:()=>renderer.domElement.height,riverX,exclusion}):undefined;
-  const interact=(pickupOnly=false)=>world2?world2.activate(pickupOnly)||(!pickupOnly&&flashlight.toggle()):flashlight.interact(pickupOnly);
+  const interact=(pickupOnly=false)=>grab?false:world2?world2.activate(pickupOnly)||(!pickupOnly&&flashlight.toggle()):flashlight.interact(pickupOnly);
   const mouseTap=createTapTracker(),touchTap=createTapTracker();
   let touchTapId:number|undefined,lastTouch=-Infinity;
   const reflectionView={position:new THREE.Vector3(),forward:new THREE.Vector3(),right:new THREE.Vector3(),up:new THREE.Vector3(),verticalFov:camera.fov,aspect:camera.aspect};
@@ -72,12 +85,51 @@ export function createGame(container:HTMLElement) {
     for(const axis of ['forward','right','up'] as const){reflectionView[axis].copy(encounterView[axis]);reflectionView[axis].addScaledVector(n,-2*reflectionView[axis].dot(n));}
     return encounterView;
   };
-  const encounters=createEncounters(scene,heightAt,audio,collisions,readEncounterView,riverSurfaceAt);
+  // It patrols the places the player needs: the rebuilt world's landmarks, or the classic destinations.
+  const creaturePlaces=WORLD_V2?POI_PLACEMENTS.filter(p=>['cabin','hut','generator','mast','lookout','logstack','camp','chapel','mine'].includes(p.asset)).map(p=>({x:p.x,z:p.z})):WORLD_DESTINATIONS.map(d=>({x:d.x,z:d.z}));
+  const encounters=createEncounters(scene,heightAt,audio,collisions,readEncounterView,riverSurfaceAt,{places:creaturePlaces,seed:WORLD_SEED||7741});
+  const unsubscribeNoise=noise.subscribe(e=>{if(e.x!==undefined&&e.z!==undefined)encounters.hear({loudness:e.loudness,source:e.source,x:e.x,z:e.z} satisfies CreatureNoise);});
   const creature=scene.getObjectByName('something-between-the-trees')!;
   const velocity=new THREE.Vector3();
   const forward=new THREE.Vector3(0,0,-1);
   const keys=new Set<string>();
   let yaw=Math.atan2(player.x-pathX(player.z-8),8),pitch=-.045,elapsed=0,walkingPhase=0,cameraHeight=1.69;
+  const startPoint={x:player.x,z:player.z,yaw};
+  // Three lives. Being taken: the camera is wrenched to its face, it screeches, black, a line of text, and the
+  // player wakes at the cabin later in the night (or, the third time, the night starts again).
+  let lives=initialLives(),grab:{t:number;outcome:DeathOutcome;respawned:boolean}|undefined,wokeAt=-Infinity,stride=0;
+  const head=new THREE.Vector3(),lastFoot=new THREE.Vector3(player.x,player.y,player.z);
+  const blackout=document.createElement('div');blackout.style.cssText='position:absolute;inset:0;background:#000;z-index:4;pointer-events:none;opacity:0;display:flex;align-items:center;justify-content:center';
+  const card=document.createElement('div');card.style.cssText='opacity:0;text-align:center;color:#c9ccc2;font:300 15px/1.6 system-ui,sans-serif;letter-spacing:.34em;text-transform:uppercase';
+  const cardTitle=document.createElement('div'),cardLine=document.createElement('div');cardLine.style.cssText='margin-top:12px;font-size:11px;letter-spacing:.42em;color:#868d82';
+  card.appendChild(cardTitle);card.appendChild(cardLine);blackout.appendChild(card);container.appendChild(blackout);
+  function beginGrab(){
+    if(grab)return;
+    // Whatever was in hand falls where they were taken, and stays there.
+    world2?.drop();
+    const r=loseLife(lives);lives=r.state;grab={t:0,outcome:r.outcome,respawned:false};
+    const words=deathCard(lives,r.outcome);cardTitle.textContent=words.title;cardLine.textContent=words.line;
+    keys.clear();velocity.set(0,0,0);drag=false;touchMove.set(0,0);
+  }
+  /** Under black: wake at the cabin later in the night, or start the night again. The creature goes far away. */
+  function wake(now:number){
+    const over=grab?.outcome==='game-over';
+    world2?.letGo();
+    if(over){lives=initialLives();hours=NIGHT_START_HOURS;world2?.restart();flashlight.reset();}
+    else hours=respawnHours(hours);
+    const at=over?startPoint:world2?.wakePoint()??startPoint;
+    teleport(at.x,at.z);if(!flying)player.y=characterSupportAt(player.x,player.z,player.y+.5,heightAt,collisions);
+    yaw=at.yaw;pitch=-.08;lastFoot.copy(player);stride=0;
+    if(over)encounters.restart(player,elapsed);else encounters.relocate(player,elapsed);
+    wokeAt=now;shadowDirty=true;
+  }
+  /** What the creature is told about the player each frame, beyond where they are. */
+  const senses=(dt:number,crouch:boolean,hurry:boolean,inWater:boolean,climbing:boolean):CreatureSenses=>({
+    // A teleport is not a velocity.
+    ...(Math.hypot(player.x-lastFoot.x,player.z-lastFoot.z)>dt*12?{vx:0,vz:0}:{vx:(player.x-lastFoot.x)/Math.max(dt,.001),vz:(player.z-lastFoot.z)/Math.max(dt,.001)}),
+    sprinting:hurry&&!crouch,crouching:crouch,flashlightOn:flashlight.active,inWater,onLadder:climbing,
+    indoors:world2?.indoors(player)??false,untouchable:flying||!!grab,blackout:!!grab&&grabTimeline(grab.t).black>=1,
+  });
   let hours=16,cycleSpeed=1,flying=false;
   let started=false,disposed=false,raf=0,last=performance.now(),frameAverage=16.67;
   let drag=false,mouseX=0,mouseY=0;
@@ -107,7 +159,7 @@ export function createGame(container:HTMLElement) {
   const mouseDown=(e:MouseEvent)=>{if(e.button!==0||admin.open||performance.now()-lastTouch<700)return;if(isActive())mouseTap.begin(performance.now());else mouseTap.cancel();drag=true;mouseX=e.clientX;mouseY=e.clientY;start();};
   const mouseUp=(e:MouseEvent)=>{if(e.button===0&&drag&&isActive()&&mouseTap.end(performance.now())&&interact())shadowDirty=true;drag=false;};
   const mouseMove=(e:MouseEvent)=>{
-    if(admin.open)return;
+    if(admin.open||grab)return;
     if(drag)mouseTap.move(document.pointerLockElement===renderer.domElement?Math.hypot(e.movementX,e.movementY):Math.hypot(e.clientX-mouseX,e.clientY-mouseY));
     if(document.pointerLockElement===renderer.domElement){yaw-=e.movementX*.00165*settings.sensitivity;pitch-=e.movementY*.00165*settings.sensitivity;}
     else if(drag){yaw-=(e.clientX-mouseX)*.003*settings.sensitivity;pitch-=(e.clientY-mouseY)*.003*settings.sensitivity;}
@@ -122,8 +174,8 @@ export function createGame(container:HTMLElement) {
     if(Object.values(settings.bindings).includes(e.code))e.preventDefault();
     keys.add(e.code);
     if(e.code===settings.bindings.interact&&!e.repeat){start();if(isActive()&&interact(true))shadowDirty=true;}
-    if(e.code===settings.bindings.rise&&!e.repeat&&isActive())world2?.letGo();
-    if(e.code===settings.bindings.drop&&!e.repeat&&isActive()&&world2?.drop())shadowDirty=true;
+    if(e.code===settings.bindings.rise&&!e.repeat&&isActive()&&!grab)world2?.letGo();
+    if(e.code===settings.bindings.drop&&!e.repeat&&isActive()&&!grab&&world2?.drop())shadowDirty=true;
     if(e.code===settings.bindings.fullscreen && started && !e.repeat){
       if(!document.fullscreenElement)void container.requestFullscreen?.().catch(()=>{});
       else void document.exitFullscreen();
@@ -195,6 +247,25 @@ export function createGame(container:HTMLElement) {
     creatureVisibility(){return encounters.visibilityStatus();},
     creatureNavigation(){return encounters.navigationStatus();},
     creaturePreview(x:number,z:number,yaw=0){encounters.preview(x,z,yaw);},
+    /** The creature's mind: behaviour, scores, boldness, what it sees and remembers. */
+    creatureBrain(){return encounters.visibilityStatus().brain;},
+    /** Run the creature's AI for a number of seconds without rendering (a hidden tab pauses the game). */
+    creatureThink(seconds=1,step=1/30,crouch=false,sprint=false){
+      camera.getWorldDirection(forward);
+      for(let t=0;t<seconds;t+=step){elapsed+=step;encounters.update(step,elapsed,player,forward,diagnostic.darkness,hours,senses(step,crouch,sprint,false,false));lastFoot.copy(player);if(encounters.takeStrike())beginGrab();}
+      collisions.replace('creature',encounters.solidColliders());
+      return {brain:encounters.visibilityStatus().brain,presence:encounters.visibilityStatus().presence,position:creature.position.toArray(),grab:grab?{...grab}:undefined};
+    },
+    /** The pause menu's creature spawns: 'natural', 'hunt', 'tree', 'idle', 'walk' or 'run'. */
+    creatureSpawn(mode:CreatureMode='natural'){camera.getWorldDirection(forward);encounters.spawn(player,forward,mode);},
+    creatureHunt(){this.creatureSpawn('hunt');},
+    lives(){return{...lives,grab:grab?{...grab}:undefined};},
+    /** Raise the torch without fetching it from the bench. */
+    equipTorch(){flashlight.devEquip();},
+    /** Where its face is, for aiming the torch at it. */
+    creatureHead(){return encounters.headPosition(new THREE.Vector3()).toArray();},
+    /** Be taken now, as if it had reached you. */
+    die(){beginGrab();},
     creatureStep(dt:number,time:number,speed:number){return encounters.previewStep(dt,time,speed);},
     setRatio(r:number){diagnosticRatio=r;fixedQuality=true;pixelRatio=r;renderer.setPixelRatio(r);resize();},
     adaptiveQuality(){return renderBudget.inspect();},
@@ -274,12 +345,20 @@ export function createGame(container:HTMLElement) {
     // One complete, continuous day every 24 active minutes; test tools can accelerate it.
     const active=isActive(),simulate=active;
     if(simulate){elapsed+=dt;hours=(hours+dt*cycleSpeed/60)%24;}
+    if(grab){
+      if(simulate)grab.t+=dt;
+      const g=grabTimeline(grab.t);
+      if(g.respawn&&!grab.respawned){grab.respawned=true;wake(now);}
+      blackout.style.opacity=String(g.black);card.style.opacity=String(g.card);
+      if(g.done){grab=undefined;blackout.style.opacity=card.style.opacity='0';}
+    }
     const skyState=sky.update(hours,player,elapsed),darkness=skyState.darkness;
     diagnostic.darkness=darkness;diagnostic.elapsed=elapsed;
-    const directionZ=(held('forward')?1:0)-(held('back')?1:0)-touchMove.y;
-    const directionX=(held('right')?1:0)-(held('left')?1:0)+touchMove.x;
-    const crouch=!flying&&!world2?.climbing&&held('crouch');
-    const hurry=touchMove.lengthSq()>0||held('sprint');
+    // Taken: no walking away.
+    const directionZ=grab?0:(held('forward')?1:0)-(held('back')?1:0)-touchMove.y;
+    const directionX=grab?0:(held('right')?1:0)-(held('left')?1:0)+touchMove.x;
+    const crouch=!grab&&!flying&&!world2?.climbing&&held('crouch');
+    const hurry=!grab&&(touchMove.lengthSq()>0||held('sprint'));
     const waterDistance=WORLD_V2?channelOffset(player.x,player.z):Math.abs(player.x-riverX(player.z));
     let moveSpeed=crouch?.95:hurry?3.35:1.8;
     const waterY=riverSurfaceAt(player.x,player.z);
@@ -306,14 +385,35 @@ export function createGame(container:HTMLElement) {
       player.x=next.x;player.z=next.z;player.y=THREE.MathUtils.damp(player.y,next.y,18,dt);
     }
     const speed=climb?0:Math.hypot(player.x-oldX,player.z-oldZ)/Math.max(dt,.001);
+    // Every footfall goes into the creature's noise stream, as loud as the gait and the ground make it. Wading
+    // is left to the rebuilt world's splashes, which are already in the stream.
+    if(simulate&&!flying&&!climb&&!grab&&speed>.25&&!(world2&&inWater)){
+      stride+=speed*dt;
+      if(stride>.82){
+        stride%=.82;
+        const surface:FootSurface=inWater?'water':Math.abs(player.z-roadZ(player.x))<2.7?'road':offTrail<.25?'forest':'dirt';
+        const loudness=footstepLoudness({speed,sprinting:hurry&&!crouch,crouching:crouch,surface})*(world2?.indoors(player)?.5:1);
+        if(loudness>0)noise.emit({type:'noise',loudness,source:'footstep',x:player.x,z:player.z});
+      }
+    }
     walkingPhase+=speed*dt*(crouch?2.7:3.7);
     cameraHeight=THREE.MathUtils.damp(cameraHeight,crouch?1.05:1.69,7,dt);
     const motion=flying?0:THREE.MathUtils.clamp(speed/1.8,0,1);
     const bob=Math.sin(walkingPhase*2)*.017*motion;
     const breath=Math.sin(now*.0013)*.0028;
     camera.position.set(player.x,player.y+cameraHeight+bob+breath+(climb?.bob??0),player.z);
-    const awakening=loading?0:THREE.MathUtils.smoothstep((now-loadCompleteAt)/1000,0,3.2);
-    camera.rotation.set(THREE.MathUtils.lerp(-1.18,pitch,awakening)+Math.sin(walkingPhase)*.0018*motion,yaw,Math.cos(walkingPhase)*.003*motion,'YXZ');
+    // Being taken: the head is wrenched round to its face, and shaken.
+    let jolt=0;
+    if(grab&&!grab.respawned){
+      encounters.headPosition(head);
+      const dx=head.x-camera.position.x,dy=head.y-camera.position.y,dz=head.z-camera.position.z,toward=Math.atan2(-dx,-dz),k=1-Math.exp(-dt*(grab.t<.35?16:9));
+      yaw+=Math.atan2(Math.sin(toward-yaw),Math.cos(toward-yaw))*k;
+      pitch+=(THREE.MathUtils.clamp(Math.atan2(dy,Math.hypot(dx,dz)),-1.28,1.32)-pitch)*k;
+      jolt=Math.sin(grab.t*47)*.035*(1-THREE.MathUtils.smoothstep(grab.t,.2,1));
+    }
+    // Eyes open slowly, after loading and after waking at the cabin.
+    const awakening=loading?0:Math.min(THREE.MathUtils.smoothstep((now-loadCompleteAt)/1000,0,3.2),THREE.MathUtils.smoothstep((now-wokeAt)/1000,0,3.2));
+    camera.rotation.set(THREE.MathUtils.lerp(-1.18,pitch,awakening)+Math.sin(walkingPhase)*.0018*motion+jolt*.5,yaw,Math.cos(walkingPhase)*.003*motion+jolt,'YXZ');
     const targetFov=settings.fov+(hurry&&speed>2?2:0);
     if(camera.fov!==targetFov){
       const fov=THREE.MathUtils.damp(camera.fov,targetFov,2,dt);
@@ -322,7 +422,7 @@ export function createGame(container:HTMLElement) {
     camera.getWorldDirection(forward);
     const startTerrain=performance.now(),terrainChanged=terrain.update(elapsed,player,darkness),startForest=performance.now(),forestChanged=forest.update(elapsed,player),endForest=performance.now();
     const storyChanged=story.update(player);
-    const worldChanged=world2?world2.update({dt,time:elapsed,player,darkness,active,simulate}):false;
+    const worldChanged=world2?world2.update({dt,time:elapsed,player,darkness,active:active&&!grab,simulate}):false;
     const creatureWasVisible=creature.visible;
     if(forest.collisionVersion!==forestCollisionVersion){forestCollisionVersion=forest.collisionVersion;collisions.replace('forest',forest.solidColliders);}
     if(terrain.collisionVersion!==terrainCollisionVersion){terrainCollisionVersion=terrain.collisionVersion;collisions.replace('terrain',terrain.solidColliders);}
@@ -330,11 +430,12 @@ export function createGame(container:HTMLElement) {
     const startEncounter=profile?performance.now():0;
     if(import.meta.env.DEV&&spiderLab&&!loading)spiderLab.update(rawDelta);
     if(simulate){
-      encounters.update(dt,elapsed,player,forward,darkness,hours);
+      encounters.update(dt,elapsed,player,forward,darkness,hours,senses(dt,crouch,hurry,inWater,!!climb));lastFoot.copy(player);
+      if(encounters.takeStrike())beginGrab();
       if(creatureWasVisible||creature.visible)collisions.replace('creature',encounters.solidColliders());
       // Resolve limbs that entered the player during this tick against the new
       // pose, before drawing. The movement sweep above uses the previous pose.
-      if(active&&!flying&&!climb&&creature.visible&&player.distanceToSquared(creature.position)<36){
+      if(active&&!flying&&!climb&&!grab&&creature.visible&&player.distanceToSquared(creature.position)<36){
         const separated=moveCharacter(player,0,0,crouch?1.05:1.69,heightAt,collisions);
         camera.position.x+=separated.x-player.x;camera.position.z+=separated.z-player.z;
         player.x=separated.x;player.z=separated.z;
@@ -381,7 +482,7 @@ export function createGame(container:HTMLElement) {
     window.removeEventListener('mouseup',mouseUp);window.removeEventListener('mousemove',mouseMove);window.removeEventListener('keydown',keyDown);window.removeEventListener('keyup',keyUp);window.removeEventListener('blur',blur);window.removeEventListener('resize',resize);window.visualViewport?.removeEventListener('resize',resize);window.removeEventListener('orientationchange',blur);
     document.removeEventListener('pointerlockchange',lockChange);document.removeEventListener('visibilitychange',blur);
     renderer.domElement.removeEventListener('mousedown',mouseDown);renderer.domElement.removeEventListener('touchstart',touchStart);renderer.domElement.removeEventListener('touchmove',touchUpdate);renderer.domElement.removeEventListener('touchend',touchEnd);renderer.domElement.removeEventListener('touchcancel',touchEnd);
-    world2?.dispose();admin.dispose();flashlight.dispose();sun.shadow.dispose();sky.dispose();audio.dispose();encounters.dispose();forest.dispose();story.dispose();terrain.dispose();atmosphere.dispose();
+    unsubscribeNoise();blackout.remove();world2?.dispose();admin.dispose();flashlight.dispose();sun.shadow.dispose();sky.dispose();audio.dispose();encounters.dispose();forest.dispose();story.dispose();terrain.dispose();atmosphere.dispose();
     scene.traverse(object=>{if(object instanceof THREE.Mesh){object.geometry.dispose();const mats=Array.isArray(object.material)?object.material:[object.material];for(const mat of mats){for(const v of Object.values(mat))if(v instanceof THREE.Texture)v.dispose();mat.dispose();}}});
     renderer.dispose();renderer.domElement.remove();
   };

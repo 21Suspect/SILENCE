@@ -28,7 +28,7 @@ export function createListener(scene: THREE.Scene, heightAt: (x: number, z: numb
   const anchor = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), forward = new THREE.Vector3(0, 0, 1), look = new THREE.Vector3(), tmp = new THREE.Vector3(), tmp2 = new THREE.Vector3();
   const elbow = new THREE.Vector3(), wrist = new THREE.Vector3(), pole = new THREE.Vector3(), a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
   const gaze = { yaw: 0, pitch: 0 }, armLift: Record<'L' | 'R', number> = { L: 0, R: 0 };
-  let jaw = 0, lookWeight = 1, headRoll = 0, neckLift = 0, armReach = 0, width = 1, solidsAge = 9;
+  let jaw = 0, lookWeight = 1, headRoll = 0, neckLift = 0, armReach = 0, width = 1, solidsAge = 9, strike = 0;
   let solids: SolidCollider[] = [], climbing: Trunk | undefined, groundBlend = 1;
   const trunks: { x: number; z: number; r: number }[] = [];
 
@@ -157,9 +157,12 @@ export function createListener(scene: THREE.Scene, heightAt: (x: number, z: numb
       width = damp(width, navigation.stanceWidth, 2.2, Math.max(dt, 1 / 240));
       command.surface = groundSurface; command.rest = undefined; command.hug = 0; command.swingPath = undefined; command.reachSpeed = undefined;
       command.width = width; command.length = 1; command.ride = lerp(1.9, 1.56, sstep(gait.speed, 1.5, 7)) * S;
-      lookWeight = 1; neckLift = 0; armReach = 0; headRoll = 0; jaw = .05 + sstep(gait.speed, 3, 9) * .22;
+      // The grab: both hands come forward and the jaw drops for the screech.
+      lookWeight = 1; neckLift = 0; armReach = strike; headRoll = 0; jaw = Math.max(.05 + sstep(gait.speed, 3, 9) * .22, strike * .45);
       step(dt, time, lookAt, darkness);
     },
+    /** 0 at rest, 1 mid-grab. Read by walk(). */
+    setStrike(amount: number) { strike = clamp(amount, 0, 1); },
     /** Head-down on a trunk. Landing blends it back to the ground. */
     onTree(dt: number, time: number, trunk: Trunk, position: THREE.Vector3, rotation: THREE.Quaternion, inset: number, landed: number, watching: number, lookAt: THREE.Vector3, darkness: number) {
       climbing = trunk; groundBlend = landed;

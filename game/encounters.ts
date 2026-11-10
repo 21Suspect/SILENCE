@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import {createEncounterSchedule} from './encounter-schedule';
 import {createTreeCrawl,TREE_SPIRAL_TURN,TREE_CRAWL_SPEED} from './tree-crawl';
 import type { ForestAudio } from './audio';
 import {createFoot,swingFoot,advanceFoot,solveLeg,type FootState} from './creature-gait';
@@ -9,8 +8,20 @@ import {createCreatureNavigation} from './creature-navigation';
 import {createListener} from './listener';
 import {creatureInView,createOffscreenLatch,CREATURE_VIEW_RADIUS,type EncounterView} from './encounter-visibility';
 import {inDirectView,sightlineClear,createEncounterAwareness} from './creature-sighting';
+import {createCreatureBrain,createRandom,type BrainEvent,type BrainOutput,type NoiseEvent,type PlayerPercept,type Vec2} from './creature-brain';
 
-/** Rare, peripheral encounters. There is no timer, combat, or visible objective. */
+/** What the engine knows about the player each frame, beyond where they stand and look. */
+export type CreatureSenses=Omit<PlayerPercept,'x'|'y'|'z'>&{
+  /** The screen is black (the player is being taken): nothing can pop in or out of view. */
+  blackout?:boolean;
+};
+export type CreatureMode='natural'|'hunt'|'idle'|'walk'|'run'|'tree';
+
+/**
+ * The Listener, always somewhere. Far from the player it is a point travelling through the world with no body;
+ * near, the Listener's body walks it. Either way game/creature-brain.ts decides what it does: it hears, sees,
+ * shadows, hunts and grabs. It is never placed or removed on screen (protectedNow, the off-screen latch).
+ */
 export function createEncounters(
   scene: THREE.Scene,
   heightAt: (x: number, z: number) => number,
@@ -18,6 +29,7 @@ export function createEncounters(
   collisionWorld?: Pick<ReturnType<typeof createCollisionWorld>,'nearby'>,
   getView?:()=>EncounterView,
   waterSurfaceAt?:(x:number,z:number)=>number|undefined,
+  options:{places?:readonly Vec2[];seed?:number}={},
 ) {
   const root = new THREE.Group();
   root.name = 'something-between-the-trees';
@@ -178,8 +190,8 @@ export function createEncounters(
     }
     listener.walk(dt,time,root.position,root.rotation.y,attentionTarget,currentDarkness);
   }
-  function moveCreature(dt:number,speed:number,direction:THREE.Vector3){
-    const moved=navigation.move(root.position,direction.x,direction.z,speed,dt);
+  function moveCreature(dt:number,speed:number,direction:THREE.Vector3,brake?:number){
+    const moved=navigation.move(root.position,direction.x,direction.z,speed,dt,brake);
     const oldYaw=root.rotation.y,difference=Math.atan2(Math.sin(moved.yaw-oldYaw),Math.cos(moved.yaw-oldYaw));
     const turn=moved.speed>.001?THREE.MathUtils.clamp(difference*(1-Math.exp(-dt*9)),-dt*2.4,dt*2.4):0;
     // Translation and heading progress together through the rounded route. Only
@@ -203,21 +215,27 @@ export function createEncounters(
     const rate=(root.rotation.y-oldYaw)/Math.max(dt,.001);motion.turnRate=THREE.MathUtils.damp(motion.turnRate,rate,10,dt);
     lastMoveSpeed=moved.speed*alignment*fraction;motion.speed=lastMoveSpeed;
   }
-  const schedule=createEncounterSchedule();
-  let nextEncounter=0,active=false,activeTime=0,watched=0,retreating=false,retreatTime=0,lifetime=5;
-  let nextDistantSound=35+Math.random()*45;
-  type CreatureMode='natural'|'idle'|'walk'|'run'|'tree';
-  let naturalCount=0,treeCrawl:ReturnType<typeof createTreeCrawl>|undefined;
+  // --- Persistence. Within NEAR it gets a body (placed out of view); beyond FAR, once off screen, it loses it again.
+  // Unseen it may not close inside FAR_HOLD: the body has to be placed out of view first.
+  const NEAR=80,FAR=105,FAR_HOLD=50,SIGHT_LIMIT=90,LOOK_EVERY=.2,BEAM_RANGE=26,BEAM_ANGLE=15*Math.PI/180,REVEAL_GAP=180;
+  // From the middle of its body, how far it can bend and reach down, for a player it has run over.
+  const BODY_REACH=1.2,CALL_GAP=60,FLINCH_BRAKE=11;
+  const seed=options.seed??7741,brain=createCreatureBrain({random:createRandom(seed),places:options.places}),hostRandom=createRandom(seed*31+7);
+  let placed=false,materializeIn=0,lookIn=0,lineOfSight=false,beamOnIt=false,reach=Infinity,strikePending=false,grabbing=false,strikePose=0,blackout=false;
+  let lastReveal=-Infinity,lastCall=-Infinity,nextBranch=70,stuck=0,detourUntil=0,detourSide=1,lastOutput:BrainOutput|undefined;
+  const percept:PlayerPercept={x:0,y:0,z:0,vx:0,vz:0,sprinting:false,crouching:false,flashlightOn:false,inWater:false,onLadder:false,indoors:false,untouchable:false};
+  const eye=new THREE.Vector3(),chest=new THREE.Vector3();
+  let treeCrawl:ReturnType<typeof createTreeCrawl>|undefined;
   let adminMode:CreatureMode='natural',dismissRequested=false,outsideReady=false,retryIn=0;
-  type SpawnRequest={mode:CreatureMode;origin:THREE.Vector3;heading:number;cursor:number;side?:number;reposition?:boolean;scheduled?:boolean};
+  type SpawnRequest={mode:CreatureMode;origin:THREE.Vector3;heading:number;cursor:number;side?:number};
   let pendingSpawn:SpawnRequest|undefined;
-  const retreatDirection=new THREE.Vector3(),toCreature=new THREE.Vector3(),boundsCenter=new THREE.Vector3();
+  const retreatDirection=new THREE.Vector3(),boundsCenter=new THREE.Vector3();
   const offscreen=createOffscreenLatch();
   const fallbackView={position:new THREE.Vector3(),forward:new THREE.Vector3(0,0,-1),right:new THREE.Vector3(1,0,0),up:new THREE.Vector3(0,1,0),verticalFov:69,aspect:16/9};
   const transitions:{kind:string;inView:boolean;position:number[];elapsed:number}[]=[];
-  const awareness=createEncounterAwareness(),sightPoints=[new THREE.Vector3(),new THREE.Vector3(),new THREE.Vector3(),new THREE.Vector3()];
-  const stalkTarget=new THREE.Vector3(),cuePosition=new THREE.Vector3();
-  let headBone:THREE.Object3D|undefined,directSight=false,sightProbeIn=0,nextReposition=18,stalkSide=1,repositions=0,stuckTime=0,nextFlankShift=10;
+  const awareness=createEncounterAwareness(hostRandom),sightPoints=[new THREE.Vector3(),new THREE.Vector3(),new THREE.Vector3(),new THREE.Vector3()];
+  const cuePosition=new THREE.Vector3();
+  let headBone:THREE.Object3D|undefined,directSight=false,sightProbeIn=0;
   function directlyVisible(force=false){
     const view=getView?.()??fallbackView;
     headBone??=listener.head();
@@ -240,10 +258,6 @@ export function createEncounters(
   function notice(dt:number){
     sightProbeIn-=dt;
     awareness.update(dt,directlyVisible(!awareness.witnessed&&awareness.inspect().directExposure>=.14));
-    if(!awareness.inspect().revealPlayed){
-      cuePosition.copy(sightPoints[0]);
-      if(audio.creatureReveal(root.position))awareness.revealed();
-    }
   }
   function observe(player:THREE.Vector3,forward:THREE.Vector3){
     attentionTarget.copy(player);attentionTarget.y+=1.6;
@@ -254,48 +268,66 @@ export function createEncounters(
     fallbackView.up.crossVectors(fallbackView.right,fallbackView.forward).normalize();
   }
   function protectedNow(){
+    // Under the black of being taken nothing on screen can be seen to pop.
+    if(blackout)return false;
     boundsCenter.copy(root.position);boundsCenter.y+=2;
     let radius=CREATURE_VIEW_RADIUS;
     for(const limb of limbs){radius=Math.max(radius,boundsCenter.distanceTo(limb.foot.position)+.5,boundsCenter.distanceTo(limb.jointWorld)+.4);}
     radius=Math.max(radius,listener.reach(boundsCenter));
     return creatureInView(getView?.()??fallbackView,boundsCenter,radius);
   }
+  const inViewAt=(x:number,y:number,z:number,radius:number)=>!blackout&&creatureInView(getView?.()??fallbackView,{x,y,z},radius);
   function recordTransition(kind:string,elapsed:number,inView:boolean){
     transitions.push({kind,inView,position:root.position.toArray(),elapsed});if(transitions.length>24)transitions.shift();
   }
-  function endEncounter(elapsed:number){
-    // The final check is at the actual post-movement position. Neither lifetime,
-    // fog, distance, admin actions nor a far clipping plane can override it.
-    if(root.visible&&(!outsideReady||protectedNow()))return false;
-    recordTransition('despawn',elapsed,false);root.visible=false;active=false;visualTest=false;treeCrawl=undefined;root.rotation.set(0,root.rotation.y,0);
-    dismissRequested=false;outsideReady=false;offscreen.reset();nextEncounter=naturalCount<2?elapsed:elapsed+110+Math.random()*60;
-    return true;
-  }
-  function commitSpawn(request:SpawnRequest,point:{x:number;y:number;z:number},elapsed:number){
+  /** Give it a body at a point, posed, only if neither where it was nor where it goes is on screen. */
+  function placeBody(point:{x:number;y:number;z:number},yaw:number,elapsed:number,kind:string){
     if(!sculpt.ready||(root.visible&&(!outsideReady||protectedNow())))return false;
-    const view=getView?.()??fallbackView,center={x:point.x,y:point.y+2,z:point.z};
     // Extra room for the first pose and its lifted knees. Pose while hidden and
     // validate again before activation; no first-frame travel across the edge.
-    if(creatureInView(view,center,CREATURE_VIEW_RADIUS+1.5))return false;
-    const oldPosition=root.position.clone(),oldYaw=root.rotation.y,oldDirection=retreatDirection.clone(),wasVisible=root.visible;
-    root.visible=false;root.position.set(point.x,point.y,point.z);
-    const toward=Math.atan2(request.origin.x-point.x,request.origin.z-point.z);
-    retreatDirection.set(point.x-request.origin.x,0,point.z-request.origin.z).normalize();
-    root.rotation.y=request.mode==='walk'||request.mode==='run'?Math.atan2(retreatDirection.x,retreatDirection.z):toward;
+    if(inViewAt(point.x,point.y+2,point.z,CREATURE_VIEW_RADIUS+1.5))return false;
+    const oldPosition=root.position.clone(),oldYaw=root.rotation.y,wasVisible=root.visible;
+    root.visible=false;root.position.set(point.x,point.y,point.z);root.rotation.set(0,yaw,0);
     navigation.reset();resetFeet();animateCreature(0,elapsed);
     if(protectedNow()){
-      root.position.copy(oldPosition);root.rotation.y=oldYaw;retreatDirection.copy(oldDirection);navigation.reset();resetFeet();animateCreature(0,elapsed);root.visible=wasVisible;
+      root.position.copy(oldPosition);root.rotation.set(0,oldYaw,0);navigation.reset();resetFeet();animateCreature(0,elapsed);root.visible=wasVisible;
       return false;
     }
-    root.visible=true;active=true;visualTest=false;adminMode=request.mode;
-    if(!request.reposition){
-      if(request.mode==='natural')naturalCount++;
-      activeTime=watched=retreatTime=0;retreating=false;lifetime=4.5+Math.random()*2.5;
-      awareness.reset();if(audio.creatureReveal(root.position))awareness.revealed();stalkSide=Math.random()<.5?-1:1;repositions=0;nextReposition=18+Math.random()*6;
-    }else {repositions++;nextReposition=activeTime+18+Math.random()*6;stalkSide*=-1;}
-    stuckTime=0;nextFlankShift=activeTime+10;directSight=false;sightProbeIn=0;
-    dismissRequested=false;outsideReady=false;offscreen.reset();retryIn=0;
-    recordTransition(request.reposition?'reposition':wasVisible?'replace':'spawn',elapsed,protectedNow());return true;
+    root.visible=true;visualTest=false;treeCrawl=undefined;directSight=false;sightProbeIn=0;outsideReady=false;offscreen.reset();
+    stuck=0;detourUntil=0;lookIn=0;awareness.reset();
+    recordTransition(kind,elapsed,protectedNow());return true;
+  }
+  /** Take its body away (only off screen, unless forced under black); the creature stays where it is, unseen. */
+  function hideBody(elapsed:number,kind:string,force=false){
+    if(!force&&root.visible&&(!outsideReady||protectedNow()))return false;
+    if(root.visible)recordTransition(kind,elapsed,false);
+    root.visible=false;visualTest=false;treeCrawl=undefined;root.rotation.set(0,root.rotation.y,0);outsideReady=false;offscreen.reset();
+    grabbing=false;strikePose=0;listener.setStrike(0);
+    return true;
+  }
+  /** Move the unseen creature to somewhere far from a point. Never while it has a body. */
+  function placeFar(origin:{x:number;z:number},min:number,max:number){
+    if(root.visible)return false;
+    for(let attempt=0;attempt<24;attempt++){
+      const angle=hostRandom()*Math.PI*2,distance=min+hostRandom()*(max-min),x=origin.x+Math.sin(angle)*distance,z=origin.z+Math.cos(angle)*distance;
+      if(Math.hypot(x,z)>WORLD_RADIUS-90||heightAt(x,z)>45)continue;
+      root.position.set(x,heightAt(x,z),z);root.rotation.set(0,angle+Math.PI,0);return true;
+    }
+    // Hemmed in by the edge of the world: toward the middle instead.
+    const angle=Math.atan2(-origin.x,-origin.z),x=origin.x+Math.sin(angle)*min,z=origin.z+Math.cos(angle)*min;
+    root.position.set(x,heightAt(x,z),z);root.rotation.set(0,angle+Math.PI,0);return true;
+  }
+  function commitSpawn(request:SpawnRequest,point:{x:number;y:number;z:number},elapsed:number){
+    const toward=Math.atan2(request.origin.x-point.x,request.origin.z-point.z),oldDirection=retreatDirection.clone();
+    retreatDirection.set(point.x-request.origin.x,0,point.z-request.origin.z).normalize();
+    const yaw=request.mode==='walk'||request.mode==='run'?Math.atan2(retreatDirection.x,retreatDirection.z):toward;
+    if(!placeBody(point,yaw,elapsed,root.visible?'replace':'spawn')){retreatDirection.copy(oldDirection);return false;}
+    grabbing=false;strikePending=false;dismissRequested=false;retryIn=0;
+    adminMode=request.mode==='natural'||request.mode==='hunt'?'natural':request.mode;
+    brain.relocated();
+    if(request.mode==='hunt')brain.provoke(percept);else if(request.mode==='natural')brain.alert(request.origin,6);
+    if(audio.creatureReveal(root.position)){awareness.revealed();lastReveal=elapsed;}
+    return true;
   }
   function animateTree(dt:number,time:number){
     if(!treeCrawl)return;
@@ -348,29 +380,32 @@ export function createEncounters(
         return new THREE.Vector3(c.ax+Math.cos(a)*barkRadius,y,c.az+Math.sin(a)*barkRadius);
       };
       const candidate=createTreeCrawl({x:c.ax,z:c.az,ground:base,radius:c.radius,height:c.maxY-base},angle,limbs.map(l=>l.rest),contact,(x,z)=>navigation.supportAt(x,z));
-      if(creatureInView(getView?.()??fallbackView,candidate.position,6))return false;
-      treeCrawl=candidate;treeCollider=c;perchTime=0;listener.reset();animateTree(0,elapsed);if(protectedNow()){treeCrawl=undefined;root.rotation.set(0,0,0);return false;}
+      if(inViewAt(candidate.position.x,candidate.position.y,candidate.position.z,6))return false;
+      // The unseen creature keeps its place in the world if this tree does not work out.
+      const held=root.position.clone(),heldYaw=root.rotation.y;
+      treeCrawl=candidate;treeCollider=c;perchTime=0;listener.reset();animateTree(0,elapsed);
+      if(protectedNow()){treeCrawl=undefined;root.position.copy(held);root.rotation.set(0,heldYaw,0);return false;}
       directSight=false;sightProbeIn=0;dismissRequested=false;outsideReady=false;offscreen.reset();navigation.reset();
-      bodyLift=bodyCrouch=lastMoveSpeed=0;shoulderWidth=1;motion.turnRate=0;
-      root.visible=active=true;adminMode='natural';activeTime=watched=retreatTime=0;retreating=false;awareness.reset();if(request.mode==='natural')naturalCount++;if(audio.creatureReveal(root.position))awareness.revealed();recordTransition('tree-spawn',elapsed,false);return true;
+      bodyLift=bodyCrouch=lastMoveSpeed=0;shoulderWidth=1;motion.turnRate=0;grabbing=false;strikePending=false;
+      root.visible=true;adminMode='natural';awareness.reset();if(audio.creatureReveal(root.position)){awareness.revealed();lastReveal=elapsed;}recordTransition('tree-spawn',elapsed,false);return true;
     }
     request.cursor=0;
     return false;
   }
   function attemptSpawn(request:SpawnRequest,elapsed:number){
     if(!sculpt.ready||(root.visible&&(!outsideReady||protectedNow())))return false;
-    if(!request.reposition&&(request.mode==='tree'||request.mode==='natural'&&naturalCount===1))return spawnTree(request,elapsed);
-    const side=request.reposition?stalkSide:(request.side??=(Math.random()<.5?-1:1));
-    const angles=request.mode==='natural'?[side*1.7,-side*1.7,side*2.15,-side*2.15,Math.PI]:[Math.PI,2.55,-2.55,2.1,-2.1];
-    const start=request.cursor,end=request.reposition?angles.length:Math.min(angles.length,start+2);
+    if(request.mode==='tree'){if(root.visible&&!hideBody(elapsed,'replace'))return false;return spawnTree(request,elapsed);}
+    const natural=request.mode==='natural'||request.mode==='hunt',side=request.side??=(hostRandom()<.5?-1:1);
+    const angles=natural?[side*1.7,-side*1.7,side*2.15,-side*2.15,Math.PI]:[Math.PI,2.55,-2.55,2.1,-2.1];
+    const start=request.cursor,end=Math.min(angles.length,start+2);
     for(let i=start;i<end;i++){
       request.cursor=i+1;
-      const distance=request.mode==='natural'?(request.reposition?17:20)+i*1.2:12+i*1.3,angle=request.heading+angles[i];
+      const distance=natural?20+i*1.2:12+i*1.3,angle=request.heading+angles[i];
       const x=request.origin.x+Math.sin(angle)*distance,z=request.origin.z+Math.cos(angle)*distance;
       if(Math.hypot(x,z)>WORLD_RADIUS-85||heightAt(x,z)>45)continue;
       const point=navigation.safeSpawn(x,z);if(!point)continue;
       const finalDistance=Math.hypot(point.x-request.origin.x,point.z-request.origin.z);
-      if(request.mode==='natural'&&(finalDistance<12||finalDistance>28))continue;
+      if(natural&&(finalDistance<12||finalDistance>28))continue;
       // safeSpawn can shift up to ten metres: gate its final answer, not just
       // the candidate request. Failed requests leave a live creature intact.
       if(commitSpawn(request,point,elapsed))return true;
@@ -378,15 +413,147 @@ export function createEncounters(
     if(request.cursor>=angles.length){request.cursor=0;request.side=undefined;}
     return false;
   }
+  // --- Senses the host measures for the brain.
+  const solidsAlong=(ax:number,az:number,bx:number,bz:number)=>{
+    const found=new Set<SolidCollider>(),steps=Math.max(1,Math.ceil(Math.hypot(bx-ax,bz-az)/7));
+    for(let i=0;i<=steps;i++)for(const c of collisionWorld?.nearby(ax+(bx-ax)*i/steps,az+(bz-az)*i/steps,4.5)??[])found.add(c);
+    return [...found];
+  };
+  function eyes(out:THREE.Vector3){
+    headBone??=listener.head();
+    if(root.visible&&headBone)return headBone.getWorldPosition(out);
+    return out.set(root.position.x+Math.sin(root.rotation.y)*1.1,root.position.y+1.7,root.position.z+Math.cos(root.rotation.y)*1.1);
+  }
+  /** Its eyes to the player's body, and whether the torch has its face (a few times a second). */
+  function look(player:THREE.Vector3){
+    eyes(eye);chest.set(player.x,player.y+(percept.crouching?.75:1.25),player.z);
+    const distance=Math.hypot(chest.x-eye.x,chest.z-eye.z);
+    lineOfSight=!percept.untouchable&&distance<SIGHT_LIMIT&&sightlineClear(eye,chest,heightAt,solidsAlong(eye.x,eye.z,chest.x,chest.z));
+    const view=getView?.()??fallbackView;
+    if(root.visible&&percept.flashlightOn&&lineOfSight){
+      const dx=eye.x-view.position.x,dy=eye.y-view.position.y,dz=eye.z-view.position.z,d=Math.hypot(dx,dy,dz);
+      beamOnIt=d<BEAM_RANGE&&(dx*view.forward.x+dy*view.forward.y+dz*view.forward.z)/Math.max(d,.001)>Math.cos(BEAM_ANGLE);
+    }else beamOnIt=false;
+  }
+  /**
+   * Head and hands to the player's chest, every frame (a charge covers a metre between looks). A player under its
+   * body counts as within reach too: an overshooting charge can leave the head past them, never out of reach.
+   */
+  function measureReach(player:THREE.Vector3){
+    if(!root.visible){reach=Infinity;return;}
+    eyes(eye);chest.set(player.x,player.y+(percept.crouching?.75:1.25),player.z);
+    reach=Math.min(eye.distanceTo(chest),Math.max(0,Math.hypot(player.x-root.position.x,player.z-root.position.z)-BODY_REACH));
+  }
+  function react(e:BrainEvent,elapsed:number){
+    if(e.type==='strike'){
+      if(!root.visible||grabbing)return;
+      grabbing=strikePending=true;eyes(cuePosition);audio.screech(cuePosition,1);recordTransition('strike',elapsed,protectedNow());
+    }else if(e.type==='hunt-started'){eyes(cuePosition);audio.screech(cuePosition,.5);}
+    else if(e.type==='lost-player'&&elapsed-lastCall>CALL_GAP){lastCall=elapsed;cuePosition.copy(root.position);cuePosition.y+=2;audio.cue('call',cuePosition);}
+    else if(e.type==='flinch'&&root.visible){eyes(cuePosition);audio.hiss(cuePosition);}
+  }
+  function aim(out:BrainOutput){
+    const g=out.gaze;
+    if(g)attentionTarget.set(g.x,g.y??heightAt(g.x,g.z)+1.3,g.z);
+    else attentionTarget.set(root.position.x+Math.sin(root.rotation.y)*10,root.position.y+1.4,root.position.z+Math.cos(root.rotation.y)*10);
+  }
+  /** Walk the body where the brain wants it, through navigation.move. */
+  function drive(dt:number,elapsed:number,out:BrainOutput){
+    let speed=out.intent.speed;const target=out.intent.target;
+    movementDirection.set(Math.sin(root.rotation.y),0,Math.cos(root.rotation.y));
+    if(target){
+      const dx=target.x-root.position.x,dz=target.z-root.position.z,d=Math.hypot(dx,dz);
+      if(d<(out.intent.arrive??1.2))speed=0;
+      if(d>1e-3)movementDirection.set(dx/d,0,dz/d);
+    }else speed=0;
+    // A dead end or a foot with nowhere to go: try the other way round for a moment. Never teleport.
+    if(speed>.6&&lastMoveSpeed<Math.min(.3,speed*.2)){stuck+=dt;if(stuck>1.4){stuck=0;detourUntil=elapsed+2.2;detourSide=-detourSide;navigation.replan();}}
+    else stuck=Math.max(0,stuck-dt*.5);
+    if(elapsed<detourUntil){const a=detourSide*1.1,c=Math.cos(a),s=Math.sin(a),x=movementDirection.x;movementDirection.x=x*c+movementDirection.z*s;movementDirection.z=movementDirection.z*c-x*s;}
+    // Pinned by the beam it pulls up within a couple of strides instead of coasting into the player.
+    moveCreature(dt,speed,movementDirection,out.flinching?FLINCH_BRAKE:undefined);
+    animateCreature(dt,elapsed);
+  }
+  /** Unseen and far: a point moving straight at the brain's target. No gait, no model. */
+  function travel(dt:number,player:THREE.Vector3,out:BrainOutput){
+    const target=out.intent.target;if(!target||out.intent.speed<=0)return;
+    const dx=target.x-root.position.x,dz=target.z-root.position.z,d=Math.hypot(dx,dz);if(d<(out.intent.arrive??1.2))return;
+    const step=Math.min(d,out.intent.speed*dt),x=root.position.x+dx/d*step,z=root.position.z+dz/d*step;
+    const after=Math.hypot(x-player.x,z-player.z);
+    if(after<FAR_HOLD&&after<Math.hypot(root.position.x-player.x,root.position.z-player.z))return;
+    if(Math.hypot(x,z)>WORLD_RADIUS-90)return;
+    root.position.set(x,heightAt(x,z),z);root.rotation.y=Math.atan2(dx,dz);
+  }
+  /** The grab: it holds still, turns to the player, reaches, and opens its jaw. The engine does the rest. */
+  function hold(dt:number,elapsed:number,player:THREE.Vector3){
+    strikePose=Math.min(1,strikePose+dt/.25);listener.setStrike(strikePose);
+    const want=Math.atan2(player.x-root.position.x,player.z-root.position.z),turn=Math.atan2(Math.sin(want-root.rotation.y),Math.cos(want-root.rotation.y));
+    root.rotation.y+=THREE.MathUtils.clamp(turn,-dt*1.6,dt*1.6);
+    moveCreature(dt,0,movementDirection.set(Math.sin(root.rotation.y),0,Math.cos(root.rotation.y)));
+    animateCreature(dt,elapsed);
+  }
+  function think(dt:number,elapsed:number,player:THREE.Vector3,hours:number){
+    if(!placed){placed=true;if(!root.visible)placeFar(player,170,230);}
+    const near=root.visible;
+    if(near)notice(dt);else directSight=false;
+    lookIn-=dt;if(lookIn<=0){lookIn=LOOK_EVERY;look(player);}
+    measureReach(player);
+    const out=lastOutput=brain.tick({dt,hours,darkness:currentDarkness,creature:{x:root.position.x,z:root.position.z,yaw:root.rotation.y},player:percept,lineOfSight,playerLooking:near&&directSight,beamOnIt,reach});
+    for(const e of out.events)react(e,elapsed);
+    if(grabbing)return;
+    const distance=Math.hypot(player.x-root.position.x,player.z-root.position.z);
+    if(near){
+      strikePose=Math.max(0,strikePose-dt*2);listener.setStrike(strikePose);
+      aim(out);drive(dt,elapsed,out);
+      if(protectedNow()){outsideReady=false;offscreen.reset();}
+      if(dismissRequested){if(outsideReady&&hideBody(elapsed,'dismiss')){placeFar(player,150,220);dismissRequested=false;brain.forget();}}
+      else if(distance>FAR&&out.behaviour!=='hunt'&&outsideReady)hideBody(elapsed,'recede');
+      if(root.visible&&!awareness.witnessed&&distance<45&&(out.behaviour==='shadow'||out.behaviour==='investigate')&&awareness.promptDue()){cuePosition.copy(root.position);cuePosition.y+=1.2;if(audio.stalkCue(cuePosition))awareness.prompted();}
+      // The old spawn sound now marks the first close approach in a while.
+      if(root.visible&&distance<35&&out.behaviour==='shadow'&&elapsed-lastReveal>REVEAL_GAP&&audio.creatureReveal(root.position)){lastReveal=elapsed;awareness.revealed();}
+    }else{
+      if(dismissRequested){placeFar(player,150,220);dismissRequested=false;brain.forget();}
+      travel(dt,player,out);
+      materializeIn-=dt;
+      if(distance<NEAR&&materializeIn<=0){
+        materializeIn=.3;
+        // safeSpawn may shift the stance ten metres; skip the search while even that ring is on screen.
+        if(!inViewAt(root.position.x,root.position.y+2,root.position.z,CREATURE_VIEW_RADIUS+11.5)){
+          const point=navigation.safeSpawn(root.position.x,root.position.z);
+          if(point)placeBody(point,root.rotation.y,elapsed,'arrive');
+        }
+      }
+    }
+    // Branches crack where it really is, now and then, while it is out of sight.
+    if(!directSight&&elapsed>nextBranch&&distance>25&&distance<90){nextBranch=elapsed+70+hostRandom()*80;cuePosition.copy(root.position);cuePosition.y+=1;audio.cue('branch',cuePosition);}
+  }
   return {
     spawn(player:THREE.Vector3,forward:THREE.Vector3,mode:CreatureMode='natural'){
       observe(player,forward);
       pendingSpawn={mode,origin:player.clone(),heading:Math.atan2(forward.x,forward.z),cursor:0};dismissRequested=false;retryIn=0;
     },
-    dismiss(_elapsed:number){pendingSpawn=undefined;dismissRequested=true;},
-    visibilityStatus(){return{naturalCount,scheduledHours:schedule.times,treePhase:treeCrawl?(treeCrawl.landing>0?'landing':treeCrawl.descending?'descending':'perched'):null,active,visible:root.visible,mode:adminMode,modelReady:sculpt.ready,inView:root.visible&&protectedNow(),offscreenSeconds:offscreen.outsideSeconds,pendingSpawn:!!pendingSpawn,pendingDismiss:dismissRequested,directSight,awareness:awareness.inspect(),nextEncounter,repositions,retreating,activeTime,transitions:transitions.map(t=>({...t,position:[...t.position]}))};},
+    /** Developer dismiss: it breaks off, and once off screen it is far away. */
+    dismiss(_elapsed:number){pendingSpawn=undefined;dismissRequested=true;brain.dismiss();},
+    /** A sound in the world: from the objectives' noise stream (footsteps, the torch, ladders, the generator...). */
+    hear(noise:NoiseEvent){brain.hear(noise);},
+    /** True once when it has reached the player: the engine plays out the grab. */
+    takeStrike(){if(!strikePending)return false;strikePending=false;return true;},
+    get grabbing(){return grabbing;},
+    /** Its face, for the camera to be wrenched toward. */
+    headPosition(out:THREE.Vector3){return eyes(out);},
+    /** After the player was taken, under black: move it far from where they wake, unseen, and let it calm down. */
+    relocate(origin:THREE.Vector3,elapsed:number){
+      if(root.visible&&!blackout&&protectedNow())return false;
+      pendingSpawn=undefined;dismissRequested=false;strikePending=false;adminMode='natural';
+      hideBody(elapsed,'relocate',true);placeFar(origin,150,220);placed=true;brain.struck();awareness.reset();
+      return true;
+    },
+    /** Game over: a new night. */
+    restart(origin:THREE.Vector3,elapsed:number){const moved=this.relocate(origin,elapsed);brain.reset();lastReveal=-Infinity;nextBranch=elapsed+70;return moved;},
+    visibilityStatus(){return{presence:root.visible?'body':'unseen',visible:root.visible,mode:adminMode,treePhase:treeCrawl?(treeCrawl.landing>0?'landing':treeCrawl.descending?'descending':'perched'):null,modelReady:sculpt.ready,inView:root.visible&&protectedNow(),offscreenSeconds:offscreen.outsideSeconds,pendingSpawn:!!pendingSpawn,pendingDismiss:dismissRequested,directSight,grabbing,position:root.position.toArray(),senses:{lineOfSight,beamOnIt,reach},awareness:awareness.inspect(),brain:brain.inspect(),transitions:transitions.map(t=>({...t,position:[...t.position]}))};},
     solidColliders():SolidCollider[]{
-      if(!root.visible)return [];
+      // Mid-grab the limbs stop shoving the player about; the camera belongs to the grab.
+      if(!root.visible||grabbing)return [];
       const c:SolidCollider[]=[];
       const addCapsule=(a:THREE.Vector3,b:THREE.Vector3,radius:number,tag:string)=>{
         // Keep the broadphase envelope just outside the posed segment.  The
@@ -403,10 +570,13 @@ export function createEncounters(
     },
     modelStatus(){return sculpt.inspect();},
     navigationStatus(){return{...navigation.inspect(),position:root.position.toArray(),yaw:root.rotation.y,speed:lastMoveSpeed,feet:limbs.map(l=>({label:l.label,swinging:l.foot.swinging,position:l.foot.position.toArray(),target:l.foot.target.toArray(),support:navigation.supportAt(l.foot.position.x,l.foot.position.z),clearance:navigation.footClearance(l.foot.position.x,l.foot.position.z),reachError:l.reachError,reachDistance:l.reachDistance,legClearance:l.legClearance,shoulder:l.shoulderWorld.toArray(),knee:l.jointWorld.toArray()}))};},
-    preview(x:number,z:number,yaw=0){pendingSpawn=undefined;dismissRequested=false;outsideReady=false;offscreen.reset();const spawn=navigation.safeSpawn(x,z);if(!spawn)return;root.position.set(spawn.x,spawn.y,spawn.z);root.rotation.y=yaw;previewDirection.set(Math.sin(yaw),0,Math.cos(yaw));root.visible=true;listener.root.visible=true;visualTest=true;navigation.reset();resetFeet();},
+    preview(x:number,z:number,yaw=0){pendingSpawn=undefined;dismissRequested=false;outsideReady=false;offscreen.reset();const spawn=navigation.safeSpawn(x,z);if(!spawn)return;root.position.set(spawn.x,spawn.y,spawn.z);root.rotation.y=yaw;previewDirection.set(Math.sin(yaw),0,Math.cos(yaw));root.visible=true;listener.root.visible=true;visualTest=true;grabbing=false;strikePending=false;navigation.reset();resetFeet();},
     previewStep(dt:number,time:number,speed:number){moveCreature(dt,speed,previewDirection);animateCreature(dt,time);return limbs.map(l=>({swinging:l.foot.swinging,position:l.foot.position.toArray(),reachError:l.reachError,reachDistance:l.reachDistance,legClearance:l.legClearance,shoulder:l.shoulderWorld.toArray(),knee:l.jointWorld.toArray()}));},
-    update(dt:number,elapsed:number,player:THREE.Vector3,forward:THREE.Vector3,darkness:number,hours=16){
-      currentDarkness=darkness;tick(dt,elapsed,player,forward,hours);listener.root.visible=root.visible;
+    update(dt:number,elapsed:number,player:THREE.Vector3,forward:THREE.Vector3,darkness:number,hours=16,senses?:CreatureSenses){
+      currentDarkness=darkness;blackout=!!senses?.blackout;
+      percept.x=player.x;percept.y=player.y;percept.z=player.z;
+      if(senses){percept.vx=senses.vx;percept.vz=senses.vz;percept.sprinting=senses.sprinting;percept.crouching=senses.crouching;percept.flashlightOn=senses.flashlightOn;percept.inWater=senses.inWater;percept.onLadder=senses.onLadder;percept.indoors=senses.indoors;percept.untouchable=!!senses.untouchable;}
+      tick(dt,elapsed,player,forward,hours);listener.root.visible=root.visible;
     },
     dispose(){scene.remove(root);sculpt.dispose();},
   };
@@ -415,25 +585,15 @@ export function createEncounters(
       outsideReady=root.visible?offscreen.update(protectedNow(),dt):false;
       if(pendingSpawn&&retryIn<=0){
         retryIn=.3;
-        const request=pendingSpawn;
-        if(request.scheduled&&!schedule.due(naturalCount,hours)){
-          pendingSpawn=undefined;nextEncounter=elapsed+3+Math.random()*4;
-          return;
-        }
-        if(attemptSpawn(request,elapsed)){pendingSpawn=undefined;return;}
-        // Automatic natural placement owns a finite candidate pass.  Keep the
-        // request across frames while its bounded tree/angle cursor advances,
-        // then resume the ordinary multi-second retry window once exhausted.
-        if(request.scheduled&&request.cursor===0){
-          pendingSpawn=undefined;nextEncounter=elapsed+3+Math.random()*4;
-        }
+        // A developer request keeps its bounded candidate cursor across frames until something works.
+        if(attemptSpawn(pendingSpawn,elapsed)){pendingSpawn=undefined;return;}
       }
-      if(dismissRequested){
-        if(!root.visible){dismissRequested=false;return;}
-        if(endEncounter(elapsed))return;
+      // Developer modes, the tree and the preview: a dismiss waits until it is off screen, then it is far away.
+      if(dismissRequested&&(treeCrawl||visualTest||adminMode!=='natural')){
+        if(!root.visible||hideBody(elapsed,'dismiss')){adminMode='natural';placeFar(player,150,220);dismissRequested=false;brain.relocated();brain.forget();return;}
       }
-      if(treeCrawl&&active){
-        activeTime+=dt;animateTree(dt,elapsed);notice(dt);
+      if(treeCrawl){
+        animateTree(dt,elapsed);notice(dt);
         if(!treeCrawl.descending)treeCrawl.start(awareness.witnessed&&directlyVisible(true));
         if(awareness.promptDue()&&audio.stalkCue(root.position))awareness.prompted();
         if(treeCrawl.done){
@@ -448,79 +608,19 @@ export function createEncounters(
             if(f.swing<1){l.foot.from.copy(f.from);l.foot.target.copy(f.target);l.foot.progress=f.swing;l.foot.duration=f.duration;l.foot.lift=.30;l.foot.swinging=true;l.foot.smoothArc=true;}
             l.legClearance=Infinity;
           }
-          retreating=true;retreatTime=.001;retreatDirection.copy(facing).setY(0).normalize();
+          // Down from the tree it slips away, as it always has; then the brain has it again.
+          retreatDirection.copy(facing).setY(0).normalize();brain.relocated();brain.force('withdraw');
         }
         return;
       }
       if(visualTest){animateCreature(dt,elapsed);return;}
-      if(active&&adminMode!=='natural'){
+      if(adminMode!=='natural'){
         moveCreature(dt,adminMode==='run'?5.5:adminMode==='walk'?.95:0,retreatDirection);
         animateCreature(dt,elapsed);notice(dt);
         if(protectedNow()){outsideReady=false;offscreen.reset();}
-        if(dismissRequested)endEncounter(elapsed);
         return;
       }
-      if(!active&&elapsed>nextDistantSound){
-        nextDistantSound=elapsed+85+Math.random()*135;
-        const angle=Math.random()*Math.PI*2,distance=25+Math.random()*35;
-        audio.cue(Math.random()<.6?'branch':'call',new THREE.Vector3(player.x+Math.sin(angle)*distance,player.y+1,player.z+Math.cos(angle)*distance));
-      }
-      if(!active&&!root.visible&&!pendingSpawn&&elapsed>nextEncounter&&schedule.due(naturalCount,hours)){
-        const request:SpawnRequest={mode:'natural',origin:player.clone(),heading:Math.atan2(forward.x,forward.z),cursor:0,scheduled:true};
-        pendingSpawn=request;retryIn=0;
-      }
-      if(!active)return;
-      activeTime+=dt;notice(dt);
-      toCreature.copy(root.position);toCreature.y+=1.5;toCreature.sub(player);
-      const distance=toCreature.length();toCreature.normalize();
-      watched=directSight?watched+dt:Math.max(0,watched-dt*.6);
-      // Time unseen is not a lifetime. It stays in the woods and works toward
-      // a flank until actually recognized, rather than retreating behind us.
-      if(distance<10)retreating=true;
-      if(awareness.witnessed&&(awareness.seenFor>lifetime||(awareness.seenFor>1.4&&watched>1.1)))retreating=true;
-      if(retreating){
-        if(retreatTime===0)retreatDirection.copy(root.position).sub(player).setY(0).normalize();
-        retreatTime+=dt;
-        // Keep the established curved route, but recover if a dead end or foot
-        // placement stalled it. Pick a new escape heading, never teleport.
-        stuckTime=lastMoveSpeed<.3?stuckTime+dt:0;
-        if(stuckTime>1.1){
-          const away=Math.atan2(root.position.x-player.x,root.position.z-player.z);
-          const offset=stalkSide*(.55+(repositions%3)*.55);stalkSide*=-1;repositions++;
-          retreatDirection.set(Math.sin(away+offset),0,Math.cos(away+offset));navigation.replan();stuckTime=0;
-        }
-        moveCreature(dt,Math.min(6,TREE_CRAWL_SPEED+retreatTime*3),retreatDirection);
-      }else if(!awareness.witnessed){
-        if(awareness.promptDue()){
-          cuePosition.copy(root.position);cuePosition.y+=1.2;
-          if(audio.stalkCue(cuePosition))awareness.prompted();
-        }
-        if(activeTime>=nextReposition&&outsideReady){
-          nextReposition=activeTime+4;
-          const request:SpawnRequest={mode:'natural',origin:player.clone(),heading:Math.atan2(forward.x,forward.z),cursor:0,reposition:true};
-          if(attemptSpawn(request,elapsed))return;
-        }
-        if(activeTime>1.8){
-          const horizontalForward=stalkTarget.copy(forward).setY(0);if(horizontalForward.lengthSq()<.01)horizontalForward.set(0,0,-1);horizontalForward.normalize();
-          const fx=horizontalForward.x,fz=horizontalForward.z;
-          // A point forward of one shoulder draws a continuous path into the
-          // peripheral image. Every metre still goes through safe navigation.
-          stalkTarget.set(player.x+fx*14+fz*stalkSide*7,player.y,player.z+fz*14-fx*stalkSide*7);
-          movementDirection.copy(stalkTarget).sub(root.position).setY(0);
-          if(distance<9)movementDirection.copy(root.position).sub(player).setY(0);
-          if(activeTime>nextFlankShift&&(stuckTime>5||movementDirection.length()<1.5)){
-            // A trunk can hide the final flank target while its broad safety
-            // sphere is on screen. Walk to the other flank; never teleport it.
-            stalkSide*=-1;nextFlankShift=activeTime+12;
-          }
-          const speed=movementDirection.length()>1?THREE.MathUtils.lerp(.95,1.3,THREE.MathUtils.smoothstep(activeTime,18,30)):0;
-          movementDirection.normalize();moveCreature(dt,speed,movementDirection);
-          stuckTime=lastMoveSpeed<.08&&speed>0?stuckTime+dt:0;
-          if(stuckTime>7)nextReposition=Math.min(nextReposition,activeTime);
-        }
-      }else moveCreature(dt,0,retreatDirection);
-      animateCreature(dt,elapsed);
-      if(protectedNow()){outsideReady=false;offscreen.reset();}
-      if((dismissRequested||(retreating&&retreatTime>1.4&&root.position.distanceTo(player)>12))&&outsideReady)endEncounter(elapsed);
+      if(grabbing){hold(dt,elapsed,player);return;}
+      think(dt,elapsed,player,hours);
   }
 }

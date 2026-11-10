@@ -62,6 +62,8 @@ export function createFlashlight(scene:THREE.Scene,camera:THREE.PerspectiveCamer
       light.position.copy(group.position).addScaledVector(direction,.205);light.target.position.copy(camera.position).addScaledVector(direction,16);light.target.updateMatrixWorld();
       scene.userData.flashlight=light.visible?light:null;
     },
+    /** A restarted night: the torch lies on its bench again, switched off. */
+    reset(){owned=false;wanted=false;on=false;equip=0;group.name='Bench flashlight';group.position.copy(seat);group.rotation.set(0,1.1,Math.PI*.03);group.visible=true;group.traverse(o=>{if(o instanceof THREE.Mesh)o.castShadow=true;});light.visible=false;light.intensity=0;lens.emissiveIntensity=0;},
     /** Dev capture only: skip the pickup and raise the torch immediately. */
     devEquip(){owned=true;wanted=true;equip=1;group.traverse(o=>{if(o instanceof THREE.Mesh)o.castShadow=false;});},
     inspect(){return {owned,on,pickupPosition:seat.toArray(),canPick:!owned&&canPick()};},

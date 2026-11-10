@@ -248,7 +248,8 @@ export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,wo
       }
       return undefined;
     },
-    move(position:Point,hx:number,hz:number,speed:number,dt:number){
+    /** `brake` (m/s²) is the least deceleration toward a lower speed; a flinch stops harder than a walk. */
+    move(position:Point,hx:number,hz:number,speed:number,dt:number,brake=2.2){
       referenceY=position.y;refresh(position.x,position.z,dt);replanIn-=dt;
       const len=Math.hypot(hx,hz)||1;hx/=len;hz/=len;
       const goalChange=hx*lastHeading.x+hz*lastHeading.z<.94;
@@ -264,7 +265,7 @@ export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,wo
       let remaining=.9+speed*.22,anchor={x:position.x,z:position.z},look=anchor,sharpness=0,lastAngle:number|undefined;
       for(const point of route){const distance=Math.hypot(point.x-anchor.x,point.z-anchor.z);if(distance<.001){anchor=point;continue;}const angle=Math.atan2(point.x-anchor.x,point.z-anchor.z);if(lastAngle!==undefined)sharpness+=Math.abs(Math.atan2(Math.sin(angle-lastAngle),Math.cos(angle-lastAngle)));lastAngle=angle;if(distance>=remaining){look={x:anchor.x+(point.x-anchor.x)*remaining/distance,z:anchor.z+(point.z-anchor.z)*remaining/distance};break;}remaining-=distance;look=point;anchor=point;}
       const curvaturePace=1/(1+sharpness*.22),desiredSpeed=route.length?speed*Math.max(.68,curvaturePace):0;
-      const acceleration=desiredSpeed>travelSpeed?Math.max(1.5,speed*1.8):Math.max(2.2,speed*2.2);
+      const acceleration=desiredSpeed>travelSpeed?Math.max(1.5,speed*1.8):Math.max(brake,speed*2.2);
       travelSpeed+=Math.max(-acceleration*dt,Math.min(acceleration*dt,desiredSpeed-travelSpeed));lastDesiredSpeed=desiredSpeed;
       let budget=travelSpeed*dt,x=position.x,z=position.z,lastDX=Math.sin(heading),lastDZ=Math.cos(heading);lastBlocked=false;
       // Consume distance continuously across small arc samples. Reaching a

@@ -8,7 +8,8 @@ import { createObjectivesRuntime } from './objectives-runtime';
 import { initialState } from './objectives';
 import { createAmbientLife } from './ambient-life';
 import { createLadderClimber, ladderAim, ladderReachable } from './ladders';
-import { POI_PLACEMENTS } from './world-layout';
+import { POI_PLACEMENTS, placeLocal } from './world-layout';
+import type { ObjectiveEvent } from './objectives';
 import { createPowerLines } from './power-lines';
 import { createWaterSplash } from './water-splash';
 import { riverSurfaceAt, waterHeightAt } from './world';
@@ -28,6 +29,29 @@ export type WorldV2Options = {
 export type WorldV2Frame = { dt: number; time: number; player: THREE.Vector3; darkness: number; active: boolean; simulate: boolean };
 
 const smooth = (x: number, a: number, b: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+export type NoiseEvent = Extract<ObjectiveEvent, { type: 'noise' }>;
+
+/** A running generator is a standing lure: this loud (about 50 m), every few seconds, from where it stands. */
+export const GENERATOR_HUM = { loudness: .5, every: 7 };
+// Buildings a player can be inside. Footprints include steps and porches, so they are shrunk to the walls.
+const ROOFED = new Set(['cabin', 'hut', 'chapel', 'mine']), INSIDE = .85;
+const roofed = POI_PLACEMENTS.filter(p => ROOFED.has(p.asset) && p.footprint);
+/** Inside one of the roofed buildings: the inverse of placeLocal against each footprint. */
+export function indoorsAt(x: number, z: number) {
+  for (const p of roofed) {
+    const f = p.footprint!, c = Math.cos(p.yaw), s = Math.sin(p.yaw), dx = x - p.x, dz = z - p.z;
+    const lx = dx * c - dz * s, lz = dx * s + dz * c;
+    if (Math.abs(lx - f.cx) < f.hx * INSIDE && Math.abs(lz - f.cz) < f.hz * INSIDE) return true;
+  }
+  return false;
+}
+/** Where a caught player wakes: on the ground just out from the cabin door, facing it. */
+export function cabinWakePoint() {
+  const cabin = POI_PLACEMENTS.find(p => p.id === 'cabin');
+  if (!cabin?.entrance) return undefined;
+  const [x, z] = placeLocal(cabin, cabin.entrance[0], cabin.entrance[1] + 1.4);
+  return { x, z, yaw: Math.atan2(-(cabin.x - x), -(cabin.z - z)) };
+}
 
 /**
  * Everything the rebuilt world adds, composed in one place so game/engine.ts only has to create it,
@@ -38,7 +62,7 @@ export function createWorldV2(o: WorldV2Options) {
   const pois = createPois(o.scene, o.heightAt);
   const powerLines = createPowerLines(o.scene, o.heightAt);
   const spray = createWaterSplash(o.scene, (x, z) => { const y = riverSurfaceAt(x, z); return y ?? waterHeightAt(z) - 9; });
-  let wet = false, wetDistance = 0, lastX = 0, lastZ = 0, lastT = 0;
+  let wet = false, wetDistance = 0, lastX = 0, lastZ = 0, lastT = 0, humIn = GENERATOR_HUM.every;
   o.collisions.replace('pois', pois.solidColliders);
   let poisVersion = pois.collisionVersion;
   let player: THREE.Vector3 | undefined;
@@ -118,6 +142,20 @@ export function createWorldV2(o: WorldV2Options) {
     },
     /** Q: put down what is in hand. */
     drop() { if (!player) return false; o.camera.getWorldDirection(forward); return objectives.dropHeld(player, forward); },
+    /**
+     * The one stream of sounds the creature hears: the objectives' own noises (pickups, the generator, the radio),
+     * ladder rungs and splashes from here, and whatever the engine adds (footsteps, the torch switch).
+     */
+    noise: {
+      emit(event: NoiseEvent) { objectives.emit(event); },
+      subscribe(listener: (event: NoiseEvent) => void) { return objectives.subscribe(e => { if (e.type === 'noise') listener(e); }); },
+    },
+    /** Inside the cabin, the relay hut, the chapel or the mine. */
+    indoors: (p: { x: number; z: number }) => indoorsAt(p.x, p.z),
+    /** Where a caught player wakes. */
+    wakePoint: cabinWakePoint,
+    /** A restarted night: every objective back where it began, nobody on a ladder. */
+    restart() { climber.release(); objectives.setState(initialState()); humIn = GENERATOR_HUM.every; },
     /** Returns true when shadow casters changed. */
     update(f: WorldV2Frame) {
       player = f.player;
@@ -137,6 +175,10 @@ export function createWorldV2(o: WorldV2Options) {
         }
       } else wetDistance = 0;
       wet = inWater;
+      if (objectives.state.generator.running && f.simulate && (humIn -= f.dt) <= 0) {
+        humIn = GENERATOR_HUM.every;
+        objectives.emit({ type: 'noise', loudness: GENERATOR_HUM.loudness, source: 'generator', poi: 'generator' });
+      }
       spray.update(f.simulate ? f.dt : 0, f.darkness, o.viewHeight());
       let changed = pois.update(f.player);
       if (pois.collisionVersion !== poisVersion) { poisVersion = pois.collisionVersion; o.collisions.replace('pois', pois.solidColliders); }
