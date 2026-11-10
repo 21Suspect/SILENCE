@@ -6,7 +6,7 @@
   "license_url": "https://polyhaven.com/license",
   "model": "small-plastic-torch.glb",
   "resolution": "1K",
-  "adaptation": "Original glTF geometry and material maps bundled as GLB with WebP texture encoding. SILENCE positions the model and controls the glass opacity and lens glow.",
+  "adaptation": "glTF geometry and material maps bundled as GLB with WebP texture encoding. Wrist strap and its hardware removed. SILENCE positions the model and controls the glass opacity and lens glow.",
   "original_files": {
     "small_plastic_torch_1k.gltf": {
       "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/small_plastic_torch/small_plastic_torch_1k.gltf",
