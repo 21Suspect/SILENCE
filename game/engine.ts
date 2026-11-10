@@ -243,6 +243,16 @@ export function createGame(container:HTMLElement) {
   function filterTextures(){scene.traverse(o=>{if(!(o instanceof THREE.Mesh))return;for(const material of Array.isArray(o.material)?o.material:[o.material])for(const value of Object.values(material))if(value instanceof THREE.Texture&&!value.isRenderTargetTexture&&value.image?.width>0&&value.image?.complete!==false&&filtered.get(value)!==Math.min(anisotropy,settings.anisotropy)){const af=Math.min(anisotropy,settings.anisotropy);filtered.set(value,af);value.anisotropy=af;value.needsUpdate=true;}});}
   const diagnostic={ready:true,position:player,elapsed:0,darkness:0,fps:60,drawCalls:0,triangles:0,active:false,
     flashlightStatus(){return flashlight.inspect();},
+    /** Dev: play one creature sound 4 m in front of the player. Names: screech, grab, hiss, stalk, branch, breath, call, reveal. */
+    hear(name:string){
+      void audio.start();void audio.resume();
+      camera.getWorldDirection(forward);const at=player.clone().addScaledVector(forward,4);at.y+=1.5;
+      if(name==='screech')audio.screech(at,.6);else if(name==='grab')audio.screech(at,1);else if(name==='hiss')audio.hiss(at);
+      else if(name==='stalk')audio.stalkCue(at);else if(name==='reveal')audio.creatureReveal(at);
+      else if(name==='branch'||name==='breath'||name==='call')audio.cue(name,at);
+      else return 'unknown: screech, grab, hiss, stalk, branch, breath, call, reveal';
+      return 'playing '+name;
+    },
     creatureModelStatus(){return encounters.modelStatus();},
     creatureVisibility(){return encounters.visibilityStatus();},
     creatureNavigation(){return encounters.navigationStatus();},
