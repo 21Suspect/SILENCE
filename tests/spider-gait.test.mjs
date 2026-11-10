@@ -313,3 +313,20 @@ test('sprinting from a standstill keeps four feet down and never overstretches a
   assert.ok(mostInAir <= 5, `${mostInAir} legs were in the air at once`); // one over the usual four, only to save an overstretching leg
   assert.ok(furthest < 1, `a leg was asked to reach ${furthest.toFixed(3)} of its length`);
 });
+
+// ---------------------------------------------------------------- standing still
+// Seen in the game: stopped beside a trunk, one leg kept lifting and setting down again, for ever.
+test('standing still among trunks, every leg settles and then stays down', () => {
+  const stop = 3; // metres walked before it halts
+  for (const [name, trunks] of Object.entries({
+    'a trunk where a front foot wants to rest': [{ x: 2.6 * S / .8, z: stop + 2.2 * S / .8, radius: .55 }],
+    'trunks on both sides': [{ x: 2.4 * S / .8, z: stop + .4, radius: .5 }, { x: -2.7 * S / .8, z: stop - 1.5, radius: .6 }],
+    'a trunk close against the body': [{ x: 1.5 * S / .8, z: stop, radius: .45 }],
+  })) {
+    const each = trunks.map(trunkClearance);
+    const clearance = (a, b) => Math.min(...each.map(f => f(a, b)));
+    const { frames } = simulate({ seconds: 14, move: straight(t => (t < stop ? 1 : 0), 0), clearance, obstacles: trunks.map(t => ({ x: t.x, z: t.z, r: t.radius })) });
+    const late = swingStarts(frames).filter(s => frames[s.frame].t > stop + 5);
+    assert.deepEqual(late.map(s => `leg ${s.leg} at ${frames[s.frame].t.toFixed(1)} s`), [], `${name}: legs still stepping after five seconds at rest`);
+  }
+});

@@ -35,7 +35,7 @@ type Leg = {
   index: number; side: number; label: string; hip: V3; rest: V3; outward: V3; inward: V3; azimuth: number; offset: number; seedLift: number;
   foot: V3; from: V3; to: V3; normal: V3; fromNormal: V3; toNormal: V3;
   swinging: boolean; pending: boolean; t: number; duration: number; lift: number; phase: number; joints: LegJoints;
-  cooldown: number; hover: number; hoverAllowed: number; hoverPoint: V3; clear: number; pole: V3; lean: number; leanSide: number; tip: V3; reachRatio: number; clearPart: number; smoothUp: V3; upReady: boolean;
+  cooldown: number; settled: boolean; hover: number; hoverAllowed: number; hoverPoint: V3; clear: number; pole: V3; lean: number; leanSide: number; tip: V3; reachRatio: number; clearPart: number; smoothUp: V3; upReady: boolean;
 };
 
 const clamp = THREE.MathUtils.clamp, sstep = THREE.MathUtils.smoothstep, lerp = THREE.MathUtils.lerp, damp = THREE.MathUtils.damp;
@@ -72,7 +72,7 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
       seedLift: fract(Math.sin(i * 91.7) * 43758.5453),
       foot: new THREE.Vector3(), from: new THREE.Vector3(), to: new THREE.Vector3(), normal: new THREE.Vector3(0, 1, 0), fromNormal: new THREE.Vector3(0, 1, 0), toNormal: new THREE.Vector3(0, 1, 0),
       swinging: false, pending: false, t: 1, duration: .3, lift: .4, phase: 0, joints: { knee: new THREE.Vector3(), ankle: new THREE.Vector3(), tarsal: new THREE.Vector3() },
-      cooldown: 0, hover: 0, hoverAllowed: 1, hoverPoint: new THREE.Vector3(), clear: Infinity, pole: new THREE.Vector3(), lean: 0, leanSide: 0, tip: new THREE.Vector3(), reachRatio: 0, clearPart: 0, smoothUp: new THREE.Vector3(0, 1, 0), upReady: false,
+      cooldown: 0, settled: false, hover: 0, hoverAllowed: 1, hoverPoint: new THREE.Vector3(), clear: Infinity, pole: new THREE.Vector3(), lean: 0, leanSide: 0, tip: new THREE.Vector3(), reachRatio: 0, clearPart: 0, smoothUp: new THREE.Vector3(0, 1, 0), upReady: false,
     };
   });
   const contact: Contact = { point: new THREE.Vector3(), normal: new THREE.Vector3(0, 1, 0) }, trial: Contact = { point: new THREE.Vector3(), normal: new THREE.Vector3(0, 1, 0) };
@@ -144,6 +144,7 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
     const step = wanted - leg.lean, limit = 2.4 * dt;
     leg.lean += clamp(step * (1 - Math.exp(-5 * dt)), -limit, limit);
   }
+  let resting = false;
   function limbClear(leg: Leg, cmd: SpiderCommand) {
     if (!cmd.clearance) return Infinity;
     hipW.copy(leg.hip); body.localToWorld(hipW);
@@ -211,7 +212,10 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
       leg.to.copy(contact.point); leg.toNormal.copy(contact.normal);
       span = leg.from.distanceTo(leg.to);
     }
-    leg.swinging = true; leg.pending = false; leg.t = 0; leg.duration = duration;   // a long reach at low speed is unhurried leg.cooldown = .4;
+    // Standing still, a step that would land where the foot already is (a trunk leaves it no better place) is
+    // not taken: otherwise that leg lifts and sets down again for ever.
+    if (resting && span < .32 * K) { leg.pending = false; leg.settled = true; leg.cooldown = 1.5; return false; }
+    leg.swinging = true; leg.pending = false; leg.t = 0; leg.duration = duration; leg.cooldown = .4; leg.settled = false;
     let need = 0;
     // Clear what is underneath, allowing for how low the arc is at each point.
     // Sampled every 12 cm or so: a longer stride must not step over a narrow ridge unseen.
@@ -224,6 +228,7 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
       need = Math.max(need, (above + .1 * K) / Math.max(arc(t), .08));
     }
     leg.lift = Math.max((.16 * K + Math.min(span, 4 * K) * .13 + leg.seedLift * .05 * K), Math.min(need, 1.8 * K));
+    return true;
   }
   function placeAll(cmd: SpiderCommand) {
     for (const leg of legs) {
@@ -260,6 +265,8 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
       sprint = damp(sprint, run, 5, dt);
       const stride = lerp(1.15, 3.4, run);
       const moving = smoothSpeed > .14 || speed > .3 || Math.abs(yawRate) > .3;
+      resting = !moving;
+      if (moving) for (const leg of legs) leg.settled = false;
       const wanted = moving ? Math.max(.5, Math.max(pace, Math.abs(yawRate) * 1.5) / stride) : 0;
       frequency = damp(frequency, wanted, wanted > frequency ? 16 : 5, dt);
       const duty = lerp(.78, .56, sstep(pace, .8, 6));
@@ -297,7 +304,7 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
             lift = cmd.clearance(hipW, tmp.copy(hipW).lerp(leg.foot, .96)) < .14;
           }
         }
-        if (lift) { startSwing(leg, cmd, swing, stance); airborne++; }
+        if (lift && startSwing(leg, cmd, swing, stance)) airborne++;
       }
       // Coming to rest: settle slowly, one foot at a time, and only if it needs to.
       if (!moving) {
@@ -305,13 +312,13 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
         if (nextIdleStep <= 0 && !legs.some(l => l.swinging)) {
           for (let i = 0; i < legs.length; i++) {
             const leg = legs[idleOrder[(idleCursor + i) % legs.length]];
-            if (leg.hover > .01) continue;
+            if (leg.hover > .01 || leg.settled) continue;
             restWorld(leg, cmd.anchor, cmd, 0, target);
-            if (target.distanceTo(leg.foot) > .55) {
-              startSwing(leg, cmd, .42, .3);
+            if (target.distanceTo(leg.foot) > .55 * K) {
+              if (!startSwing(leg, cmd, .42, .3)) continue;   // nowhere better to stand: leave it, try the next leg
               idleCursor = (idleCursor + i + 1) % legs.length; nextIdleStep = .12;
               break;
-            }
+            } else leg.settled = true;
           }
         }
       }
