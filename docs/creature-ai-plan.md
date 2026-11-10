@@ -94,3 +94,63 @@ unpredictable but tunable. Not a neural network.
   can own it later; all other game state already replays deterministically.
 - `encounters.ts` protects the creature from popping in or out in view (`protectedNow`, the off-screen latch).
   Keep that rule for teleports and despawns; a persistent creature that walks into view is fine.
+
+## Amendment: scripted opening, closer free roam, three-phase stun
+
+Approved by Oscar on 2026-11-10 after playing stage 1: five minutes of walking produced no sighting and no
+sound. "People that play wanna see the creature." At least two encounters must have happened by six minutes.
+
+One game hour is one real minute; the game starts at 16:00.
+
+| Real time | What happens |
+|---|---|
+| 0:00-1:30 | Forest only. |
+| 1:30-3:00 | Encounter 1, the glimpse. Seen by 3:00, guaranteed. |
+| 3:00-3:45 | Quiet; one distant call from where it went. |
+| 3:45-6:00 | Encounter 2, the tree. Seen by 6:00, guaranteed. |
+| after | 60-90 s of breathing room, then free roam: it can hunt and kill. |
+
+Neither scripted encounter can hurt the player.
+
+### Encounter 1: the glimpse
+- Placed out of view, 25-35 m away, ahead of the player and to one side of their direction of travel (their facing
+  if they stand still), standing still, half behind a trunk, facing them.
+- Not looked at after about 8 s: one branch crack or run of clicks from its position.
+- On being seen: the reveal recording plays then (not at placement). It holds the gaze 2-4 s, head tracking, then
+  turns, walks into the fog and is removed out of sight.
+- Approached: it backs away faster and never lets the player inside about 12 m.
+- Unseen: re-placed closer and more directly ahead about every 20 s until the deadline.
+
+### Encounter 2: the tree
+- Head-down on a trunk 15-22 m ahead, near the player's line of travel, staring. Clicks from above before it is noticed.
+- On being recognised: holds the stare 2-3 s (head roll, jaw), drops down the trunk fast, lands, rears and roars
+  (the quieter hunt-start roar), bluff-charges about 1.5 s toward the player, stops dead, withdraws.
+- No suitable tree: it crosses the player's path about 30 m ahead, stops midway, turns its head to look, carries on.
+- Same escalation; deadline 6:00.
+
+### Edge cases
+- Player indoors: it waits at the treeline in view of the door; the deadline pauses only while they stay inside.
+- After a death and respawn the opening does not replay.
+
+### Free roam after the opening
+- Starts 80-120 m away. Hunting is allowed from the end of encounter 2 (rare at first, certain by night), not 20:00.
+- Shadows at about 25-30 m in daylight instead of 42 m.
+- No long dead air: neither seen nor heard for about 2.5 minutes, it is steered toward the player and makes one
+  sound from where it really is. The 30 s gap between presence sounds stays.
+
+### Flashlight stun
+Was: an instant stop for 3.2 s, then 2.0, 1.2, 0.8 s, then immune; over four minutes to recharge.
+
+| Phase | First use | What is seen |
+|---|---|---|
+| Slow to a halt | about 0.8 s | decelerates, hisses, head turns from the light |
+| Held | about 2.5 s | recoils, takes a step back |
+| Getting going | about 1.5 s | starts at a walk, builds back up to a charge |
+
+- Held phase shrinks per use: 2.5, 1.8, 1.2, 0.7 s, and stops shrinking there (never immune).
+- Full strength again after about 90 s out of the beam.
+- The beam has to stay on it: leaving it during the held phase releases it 0.6 s later.
+
+### Proof before the owner plays
+- A headless player bot that plays whole nights against the real encounter code under several play styles, logs
+  everything, and a report that checks the guarantees above over many seeds; used to tune before hand-over.
