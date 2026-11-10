@@ -28,18 +28,59 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
     terrainSun:{value:null as THREE.Texture|null},terrainSunMatrix:{value:new THREE.Matrix4()},terrainSunOn:{value:0},terrainSunBias:{value:new THREE.Vector2(.002,.001)},
     time:{value:0},darkness:{value:0},fogColor:{value:new THREE.Color()},sunDirection:{value:new THREE.Vector3(25,37,-68).normalize()},sunScatterColor:{value:new THREE.Color(1,.81,.52)},
     flashShadow:{value:null as THREE.Texture|null},flashMatrix:{value:new THREE.Matrix4()},flashPosition:{value:new THREE.Vector3()},flashDirection:{value:new THREE.Vector3()},flashPower:{value:0},
+    // Sun rays follow the sun's own direct light (0 with the sun down), and are shaded by the tree crowns overhead.
+    sunLevel:{value:1},canopyCover:{value:null as THREE.Texture|null},canopyBox:{value:new THREE.Vector4(0,0,96,0)},canopyHeight:{value:12},
+    // The torch as the spot light itself has it: shadow camera near and far, cone and penumbra cosines, decay, and its cookie.
+    flashRange:{value:new THREE.Vector2(.06,48)},flashCone:{value:new THREE.Vector2(.866,.9945)},flashDecay:{value:1.35},flashCookie:{value:null as THREE.Texture|null},flashHasCookie:{value:0},
     sunShadow:{value:null as THREE.Texture|null},sunMatrix:{value:sun.shadow.matrix},shadowTexel:{value:1/sun.shadow.mapSize.x},
   };
+  // A top-down map of the tree crowns round the player, built from the trees' own colliders: 1 under a crown, 0 in a gap.
+  // It is redrawn on the CPU only when the player has walked a few metres; the fog reads it along the sun's direction.
+  const canopy=(()=>{
+    const N=128,SIZE=96,data=new Uint8Array(N*N),texture=new THREE.DataTexture(data,N,N,THREE.RedFormat);
+    texture.magFilter=texture.minFilter=THREE.LinearFilter;texture.wrapS=texture.wrapT=THREE.ClampToEdgeWrapping;texture.needsUpdate=true;
+    uniforms.canopyCover.value=texture;
+    let cx=Infinity,cz=Infinity,count=-1,frame=0;
+    type Tree={tag?:string;ax?:number;az?:number;minY:number;maxY:number;crownBase?:number};
+    return {
+      update(eye:THREE.Vector3){
+        const near=scene.userData.treesNear as ((x:number,z:number,r:number)=>Iterable<Tree>)|undefined;
+        if(!WORLD_V2||!near){uniforms.canopyBox.value.w=0;return;}
+        // Looked at again after a few metres of walking, or about once a second for trees that have streamed in since.
+        if(Math.hypot(eye.x-cx,eye.z-cz)<6&&frame++%75!==0)return;
+        const trees=[...near(eye.x,eye.z,SIZE*.5+6)].filter(t=>t.tag==='tree'&&t.ax!==undefined);
+        if(Math.hypot(eye.x-cx,eye.z-cz)<6&&trees.length===count)return;
+        cx=eye.x;cz=eye.z;count=trees.length;data.fill(0);
+        const texel=SIZE/N;let height=0;
+        for(const t of trees){
+          const tall=t.maxY-t.minY,r=Math.min(5.5,Math.max(2,tall*.15)),u=(t.ax!-cx)/texel+N/2,v=(t.az!-cz)/texel+N/2,span=Math.ceil(r/texel);
+          // Crowns differ in how much they let through; the seed is the tree's own place, so it never changes.
+          const dense=.72+.28*Math.abs(Math.sin(t.ax!*12.9898+t.az!*78.233)*43758.5453%1);
+          height+=((t.crownBase??t.minY+tall*.35)+t.maxY)*.5;
+          for(let j=Math.max(0,Math.floor(v-span));j<=Math.min(N-1,Math.ceil(v+span));j++)for(let i=Math.max(0,Math.floor(u-span));i<=Math.min(N-1,Math.ceil(u+span));i++){
+            const d=Math.hypot(i+.5-u,j+.5-v)*texel/r;if(d>=1)continue;
+            const k=Math.min(1,(1-d)/.65),ragged=.78+.22*Math.abs(Math.sin((i+Math.floor(cx/texel))*91.7+(j+Math.floor(cz/texel))*47.3)*9973.1%1);
+            const value=Math.round(255*dense*k*k*(3-2*k)*ragged),at=j*N+i;if(value>data[at])data[at]=value;
+          }
+        }
+        texture.needsUpdate=true;
+        uniforms.canopyBox.value.set(cx,cz,SIZE,trees.length?1:0);
+        if(trees.length)uniforms.canopyHeight.value=height/trees.length;
+      },
+      dispose(){texture.dispose();},
+    };
+  })();
   const vertexShader='varying vec2 vUv;void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}';
   const common=`
     precision highp float;
     uniform sampler2D tColor,tDepth,tWater,tWaterDepth,tFog,sunShadow,flashShadow;
     uniform mat4 flashMatrix;uniform vec3 flashPosition,flashDirection;uniform float flashPower;
+    uniform sampler2D flashCookie;uniform vec2 flashRange,flashCone;uniform float flashDecay,flashHasCookie;
     uniform bool hasWater,fogEnabled;
     uniform mat4 inverseProjection,cameraWorld,sunMatrix;
     uniform vec3 cameraPositionWorld,fogColor,sunDirection,sunScatterColor;
     uniform vec2 fogSize;uniform float fogSteps;
-    uniform float time,darkness,shadowTexel;
+    uniform float time,darkness,shadowTexel,sunLevel;
     varying vec2 vUv;
     float hash(vec3 p){p=fract(p*.3183099+vec3(.1,.2,.3));p*=17.;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}
     float surfaceDepth(vec2 uv){
@@ -188,6 +229,21 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
       // Depth is linear over the whole map. The bias hides the texel staircase on grazing ground.
       return mix(1.,smoothstep(q.z-terrainSunBias.x-terrainSunBias.y,q.z-terrainSunBias.x,blocker),edge);
     }
+    // The crowns overhead. Canopies cast nothing into the sun shadow map (only trunks do), so without this the fog was lit
+    // as if the forest had no roof, with thin dark stripes behind trunks. canopyCover is a top-down map of the real
+    // crowns around the player; a fog sample looks up along the sun through it. Light gets through the gaps: beams.
+    uniform sampler2D canopyCover;uniform vec4 canopyBox;uniform float canopyHeight;
+    float canopyLight(vec3 p){
+      if(canopyBox.w<.5)return 1.;
+      float rise=canopyHeight-p.y;
+      if(rise<=0.)return 1.;
+      vec2 at=p.xz+sunDirection.xz/max(sunDirection.y,.07)*rise;
+      vec2 uv=(at-canopyBox.xy)/canopyBox.z+.5;
+      float edge=smoothstep(0.,.08,min(min(uv.x,1.-uv.x),min(uv.y,1.-uv.y)));
+      // Beyond the map the light has come through an average wood. A low sun crosses more crown on its way down.
+      float cover=mix(.5,texture2D(canopyCover,uv).r,edge);
+      return pow(1.-.8*cover,min(2.4,1./max(sunDirection.y,.3)));
+    }
     // Sun visibility from the shadow map. inside = 1 where the map really knows the answer, fading to 0 at its edge.
     float mappedSunlight(vec3 p,out float inside){
       vec4 projected=sunMatrix*vec4(p,1.);vec3 uv=projected.xyz/projected.w;
@@ -223,24 +279,48 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
         float density=(.014+billow*.03)*heightDensity*smoothstep(1.5,16.,distanceAlongRay);
         float extinction=density*sliceLength;
         float scatter=exp(-opticalDepth)*(1.-exp(-extinction));
-        if(day>.025){
+        if(sunLevel>.01){
           float inside;float lit=mappedSunlight(p,inside);
           float prior=(meanLit+.004)/(meanWeight+.008);
-          illuminatedFog+=scatter*mix(prior,lit,inside)*terrainSunlight(p);
+          illuminatedFog+=scatter*mix(prior,lit,inside)*terrainSunlight(p)*canopyLight(p);
           meanLit+=scatter*inside*lit;meanWeight+=scatter*inside;
         }
-        if(flashPower>0.){
-          vec3 fromLamp=p-flashPosition;float lampDistance=length(fromLamp);
-          float cone=smoothstep(.866,.98,dot(normalize(fromLamp),flashDirection));
-          vec4 fp=flashMatrix*vec4(p,1.);vec3 fu=fp.xyz/fp.w;
-          float visible=0.;
-          if(fu.x>0.&&fu.x<1.&&fu.y>0.&&fu.y<1.&&fu.z>0.&&fu.z<1.){
-            float fd=dot(texture2D(flashShadow,fu.xy),vec4(255./256.,255./65536.,255./16777216.,1./16777216.));
-            visible=smoothstep(fu.z-.0004,fu.z+.0004,fd);
-          }
-          beamFog+=scatter*cone*visible*flashPower/(1.+lampDistance*lampDistance)*.55;
-        }
         opticalDepth+=extinction;
+      }
+      // The torch in the fog. It has its own short march, because everything it does happens in the first thirty metres
+      // and the sun's slices are far too coarse there (two or three between 10 and 20 m). It is the same beam that lights
+      // the ground: the spot light's own cone, cookie, falloff and shadow map.
+      if(flashPower>0.){
+        float reach=min(surfaceDistance,34.),beamJitter=fract(jitter+.61803),beamDepth=0.;
+        for(int i=0;i<10;i++){
+          float t0=.4+(reach-.4)*pow(float(i)/10.,1.5);
+          if(t0>=reach)break;
+          float t1=.4+(reach-.4)*pow(float(i+1)/10.,1.5),sliceLength=t1-t0,along=t0+beamJitter*sliceLength;
+          vec3 p=cameraPositionWorld+ray*along;
+          float extinction=.029*exp(-max(p.y-1.5,0.)*.050)*smoothstep(1.5,16.,along)*sliceLength;
+          float scatter=exp(-beamDepth)*(1.-exp(-extinction));
+          beamDepth+=extinction;
+          vec3 fromLamp=p-flashPosition;float lampDistance=length(fromLamp);vec3 lampRay=fromLamp/max(lampDistance,1e-4);
+          float cone=smoothstep(flashCone.x,flashCone.y,dot(lampRay,flashDirection));
+          if(cone<=0.)continue;
+          vec4 fp=flashMatrix*vec4(p,1.);vec3 fu=fp.xyz/fp.w;
+          if(fu.x<=0.||fu.x>=1.||fu.y<=0.||fu.y>=1.||fu.z<=0.||fu.z>=1.)continue;
+          // Shadow, compared in metres from the lamp. The depth buffer is so non-linear that a fixed tolerance in its own
+          // units was centimetres at arm's length and nearly three metres at twenty, which left shade hanging in the air.
+          float fd=dot(texture2D(flashShadow,fu.xy),vec4(255./256.,255./65536.,255./16777216.,1./16777216.));
+          float occluder=flashRange.x*flashRange.y/(flashRange.y-fd*(flashRange.y-flashRange.x));
+          float depth=dot(fromLamp,flashDirection),tolerance=.05+.015*depth;
+          float visible=smoothstep(-tolerance,tolerance*.25,occluder-depth);
+          float cookie=flashHasCookie>.5?dot(texture2D(flashCookie,fu.xy).rgb,vec3(.3333)):1.;
+          // The spot light's own distance falloff (three.js: decay, then a soft cut at its range).
+          float cut=clamp(1.-pow(lampDistance/flashRange.y,4.),0.,1.);
+          float falloff=cut*cut/max(pow(lampDistance,flashDecay),.01);
+          // Fog throws light mostly onwards. Whoever holds the torch sees its beam by what comes back: fainter than from in front.
+          float cosine=dot(lampRay,-ray),phase=(1.-.16)/pow(1.16-.8*cosine,1.5);
+          beamFog+=scatter*cone*visible*cookie*flashPower*falloff*mix(1.,phase,.6)*.16;
+        }
+        // A torch beam shows in the dark and is lost in daylight.
+        beamFog*=mix(.12,1.,smoothstep(.2,.85,darkness));
       }
       gl_FragColor=vec4(exp(-opticalDepth),illuminatedFog,surfaceDistance,beamFog);
     }`});
@@ -291,7 +371,8 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
         float forwardScatter=.17+1.12*pow(max(dot(ray,sunDirection),0.),5.);
         color=color*fog.r+fogColor*mix(.72,1.,darkness)*(1.-fog.r);
         color+=vec3(1.,.88,.70)*fog.z;
-        color+=sunScatterColor*fog.g*forwardScatter*.50*pow(1.-darkness,2.);
+        // As strong as the sun's direct light is: nothing once it is down, still full at a low golden sun.
+        color+=sunScatterColor*fog.g*forwardScatter*.60*pow(sunLevel,.6);
 `;
   const resolveExtraV2=`
     // How far into the fog's density ramp (smoothstep 1.5..16 m, then constant) a path of length d reaches.
@@ -409,9 +490,14 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
         stage('terrainSun',()=>{terrainSun.update(uniforms.sunDirection.value,camera.position,uniforms.terrainSunBias.value);});
         uniforms.terrainSun.value=terrainSun.texture;uniforms.terrainSunMatrix.value.copy(terrainSun.matrix);uniforms.terrainSunOn.value=1;
       }else uniforms.terrainSunOn.value=0;
+      uniforms.sunLevel.value=Math.min(1,sun.intensity/1.32);
+      canopy.update(camera.position);
       const flash=scene.userData.flashlight as THREE.SpotLight|null;
       uniforms.flashPower.value=flash?.intensity??0;
-      if(flash){uniforms.flashShadow.value=flash.shadow.map?.texture??null;uniforms.flashMatrix.value.copy(flash.shadow.matrix);uniforms.flashPosition.value.copy(flash.position);uniforms.flashDirection.value.copy(flash.target.position).sub(flash.position).normalize();}
+      if(flash){uniforms.flashShadow.value=flash.shadow.map?.texture??null;uniforms.flashMatrix.value.copy(flash.shadow.matrix);uniforms.flashPosition.value.copy(flash.position);uniforms.flashDirection.value.copy(flash.target.position).sub(flash.position).normalize();
+        const cam=flash.shadow.camera as THREE.PerspectiveCamera;uniforms.flashRange.value.set(cam.near,cam.far);
+        uniforms.flashCone.value.set(Math.cos(flash.angle),Math.cos(flash.angle*(1-flash.penumbra)));uniforms.flashDecay.value=flash.decay;
+        uniforms.flashCookie.value=flash.map??null;uniforms.flashHasCookie.value=flash.map?1:0;}
       uniforms.sunShadow.value=sun.shadow.map?.texture??null;uniforms.shadowTexel.value=1/sun.shadow.mapSize.x;
       uniforms.fogEnabled.value=!(import.meta.env.DEV&&scene.userData.profileSkipFog);
       stage('fog',()=>{if(uniforms.fogEnabled.value){
@@ -425,6 +511,6 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
       stage('resolve',()=>{quad.material=WORLD_V2?resolveMaterial2:resolveMaterial;renderer.setRenderTarget(useFxaa?resolvedTarget:null);renderer.render(quadScene,quadCamera);});
       stage('antialias',()=>{if(useFxaa){quad.material=aaMaterial;renderer.setRenderTarget(null);renderer.render(quadScene,quadCamera);}});
     },
-    dispose(){resolvedTarget.dispose();aaMaterial.dispose();target.dispose();waterTarget.dispose();fogTarget.dispose();fogBlurTarget.dispose();terrainSun?.dispose();fogMaterial.dispose();fogMaterial2.dispose();fogBlurMaterial.dispose();resolveMaterial.dispose();resolveMaterial2.dispose();quad.geometry.dispose();}
+    dispose(){canopy.dispose();resolvedTarget.dispose();aaMaterial.dispose();target.dispose();waterTarget.dispose();fogTarget.dispose();fogBlurTarget.dispose();terrainSun?.dispose();fogMaterial.dispose();fogMaterial2.dispose();fogBlurMaterial.dispose();resolveMaterial.dispose();resolveMaterial2.dispose();quad.geometry.dispose();}
   };
 }

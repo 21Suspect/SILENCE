@@ -3,18 +3,23 @@ import * as THREE from 'three';
 import type { createCollisionWorld } from './collision';
 import type { createFlashlight } from './flashlight';
 import { createPois } from './pois';
+import { createDoors } from './doors';
+import { doorTestPlacements } from './door-test';
 import { createInteraction } from './interaction';
 import { createObjectivesRuntime } from './objectives-runtime';
 import { initialState } from './objectives';
 import { createAmbientLife } from './ambient-life';
 import { createLadderClimber, ladderAim, ladderReachable } from './ladders';
-import { POI_PLACEMENTS, placeLocal } from './world-layout';
+import { POI_PLACEMENTS, SCATTER_PLACEMENTS, placeLocal } from './world-layout';
 import type { ObjectiveEvent } from './objectives';
 import { createPowerLines } from './power-lines';
 import { createWaterSplash } from './water-splash';
+import { createStreetLights } from './street-lights';
 import { riverSurfaceAt, waterHeightAt } from './world';
 
 export type WorldV2Options = {
+  /** The name of the interact key as the player has bound it, for prompts such as "E to open". */
+  interactKey?: () => string;
   scene: THREE.Scene; camera: THREE.PerspectiveCamera; container: HTMLElement;
   heightAt: (x: number, z: number) => number;
   collisions: ReturnType<typeof createCollisionWorld>;
@@ -75,14 +80,17 @@ export function cabinWakePoint() {
  */
 export function createWorldV2(o: WorldV2Options) {
   // The engine owns registration: colliders go in now, before any GLB has loaded, and again whenever the version moves.
-  const pois = createPois(o.scene, o.heightAt);
+  const doorTest = doorTestPlacements(o.heightAt); // dev only: `?door-test` adds a pump house to try the doors on
+  const pois = createPois(o.scene, o.heightAt, undefined, doorTest.length ? { placements: [...POI_PLACEMENTS, ...doorTest] } : {});
   const powerLines = createPowerLines(o.scene, o.heightAt);
+  // Lamps along the road come on at dusk (game/street-lights.ts); none of them exist until the layout places `streetlight-*`.
+  const streetLights = createStreetLights({ scene: o.scene, pois, placements: SCATTER_PLACEMENTS });
   const spray = createWaterSplash(o.scene, (x, z) => { const y = riverSurfaceAt(x, z); return y ?? waterHeightAt(z) - 9; });
   let wet = false, wetDistance = 0, lastX = 0, lastZ = 0, lastT = 0, humIn = GENERATOR_HUM.every;
   o.collisions.replace('pois', pois.solidColliders);
   let poisVersion = pois.collisionVersion;
   let player: THREE.Vector3 | undefined;
-  const interaction = createInteraction(o.container, o.camera, o.collisions);
+  const interaction = createInteraction(o.container, o.camera, o.collisions, { keyLabel: o.interactKey });
   const forward = new THREE.Vector3();
 
   // The torch rests on the cabin's bench, and picking it up is now an interaction like any other.
@@ -94,6 +102,10 @@ export function createWorldV2(o: WorldV2Options) {
   });
 
   const objectives = createObjectivesRuntime({ scene: o.scene, camera: o.camera, heightAt: o.heightAt, pois, interaction });
+
+  // Doors (game/doors.ts): every `doors` entry of a placed asset becomes a hinged leaf with its own collider and prompt. Opening or shutting one is a
+  // small noise for the creature, from its handle. Without any `doors` in world-assets.json this is empty and does nothing.
+  const doors = createDoors({ pois, collisions: o.collisions, interaction, onNoise: e => objectives.emit({ type: 'noise', loudness: e.loudness, source: 'door', x: e.x, z: e.z }) });
 
   // Ladders (game/ladders.ts): the prompt appears within a metre of the line while looking at it; attached, the climber
   // replaces normal movement (see climb()) and nothing is collided with, so a ladder's own rails and plinth cannot stop it.
@@ -135,10 +147,13 @@ export function createWorldV2(o: WorldV2Options) {
      */
     activate(fromKey = false) {
       if (climber.attached) { if (fromKey) climber.release(); return fromKey; }
-      return interaction.activate();
+      return interaction.activate(fromKey);
     },
     /** True while on a ladder. */
     get climbing() { return climber.attached; },
+    /** What the objective HUD reads: the objective state, and which player is "me" in it. */
+    get objectiveState() { return objectives.state; },
+    get localPlayer() { return objectives.localPlayer; },
     /** Space: let go of the ladder, dropping to whatever is beneath. False if not on one (or topping out). */
     letGo: () => climber.release() !== undefined,
     /**
@@ -171,7 +186,7 @@ export function createWorldV2(o: WorldV2Options) {
     /** Where a caught player wakes. */
     wakePoint: cabinWakePoint,
     /** A restarted night: every objective back where it began, nobody on a ladder. */
-    restart() { climber.release(); objectives.setState(initialState()); humIn = GENERATOR_HUM.every; },
+    restart() { climber.release(); objectives.setState(initialState()); humIn = GENERATOR_HUM.every; doors.reset(); },
     /** Returns true when shadow casters changed. */
     update(f: WorldV2Frame) {
       player = f.player;
@@ -197,6 +212,7 @@ export function createWorldV2(o: WorldV2Options) {
       }
       spray.update(f.simulate ? f.dt : 0, f.darkness, o.viewHeight());
       let changed = pois.update(f.player);
+      if (doors.update({ dt: f.simulate ? f.dt : 0, player: f.player })) changed = true;
       if (pois.collisionVersion !== poisVersion) { poisVersion = pois.collisionVersion; o.collisions.replace('pois', pois.solidColliders); }
       if (objectives.update(f.time)) changed = true;
       o.camera.getWorldDirection(forward);
@@ -210,18 +226,19 @@ export function createWorldV2(o: WorldV2Options) {
       touchAction.hidden = !coarse || !f.active || (!climber.attached && !carried);
       touchAction.textContent = climber.attached ? 'Leave ladder' : 'Drop';
       ambient.update({ time: f.time, dt: f.simulate ? f.dt : 0, player: f.player, darkness: f.darkness, viewScale: .5 * o.viewHeight() * o.camera.projectionMatrix.elements[5] });
+      streetLights.update({ dt: f.simulate ? f.dt : 0, time: f.time, player: f.player, darkness: f.darkness });
       return changed;
     },
     /** Dev stage, exposed by the engine as window.__WORLD__ under import.meta.env.DEV. */
     debug: {
       get state() { return objectives.state; },
       dispatch: objectives.dispatch, reset: () => objectives.setState(initialState()),
-      pois, objectives, interaction, ambient, hook: pois.hook, climber, ladders: pois.ladders,
+      pois, objectives, interaction, ambient, hook: pois.hook, climber, ladders: pois.ladders, doors, streetLights,
       /** Frighten the flock as if the player had reached its roost. */
       startleCrows: (time = 0) => ambient.startle(time),
     },
     dispose() {
-      touchAction.remove(); spray.dispose(); powerLines.dispose(); unregisterTorch(); unregisterLadders.forEach(u => u()); objectives.dispose(); ambient.dispose(); interaction.dispose(); pois.dispose(); o.collisions.replace('pois', []);
+      touchAction.remove(); spray.dispose(); powerLines.dispose(); streetLights.dispose(); unregisterTorch(); unregisterLadders.forEach(u => u()); doors.dispose(); objectives.dispose(); ambient.dispose(); interaction.dispose(); pois.dispose(); o.collisions.replace('pois', []);
     },
   };
 }

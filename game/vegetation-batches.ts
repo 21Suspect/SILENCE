@@ -80,6 +80,8 @@ export function createVegetationBatcher(group: THREE.Group, sectorSize = 192) {
         sector = createSector(definition);
         sectors.set(key, sector);
       }
+      // Both the sector and its overflow are full: drop the instance rather than write past the end of the buffers.
+      if (sector.count >= sector.mesh.instanceMatrix.count) return;
       state.sector = sector;
       state.sx = sx;
       state.sz = sz;

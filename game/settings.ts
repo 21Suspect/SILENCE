@@ -1,12 +1,12 @@
 export const defaultBindings={forward:'KeyW',back:'KeyS',left:'KeyA',right:'KeyD',sprint:'ShiftLeft',crouch:'ControlLeft',interact:'KeyE',fullscreen:'KeyF',rise:'Space',drop:'KeyQ'};
 export type Action=keyof typeof defaultBindings;
-export type Settings={quality:'auto'|'low'|'medium'|'high'|'custom';renderScale:number;shadows:number;shadowRate:number;waterDetail:number;fog:number;reflections:number;aa:number;anisotropy:number;fov:number;sensitivity:number;masterVolume:number;ambienceVolume:number;creatureVolume:number;bindings:Record<Action,string>};
+export type Settings={quality:'auto'|'low'|'medium'|'high'|'custom';renderScale:number;shadows:number;shadowRate:number;waterDetail:number;fog:number;reflections:number;aa:number;anisotropy:number;fov:number;sensitivity:number;masterVolume:number;ambienceVolume:number;creatureVolume:number;objectiveHints:boolean;bindings:Record<Action,string>};
 /** The three sound sliders, in percent. 100 is the game's own mix; the slider sets how far below it you want it. */
 export const volumeKeys=['masterVolume','ambienceVolume','creatureVolume'] as const;
 export type VolumeKey=typeof volumeKeys[number];
 /** Slider percent to gain. Squared, so the steps feel even to the ear: 50% is a quarter of the power, and 100% leaves the mix untouched. */
 export const volumeGain=(percent:number)=>{const v=Math.max(0,Math.min(100,percent))/100;return v*v;};
-export const defaults=():Settings=>({quality:'auto',renderScale:100,shadows:4096,shadowRate:0,waterDetail:2,fog:1,reflections:768,aa:4,anisotropy:16,fov:69,sensitivity:1,masterVolume:100,ambienceVolume:100,creatureVolume:100,bindings:{...defaultBindings}});
+export const defaults=():Settings=>({quality:'auto',renderScale:100,shadows:4096,shadowRate:0,waterDetail:2,fog:1,reflections:768,aa:4,anisotropy:16,fov:69,sensitivity:1,masterVolume:100,ambienceVolume:100,creatureVolume:100,objectiveHints:true,bindings:{...defaultBindings}});
 export function validKey(code:string){return /^(Key[A-Z]|Digit[0-9]|ShiftLeft|ShiftRight|ControlLeft|ControlRight|Space|ArrowUp|ArrowDown|ArrowLeft|ArrowRight)$/.test(code);}
 export function bindKey(settings:Settings,action:Action,code:string){
  if(!validKey(code))return false;
@@ -19,6 +19,8 @@ export function readSettings(value:string|null){const result=defaults();try{cons
  for(const [key,values] of Object.entries({shadows:[1024,2048,4096],shadowRate:[0,30],waterDetail:[0,1,2],fog:[.5,.75,1],reflections:[256,512,768],aa:[0,1,2,4],anisotropy:[1,2,4,8,16]}))if(values.includes(data[key]))(result as unknown as Record<string,unknown>)[key]=data[key];
  if(Number.isFinite(data.renderScale))result.renderScale=Math.max(50,Math.min(100,data.renderScale));if(Number.isFinite(data.fov))result.fov=Math.max(55,Math.min(95,data.fov));
  for(const key of volumeKeys)if(Number.isFinite(data[key]))result[key]=Math.round(Math.max(0,Math.min(100,data[key])));
+ /** The objective corner: on unless the player turned it off. Anything but a real boolean keeps the default. */
+ if(typeof data.objectiveHints==='boolean')result.objectiveHints=data.objectiveHints;
  if(data.bindings){
  const actions=Object.keys(defaultBindings) as Action[],codes=new Set<string>();
  // Old saves have no drop action. Preserve all valid existing assignments, then

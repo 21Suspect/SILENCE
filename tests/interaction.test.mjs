@@ -106,3 +106,26 @@ test('an item that disappears when used is no longer offered straight away', () 
   assert.equal(ui.activate(), true);
   assert.equal(el.style.opacity, '0'); assert.equal(ui.activate(), false);
 });
+
+test('a key-only thing (a door) is worked by the interact key, never by a click, and its prompt names the key', () => {
+  const { ui, el } = make(eyeCamera(), [], { touch: false, keyLabel: () => 'E' });
+  const door = item({ id: 'door', label: 'Left click to open', keyOnly: true });
+  ui.register(door); ui.update();
+  assert.equal(el.textContent, 'E to open', 'the prompt says which key');
+  assert.equal(ui.activate(), false, 'a click does nothing to it, so the click can go to the torch');
+  assert.equal(door.hits ?? 0, 0);
+  assert.equal(ui.activate(true), true, 'the key works it');
+  assert.equal(door.hits, 1);
+  // A rebound key is named as bound; a pickup beside it still says and takes a click.
+  const rebound = make(eyeCamera(), [], { touch: false, keyLabel: () => 'F' });
+  rebound.ui.register(item({ id: 'door', label: 'Left click to close', keyOnly: true })); rebound.ui.update();
+  assert.equal(rebound.el.textContent, 'F to close');
+  const pickup = make(eyeCamera(), [], { touch: false, keyLabel: () => 'E' });
+  const torch = item(); pickup.ui.register(torch); pickup.ui.update();
+  assert.equal(pickup.el.textContent, 'Left click to pick up'); assert.equal(pickup.ui.activate(), true); assert.equal(torch.hits, 1);
+  // On a touch screen there is no key: a tap works the door and the prompt says so.
+  const phone = make(eyeCamera(), [], { touch: true });
+  const leaf = item({ id: 'door', label: 'Left click to open', keyOnly: true }); phone.ui.register(leaf); phone.ui.update();
+  assert.equal(phone.el.textContent, 'Tap to open'); assert.equal(phone.ui.activate(), true); assert.equal(leaf.hits, 1);
+  assert.equal(promptText('Left click to open', false, 'E'), 'E to open'); assert.equal(promptText('Hands full', false, 'E'), 'Hands full');
+});

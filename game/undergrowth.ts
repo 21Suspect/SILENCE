@@ -3,6 +3,8 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { SimplifyModifier } from 'three/addons/modifiers/SimplifyModifier.js';
 import { WORLD_RADIUS, biomeAt } from './world';
 import { createVegetationBatcher, type VegetationBatchDefinition } from './vegetation-batches';
+import { createSlice, runSlice, runToEnd } from './time-slice';
+import { perfOn } from './perf-flags';
 
 type Plant = {
   x: number; y: number; z: number; sx: number; sz: number;
@@ -75,7 +77,13 @@ export function createUndergrowth(
   const materials: THREE.MeshStandardMaterial[] = [];
   const fine: Batch[] = [], midFine: Batch[] = [], farFine: Batch[] = [], tussocks: Batch[] = [], ferns: Batch[] = [], farFerns: Batch[] = [];
   const groundCover = new Map<string, GroundCover>(), fernCells = new Map<string, Plant[]>();
-  const vegetation = createVegetationBatcher(group);
+  // Two copies of the ring of plants. One is on screen while the other is rebuilt a few milliseconds per frame (game/time-slice.ts), and
+  // they swap when it is whole; rebuilt in one go, the ring cost 8 to 60 ms every 4 m of walking.
+  const buffers = [new THREE.Group(), new THREE.Group()];
+  buffers[1].visible = false; group.add(buffers[0], buffers[1]);
+  const batchers = [createVegetationBatcher(buffers[0]), createVegetationBatcher(buffers[1])];
+  let shown = 0, target = 0, vegetation = batchers[0], job: Generator<void, void, void> | undefined;
+  const slice = createSlice(3);
   let definitionSerial = 0;
   const timeUniform = { value: 0 };
   const eyeUniform = { value: new THREE.Vector3(0, 2, 12) };
@@ -356,7 +364,7 @@ export function createUndergrowth(
     const variation=.86+plant.tint*.14;
     soil.setXYZ(i,plant.soilR*variation,plant.soilG*variation,plant.soilB*variation);
   }
-  function refresh(player: THREE.Vector3) {
+  function* refresh(player: THREE.Vector3, sliced: boolean): Generator<void, void, void> {
     vegetation.begin();
     warmCells.length = 0;
     const cx0 = Math.floor(player.x / CELL), cz0 = Math.floor(player.z / CELL);
@@ -387,6 +395,7 @@ export function createUndergrowth(
           if(distanceSquared<(FERN_LOD_END+STREAM_BUFFER)**2)place(plant,ferns);
           if(distanceSquared>(FERN_LOD_START-STREAM_BUFFER)**2&&distanceSquared<(FERN_RANGE+STREAM_BUFFER)**2)place(plant,farFerns);
         }
+        if (sliced && slice.over()) yield;
       }
     }
     vegetation.end();
@@ -395,19 +404,28 @@ export function createUndergrowth(
       const [cx, cz] = key.split(',').map(Number);
       if (Math.abs(cx - cx0) > 11 || Math.abs(cz - cz0) > 11) cache.delete(key);
     }
-    const total=(list:Batch[])=>list.reduce((n,b)=>n+vegetation.count(b),0);
+    const built = vegetation, total=(list:Batch[])=>list.reduce((n,b)=>n+built.count(b),0);
     group.userData.counts = { fine: total([...fine,...midFine,...farFine]), closeGrass:total(fine), tussocks: total(tussocks), ferns: total([...ferns, ...farFerns]), detailedFerns: total(ferns) };
     lastPosition.copy(player);
+    // The ring just finished goes on screen; the one that was showing is the next to rebuild.
+    if (target !== shown) { buffers[target].visible = true; buffers[shown].visible = false; shown = target; target = 1 - target; vegetation = batchers[target]; }
   }
   return {
     ready,
     update(time: number, player: THREE.Vector3, deferRefresh = false) {
       timeUniform.value = time; eyeUniform.value.copy(player);
       if (!loaded || disposed || deferRefresh) return;
+      if (job) { if (runSlice(job, slice)) job = undefined; return; }
       // Prepare beyond the visible fade so a plant can reach full coverage
       // without waiting for the next ring refresh.
-      if (lastPosition.distanceToSquared(player) > STREAM_STEP ** 2) {
-        refresh(player);
+      const moved = lastPosition.distanceToSquared(player);
+      if (moved > STREAM_STEP ** 2) {
+        const sliced = perfOn('slicedRefresh');
+        target = sliced ? 1 - shown : shown; vegetation = batchers[target];
+        job = refresh(player.clone(), sliced);
+        // The first ring, and a jump of tens of metres, are built at once: the ring on screen is no use there.
+        if (!sliced || !Number.isFinite(moved) || moved > 40 * 40) { runToEnd(job); job = undefined; }
+        else if (runSlice(job, slice)) job = undefined;
       } else {
         // Spread the next ring's grass generation over ordinary frames.
         const cell = warmCells.pop();
@@ -418,7 +436,7 @@ export function createUndergrowth(
       disposed = true;
       // Sector wrappers detach shared static vertex/index attributes before
       // disposing their geometries; release them before the source geometries.
-      vegetation.dispose();
+      job = undefined; for (const batcher of batchers) batcher.dispose();
       for (const geometry of geometries) geometry.dispose();
       for (const material of materials) material.dispose();
       for (const texture of textureSet) texture.dispose();

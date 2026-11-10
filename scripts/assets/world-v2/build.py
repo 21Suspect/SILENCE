@@ -8,7 +8,7 @@ import kit  # noqa: E402
 import models_cabin  # noqa: E402
 
 ASSETS = {"cabin": (models_cabin.cabin, models_cabin.SHOTS)}
-for mod in ("models_relay", "models_lookout", "models_small", "models_clutter", "models_bridge", "models_truck", "models_mine", "models_camp", "models_chapel", "models_rocks"):
+for mod in ("models_relay", "models_lookout", "models_small", "models_clutter", "models_bridge", "models_truck", "models_mine", "models_camp", "models_chapel", "models_rocks", "models_poi2", "models_tunnel"):
     try:
         m = __import__(mod)
     except ModuleNotFoundError:

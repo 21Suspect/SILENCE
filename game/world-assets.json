@@ -11,7 +11,7 @@
     "bz": 4.55,
     "radius": 0.1,
     "minY": 0.0,
-    "maxY": 2.21,
+    "maxY": 2.435,
     "tag": "porch post"
    },
    {
@@ -22,7 +22,7 @@
     "bz": 4.55,
     "radius": 0.1,
     "minY": 0.0,
-    "maxY": 2.21,
+    "maxY": 2.435,
     "tag": "porch post"
    },
    {
@@ -33,7 +33,7 @@
     "bz": 4.55,
     "radius": 0.1,
     "minY": 0.0,
-    "maxY": 2.21,
+    "maxY": 2.435,
     "tag": "porch post"
    },
    {
@@ -44,7 +44,7 @@
     "bz": 4.55,
     "radius": 0.1,
     "minY": 0.0,
-    "maxY": 2.21,
+    "maxY": 2.435,
     "tag": "porch post"
    },
    {
@@ -55,7 +55,7 @@
     "halfZ": 0.8,
     "yaw": 0.0,
     "minY": 0.0,
-    "maxY": 5.139137445250188,
+    "maxY": 5.574893246086641,
     "tag": "prop"
    },
    {
@@ -121,7 +121,7 @@
     "halfZ": 0.15,
     "yaw": 0.0,
     "minY": 0.0,
-    "maxY": 2.55,
+    "maxY": 2.775,
     "tag": "cabin wall"
    },
    {
@@ -132,7 +132,7 @@
     "halfZ": 2.6,
     "yaw": 0.0,
     "minY": 0.0,
-    "maxY": 2.55,
+    "maxY": 2.775,
     "tag": "cabin wall"
    },
    {
@@ -143,7 +143,7 @@
     "halfZ": 2.6,
     "yaw": 0.0,
     "minY": 0.0,
-    "maxY": 2.55,
+    "maxY": 2.775,
     "tag": "cabin wall"
    },
    {
@@ -154,7 +154,7 @@
     "halfZ": 0.15,
     "yaw": 0.0,
     "minY": 0.0,
-    "maxY": 2.55,
+    "maxY": 2.775,
     "tag": "cabin wall"
    },
    {
@@ -165,7 +165,7 @@
     "halfZ": 0.15,
     "yaw": 0.0,
     "minY": 0.0,
-    "maxY": 2.55,
+    "maxY": 2.775,
     "tag": "cabin wall"
    },
    {
@@ -175,8 +175,8 @@
     "halfX": 0.5,
     "halfZ": 0.15,
     "yaw": 0.0,
-    "minY": 2.42,
-    "maxY": 2.55,
+    "minY": 2.62,
+    "maxY": 2.775,
     "tag": "door lintel"
    },
    {
@@ -216,7 +216,7 @@
   "hooks": {
    "chimney": [
     -3.76,
-    5.739,
+    6.175,
     -0.55
    ],
    "bench": [
@@ -225,12 +225,28 @@
     2.94
    ],
    "lantern": [
-    -0.8,
-    1.76,
-    3.7
+    0.55,
+    1.985,
+    3.0
    ]
   },
-  "ladders": []
+  "ladders": [],
+  "doors": [
+   {
+    "asset": "door_plank",
+    "hinge": [
+     -1.14,
+     0.445,
+     2.53
+    ],
+    "yaw": 0.0,
+    "swing": 1.75,
+    "width": 0.86,
+    "height": 2.06,
+    "thickness": 0.03,
+    "start": 0.3
+   }
+  ]
  },
  "mast": {
   "url": "/world/mast.glb",
@@ -457,17 +473,6 @@
     "tag": "door slab"
    },
    {
-    "kind": "capsule",
-    "ax": -1.33,
-    "az": 1.8199999999999998,
-    "bx": -1.6596538022060026,
-    "bz": 2.635921792018773,
-    "radius": 0.05,
-    "minY": 0.0,
-    "maxY": 2.2,
-    "tag": "steel door"
-   },
-   {
     "kind": "box",
     "x": -1.3,
     "z": -1.35,
@@ -595,7 +600,23 @@
     -0.85
    ]
   },
-  "ladders": []
+  "ladders": [],
+  "doors": [
+   {
+    "asset": "door_steel",
+    "hinge": [
+     -1.335,
+     0.03,
+     1.805
+    ],
+    "yaw": 0.0,
+    "swing": -1.9,
+    "width": 0.84,
+    "height": 2.1,
+    "thickness": 0.045,
+    "start": 0.45
+   }
+  ]
  },
  "generator": {
   "url": "/world/generator.glb",
@@ -2427,6 +2448,17 @@
    },
    {
     "kind": "box",
+    "x": 2.2778911563811546,
+    "z": -1.9175789063577555,
+    "halfX": 0.9,
+    "halfZ": 0.8,
+    "yaw": -0.7,
+    "minY": 0.0,
+    "maxY": 1.1,
+    "tag": "tent"
+   },
+   {
+    "kind": "box",
     "x": 2.05,
     "z": 1.8,
     "halfX": 0.4,
@@ -2668,28 +2700,6 @@
   "radius": 14,
   "colliders": [
    {
-    "kind": "capsule",
-    "ax": -0.76,
-    "az": 5.23,
-    "bx": -0.5203550045795958,
-    "bz": 5.9512283107102455,
-    "radius": 0.04,
-    "minY": 0.0,
-    "maxY": 2.5,
-    "tag": "chapel door"
-   },
-   {
-    "kind": "capsule",
-    "ax": 0.76,
-    "az": 5.23,
-    "bx": 1.0057000708162627,
-    "bz": 5.949188066642435,
-    "radius": 0.04,
-    "minY": 0.0,
-    "maxY": 2.5,
-    "tag": "chapel door"
-   },
-   {
     "kind": "box",
     "x": 0.0,
     "z": 5.5200000000000005,
@@ -2911,87 +2921,109 @@
    },
    {
     "kind": "capsule",
-    "ax": -6.816690408010327,
-    "az": -5.237006593690077,
-    "bx": -6.816690408010327,
-    "bz": -5.237006593690077,
-    "radius": 0.3106987929168842,
+    "ax": -6.662353438086245,
+    "az": -4.82510260976688,
+    "bx": -6.662353438086245,
+    "bz": -4.82510260976688,
+    "radius": 0.3070541435237947,
     "minY": 0.0,
-    "maxY": 0.7189007577420183,
+    "maxY": 0.9872866160324306,
     "tag": "headstone"
    },
    {
     "kind": "capsule",
-    "ax": -6.5879436103084075,
-    "az": -2.5746142882968033,
-    "bx": -6.5879436103084075,
-    "bz": -2.5746142882968033,
-    "radius": 0.3125006695910334,
+    "ax": -6.724791097703436,
+    "az": -1.9753692049680271,
+    "bx": -6.724791097703436,
+    "bz": -1.9753692049680271,
+    "radius": 0.35638548943196324,
     "minY": 0.0,
-    "maxY": 0.7309559274447665,
+    "maxY": 0.9259896058062983,
     "tag": "headstone"
    },
    {
     "kind": "capsule",
-    "ax": -6.91570251680986,
-    "az": -0.3964182032427441,
-    "bx": -6.91570251680986,
-    "bz": -0.3964182032427441,
-    "radius": 0.30805024223131094,
+    "ax": -6.6453576536945995,
+    "az": -1.4613697100429321,
+    "bx": -6.6453576536945995,
+    "bz": -1.4613697100429321,
+    "radius": 0.35253337856040284,
     "minY": 0.0,
-    "maxY": 1.0044859502628998,
+    "maxY": 1.0468884751180167,
     "tag": "headstone"
    },
    {
     "kind": "capsule",
-    "ax": -7.27953039675442,
-    "az": 1.3198465407565285,
-    "bx": -7.27953039675442,
-    "bz": 1.3198465407565285,
-    "radius": 0.34116234580329763,
+    "ax": -6.992582591969796,
+    "az": 0.25962830972449125,
+    "bx": -6.992582591969796,
+    "bz": 0.25962830972449125,
+    "radius": 0.25038510425897986,
     "minY": 0.0,
-    "maxY": 1.0200436940542166,
+    "maxY": 0.600070241622064,
     "tag": "headstone"
    },
    {
     "kind": "capsule",
-    "ax": -6.345370361376813,
-    "az": 2.5977208645569316,
-    "bx": -6.345370361376813,
-    "bz": 2.5977208645569316,
-    "radius": 0.3158191103103154,
+    "ax": -6.433710316071808,
+    "az": 3.1676687048989445,
+    "bx": -6.433710316071808,
+    "bz": 3.1676687048989445,
+    "radius": 0.24416939640382967,
     "minY": 0.0,
-    "maxY": 0.8833910149257924,
+    "maxY": 0.6702670174263182,
     "tag": "headstone"
    },
    {
     "kind": "capsule",
-    "ax": -6.727927001028211,
-    "az": 5.014403470565055,
-    "bx": -6.727927001028211,
-    "bz": 5.014403470565055,
-    "radius": 0.25938868185886327,
+    "ax": -7.095537583407223,
+    "az": 3.977541115419857,
+    "bx": -7.095537583407223,
+    "bz": 3.977541115419857,
+    "radius": 0.248939162627969,
     "minY": 0.0,
-    "maxY": 0.6422486356512505,
+    "maxY": 0.818172105813957,
     "tag": "headstone"
    },
    {
     "kind": "capsule",
-    "ax": -9.131942304170362,
-    "az": -5.225630585504213,
-    "bx": -9.131942304170362,
-    "bz": -5.225630585504213,
-    "radius": 0.3291761279807366,
+    "ax": -9.08143712937704,
+    "az": -4.789266444450857,
+    "bx": -9.08143712937704,
+    "bz": -4.789266444450857,
+    "radius": 0.3332718416199357,
     "minY": 0.0,
-    "maxY": 0.6024682033693413,
+    "maxY": 0.8545398251433057,
     "tag": "headstone"
    },
    {
     "kind": "capsule",
-    "ax": -8.864792364670151,
-    "az": -3.003815042292828,
-    "bx": -8.864792364670151,
-    "bz": -3.003815042292828,
+    "ax": -9.101354957425203,
+    "az": -2.9782734589721827,
+    "bx": -9.101354957425203,
+    "bz": -2.9782734589721827,
+    "radius": 0.26779051157704176,
+    "minY": 0.0,
+    "maxY": 0.7776671522141481,
+    "tag": "headstone"
+   },
+   {
+    "kind": "capsule",
+    "ax": -9.069184963908231,
+    "az": -1.599458949030898,
+    "bx": -9.069184963908231,
+    "bz": -1.599458949030898,
+    "radius": 0.27272277491153696,
+    "minY": 0.0,
+    "maxY": 0.6288284740550101,
+    "tag": "headstone"
+   },
+   {
+    "kind": "capsule",
+    "ax": -8.975703925351217,
+    "az": 1.1455104915048893,
+    "bx": -8.975703925351217,
+    "bz": 1.1455104915048893,
     "radius": 0.07,
     "minY": 0.0,
     "maxY": 1.0,
@@ -2999,54 +3031,32 @@
    },
    {
     "kind": "capsule",
-    "ax": -9.120402017453456,
-    "az": -0.7185620057242408,
-    "bx": -9.120402017453456,
-    "bz": -0.7185620057242408,
-    "radius": 0.2571601213365915,
+    "ax": -8.74399092243218,
+    "az": 3.1615425740637964,
+    "bx": -8.74399092243218,
+    "bz": 3.1615425740637964,
+    "radius": 0.2757051843246194,
     "minY": 0.0,
-    "maxY": 0.9094876295444667,
+    "maxY": 0.8274687055371428,
     "tag": "headstone"
    },
    {
     "kind": "capsule",
-    "ax": -8.756864537782182,
-    "az": 1.4049720766340816,
-    "bx": -8.756864537782182,
-    "bz": 1.4049720766340816,
-    "radius": 0.2546718662546181,
+    "ax": -8.948254474163313,
+    "az": 4.575940777891039,
+    "bx": -8.948254474163313,
+    "bz": 4.575940777891039,
+    "radius": 0.2756947966165738,
     "minY": 0.0,
-    "maxY": 0.7503071248600195,
+    "maxY": 0.6252172884348708,
     "tag": "headstone"
    },
    {
     "kind": "capsule",
-    "ax": -9.03582634104588,
-    "az": 2.010296416251187,
-    "bx": -9.03582634104588,
-    "bz": 2.010296416251187,
-    "radius": 0.26408446349422526,
-    "minY": 0.0,
-    "maxY": 0.7703782224971021,
-    "tag": "headstone"
-   },
-   {
-    "kind": "capsule",
-    "ax": -9.187515632658751,
-    "az": 4.079553752126842,
-    "bx": -9.187515632658751,
-    "bz": 4.079553752126842,
-    "radius": 0.31384919165812153,
-    "minY": 0.0,
-    "maxY": 1.0235194605253422,
-    "tag": "headstone"
-   },
-   {
-    "kind": "capsule",
-    "ax": -10.596902670456245,
-    "az": -4.315549105877531,
-    "bx": -10.596902670456245,
-    "bz": -4.315549105877531,
+    "ax": -10.81557618218394,
+    "az": -4.458045066475653,
+    "bx": -10.81557618218394,
+    "bz": -4.458045066475653,
     "radius": 0.07,
     "minY": 0.0,
     "maxY": 1.0,
@@ -3054,10 +3064,10 @@
    },
    {
     "kind": "capsule",
-    "ax": -11.099064823395272,
-    "az": -2.0440008393185116,
-    "bx": -11.099064823395272,
-    "bz": -2.0440008393185116,
+    "ax": -11.028226998241829,
+    "az": -1.9920823425910714,
+    "bx": -11.028226998241829,
+    "bz": -1.9920823425910714,
     "radius": 0.07,
     "minY": 0.0,
     "maxY": 1.0,
@@ -3065,47 +3075,47 @@
    },
    {
     "kind": "capsule",
-    "ax": -10.083200094144068,
-    "az": -0.2606657793537497,
-    "bx": -10.083200094144068,
-    "bz": -0.2606657793537497,
-    "radius": 0.27055582474247675,
+    "ax": -10.527383238667442,
+    "az": -1.0213267363173197,
+    "bx": -10.527383238667442,
+    "bz": -1.0213267363173197,
+    "radius": 0.24550191779222266,
     "minY": 0.0,
-    "maxY": 0.8325285037490596,
+    "maxY": 0.663537913892609,
     "tag": "headstone"
    },
    {
     "kind": "capsule",
-    "ax": -10.228386419475678,
-    "az": 1.1981988718818375,
-    "bx": -10.228386419475678,
-    "bz": 1.1981988718818375,
-    "radius": 0.3233273824145908,
+    "ax": -10.577313090287515,
+    "az": 1.1373703779488673,
+    "bx": -10.577313090287515,
+    "bz": 1.1373703779488673,
+    "radius": 0.24566529872907367,
     "minY": 0.0,
-    "maxY": 0.9622784317195558,
+    "maxY": 1.0439982280738702,
     "tag": "headstone"
    },
    {
     "kind": "capsule",
-    "ax": -10.261210459169208,
-    "az": 2.9644920656280513,
-    "bx": -10.261210459169208,
-    "bz": 2.9644920656280513,
-    "radius": 0.2726945416420951,
+    "ax": -10.061359538566755,
+    "az": 2.1359812613339315,
+    "bx": -10.061359538566755,
+    "bz": 2.1359812613339315,
+    "radius": 0.07,
     "minY": 0.0,
-    "maxY": 1.0128978524081422,
-    "tag": "headstone"
+    "maxY": 1.0,
+    "tag": "grave marker"
    },
    {
     "kind": "capsule",
-    "ax": -10.584533876938679,
-    "az": 4.9842766541605075,
-    "bx": -10.584533876938679,
-    "bz": 4.9842766541605075,
-    "radius": 0.3184921736431193,
+    "ax": -10.60340976435728,
+    "az": 5.0803300473108255,
+    "bx": -10.60340976435728,
+    "bz": 5.0803300473108255,
+    "radius": 0.07,
     "minY": 0.0,
-    "maxY": 0.8642021666910518,
-    "tag": "headstone"
+    "maxY": 1.0,
+    "tag": "grave marker"
    },
    {
     "kind": "capsule",
@@ -3175,7 +3185,37 @@
     -4.0
    ]
   },
-  "ladders": []
+  "ladders": [],
+  "doors": [
+   {
+    "asset": "door_chapel",
+    "hinge": [
+     -0.74,
+     0.44,
+     5.25
+    ],
+    "yaw": 0.0,
+    "swing": -1.7,
+    "width": 0.73,
+    "height": 2.34,
+    "thickness": 0.035,
+    "start": 0.8
+   },
+   {
+    "asset": "door_chapel_r",
+    "hinge": [
+     0.74,
+     0.44,
+     5.25
+    ],
+    "yaw": 3.1416,
+    "swing": 1.7,
+    "width": 0.73,
+    "height": 2.34,
+    "thickness": 0.035,
+    "start": 0.3
+   }
+  ]
  },
  "minerock": {
   "url": "/world/minerock.glb",
@@ -3350,7 +3390,23 @@
    }
   ],
   "hooks": {},
-  "ladders": []
+  "ladders": [],
+  "doors": [
+   {
+    "asset": "door_privy",
+    "hinge": [
+     -0.56,
+     0.0,
+     0.794
+    ],
+    "yaw": 0.0,
+    "swing": -1.9,
+    "width": 1.12,
+    "height": 1.93,
+    "thickness": 0.03,
+    "start": 0.4
+   }
+  ]
  },
  "picnic_table": {
   "url": "/world/picnic_table.glb",
@@ -4386,6 +4442,1520 @@
     "minY": 0.4,
     "maxY": 0.78,
     "tag": "guard rail"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "well": {
+  "url": "/world/well.glb",
+  "radius": 2.2,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": 0.0,
+    "az": 0.0,
+    "bx": 0.0,
+    "bz": 0.0,
+    "radius": 0.86,
+    "minY": 0.0,
+    "maxY": 0.92415348059348,
+    "tag": "well"
+   },
+   {
+    "kind": "capsule",
+    "ax": -0.93,
+    "az": 0.0,
+    "bx": -0.93,
+    "bz": 0.0,
+    "radius": 0.09,
+    "minY": 0.0,
+    "maxY": 2.3,
+    "tag": "well post"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.93,
+    "az": 0.0,
+    "bx": 0.93,
+    "bz": 0.0,
+    "radius": 0.09,
+    "minY": 0.0,
+    "maxY": 2.3,
+    "tag": "well post"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "ruin": {
+  "url": "/world/ruin.glb",
+  "radius": 5.5,
+  "colliders": [
+   {
+    "kind": "box",
+    "x": -2.8,
+    "z": 0.0,
+    "halfX": 0.6,
+    "halfZ": 0.97,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 4.5,
+    "tag": "chimney"
+   },
+   {
+    "kind": "box",
+    "x": 0.95,
+    "z": -2.4,
+    "halfX": 2.1,
+    "halfZ": 0.22,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.5,
+    "tag": "foundation"
+   },
+   {
+    "kind": "box",
+    "x": 3.0,
+    "z": 0.0,
+    "halfX": 0.22,
+    "halfZ": 2.4,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.5,
+    "tag": "foundation"
+   },
+   {
+    "kind": "box",
+    "x": 2.25,
+    "z": 2.4,
+    "halfX": 0.78,
+    "halfZ": 0.22,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.5,
+    "tag": "foundation"
+   },
+   {
+    "kind": "box",
+    "x": -1.0,
+    "z": 2.4,
+    "halfX": 1.2,
+    "halfZ": 0.22,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.5,
+    "tag": "foundation"
+   },
+   {
+    "kind": "box",
+    "x": -2.9,
+    "z": 1.7,
+    "halfX": 0.2,
+    "halfZ": 0.7,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.5,
+    "tag": "foundation"
+   },
+   {
+    "kind": "box",
+    "x": -2.9,
+    "z": -1.7,
+    "halfX": 0.2,
+    "halfZ": 0.7,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.5,
+    "tag": "foundation"
+   },
+   {
+    "kind": "capsule",
+    "ax": 2.98,
+    "az": -2.38,
+    "bx": 2.98,
+    "bz": -2.38,
+    "radius": 0.1,
+    "minY": 0.0,
+    "maxY": 1.95,
+    "tag": "burned post"
+   },
+   {
+    "kind": "capsule",
+    "ax": 2.98,
+    "az": 2.38,
+    "bx": 2.98,
+    "bz": 2.38,
+    "radius": 0.1,
+    "minY": 0.0,
+    "maxY": 0.95,
+    "tag": "burned post"
+   },
+   {
+    "kind": "capsule",
+    "ax": -2.1,
+    "az": 2.38,
+    "bx": -2.1,
+    "bz": 2.38,
+    "radius": 0.1,
+    "minY": 0.0,
+    "maxY": 1.35,
+    "tag": "burned post"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.3,
+    "az": -1.1,
+    "bx": -2.15,
+    "bz": -0.5,
+    "radius": 0.1,
+    "minY": 0.0,
+    "maxY": 1.2,
+    "tag": "fallen rafter"
+   },
+   {
+    "kind": "box",
+    "x": 1.75,
+    "z": -1.25,
+    "halfX": 0.45,
+    "halfZ": 0.97,
+    "yaw": 0.12,
+    "minY": 0.0,
+    "maxY": 0.4,
+    "tag": "bedstead"
+   },
+   {
+    "kind": "box",
+    "x": -1.35,
+    "z": 1.05,
+    "halfX": 0.38,
+    "halfZ": 0.27,
+    "yaw": 0.5,
+    "minY": 0.0,
+    "maxY": 0.56,
+    "tag": "stove"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "gate": {
+  "url": "/world/gate.glb",
+  "radius": 7,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": -4.3,
+    "az": 0.0,
+    "bx": -4.3,
+    "bz": 0.0,
+    "radius": 0.2,
+    "minY": 0.0,
+    "maxY": 1.3,
+    "tag": "gate post"
+   },
+   {
+    "kind": "capsule",
+    "ax": 4.3,
+    "az": 0.0,
+    "bx": 4.3,
+    "bz": 0.0,
+    "radius": 0.16,
+    "minY": 0.0,
+    "maxY": 1.2,
+    "tag": "gate post"
+   },
+   {
+    "kind": "box",
+    "x": -0.3999999999999999,
+    "z": 0.0,
+    "halfX": 4.95,
+    "halfZ": 0.07,
+    "yaw": 0.0,
+    "minY": 0.56,
+    "maxY": 1.09,
+    "tag": "boom"
+   },
+   {
+    "kind": "box",
+    "x": -6.05,
+    "z": 0.15,
+    "halfX": 0.31,
+    "halfZ": 0.86,
+    "yaw": 0.12,
+    "minY": 0.0,
+    "maxY": 0.86,
+    "tag": "road block"
+   },
+   {
+    "kind": "box",
+    "x": 5.05,
+    "z": -0.1,
+    "halfX": 0.31,
+    "halfZ": 0.86,
+    "yaw": -0.1,
+    "minY": 0.0,
+    "maxY": 0.86,
+    "tag": "road block"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "busstop": {
+  "url": "/world/busstop.glb",
+  "radius": 3.4,
+  "colliders": [
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": 0.1,
+    "halfX": 1.9,
+    "halfZ": 1.25,
+    "yaw": 0.0,
+    "minY": -0.1,
+    "maxY": 0.13,
+    "tag": "slab"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": -0.8500000000000001,
+    "halfX": 1.7,
+    "halfZ": 0.06,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 2.1,
+    "tag": "shelter wall"
+   },
+   {
+    "kind": "box",
+    "x": -1.7,
+    "z": 0.0,
+    "halfX": 0.06,
+    "halfZ": 0.8500000000000001,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 2.1,
+    "tag": "shelter wall"
+   },
+   {
+    "kind": "box",
+    "x": 1.7,
+    "z": 0.0,
+    "halfX": 0.06,
+    "halfZ": 0.8500000000000001,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 2.1,
+    "tag": "shelter wall"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": -0.5,
+    "halfX": 1.45,
+    "halfZ": 0.28,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.48,
+    "tag": "bench"
+   },
+   {
+    "kind": "capsule",
+    "ax": 2.2,
+    "az": 1.3,
+    "bx": 2.2,
+    "bz": 1.3,
+    "radius": 0.05,
+    "minY": 0.0,
+    "maxY": 2.5,
+    "tag": "stop pole"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "graves": {
+  "url": "/world/graves.glb",
+  "radius": 4.6,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": -3.2,
+    "az": -2.4,
+    "bx": -3.2,
+    "bz": -2.4,
+    "radius": 0.07,
+    "minY": 0.0,
+    "maxY": 0.9433381624419795,
+    "tag": "plot post"
+   },
+   {
+    "kind": "box",
+    "x": -2.4000000000000004,
+    "z": -2.4,
+    "halfX": 0.8200000000000001,
+    "halfZ": 0.02,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.85,
+    "tag": "plot rail"
+   },
+   {
+    "kind": "capsule",
+    "ax": -1.6,
+    "az": -2.4,
+    "bx": -1.6,
+    "bz": -2.4,
+    "radius": 0.07,
+    "minY": 0.0,
+    "maxY": 0.9508576018696825,
+    "tag": "plot post"
+   },
+   {
+    "kind": "box",
+    "x": -0.8,
+    "z": -2.4,
+    "halfX": 0.8200000000000001,
+    "halfZ": 0.02,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.85,
+    "tag": "plot rail"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.0,
+    "az": -2.4,
+    "bx": 0.0,
+    "bz": -2.4,
+    "radius": 0.07,
+    "minY": 0.0,
+    "maxY": 0.9044470726254562,
+    "tag": "plot post"
+   },
+   {
+    "kind": "box",
+    "x": 0.8000000000000003,
+    "z": -2.4,
+    "halfX": 0.8200000000000003,
+    "halfZ": 0.02,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.85,
+    "tag": "plot rail"
+   },
+   {
+    "kind": "capsule",
+    "ax": 1.6000000000000005,
+    "az": -2.4,
+    "bx": 1.6000000000000005,
+    "bz": -2.4,
+    "radius": 0.07,
+    "minY": 0.0,
+    "maxY": 0.991666581757995,
+    "tag": "plot post"
+   },
+   {
+    "kind": "box",
+    "x": 2.4000000000000004,
+    "z": -2.4,
+    "halfX": 0.8199999999999998,
+    "halfZ": 0.02,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.85,
+    "tag": "plot rail"
+   },
+   {
+    "kind": "capsule",
+    "ax": 3.2,
+    "az": -2.4,
+    "bx": 3.2,
+    "bz": -2.4,
+    "radius": 0.07,
+    "minY": 0.0,
+    "maxY": 0.9881095045482171,
+    "tag": "plot post"
+   },
+   {
+    "kind": "box",
+    "x": 3.2,
+    "z": -1.6,
+    "halfX": 0.02,
+    "halfZ": 0.82,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.85,
+    "tag": "plot rail"
+   },
+   {
+    "kind": "capsule",
+    "ax": 3.2,
+    "az": -0.8,
+    "bx": 3.2,
+    "bz": -0.8,
+    "radius": 0.07,
+    "minY": 0.0,
+    "maxY": 0.9477796620718622,
+    "tag": "plot post"
+   },
+   {
+    "kind": "box",
+    "x": 3.2,
+    "z": -1.1102230246251565e-16,
+    "halfX": 0.02,
+    "halfZ": 0.82,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.85,
+    "tag": "plot rail"
+   },
+   {
+    "kind": "capsule",
+    "ax": 3.2,
+    "az": 0.7999999999999998,
+    "bx": 3.2,
+    "bz": 0.7999999999999998,
+    "radius": 0.07,
+    "minY": 0.0,
+    "maxY": 0.9005351032774056,
+    "tag": "plot post"
+   },
+   {
+    "kind": "box",
+    "x": 3.2,
+    "z": 1.5999999999999999,
+    "halfX": 0.02,
+    "halfZ": 0.8200000000000001,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.85,
+    "tag": "plot rail"
+   },
+   {
+    "kind": "capsule",
+    "ax": 3.2,
+    "az": 2.4,
+    "bx": 3.2,
+    "bz": 2.4,
+    "radius": 0.07,
+    "minY": 0.0,
+    "maxY": 0.9881527481217981,
+    "tag": "plot post"
+   },
+   {
+    "kind": "box",
+    "x": 2.4000000000000004,
+    "z": 2.4,
+    "halfX": 0.8200000000000001,
+    "halfZ": 0.02,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.85,
+    "tag": "plot rail"
+   },
+   {
+    "kind": "capsule",
+    "ax": 1.6,
+    "az": 2.4,
+    "bx": 1.6,
+    "bz": 2.4,
+    "radius": 0.07,
+    "minY": 0.0,
+    "maxY": 0.9972469095882849,
+    "tag": "plot post"
+   },
+   {
+    "kind": "box",
+    "x": 1.11,
+    "z": 2.4,
+    "halfX": 0.51,
+    "halfZ": 0.02,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.85,
+    "tag": "plot rail"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.62,
+    "az": 2.4,
+    "bx": 0.62,
+    "bz": 2.4,
+    "radius": 0.07,
+    "minY": 0.0,
+    "maxY": 2.05,
+    "tag": "plot post"
+   },
+   {
+    "kind": "capsule",
+    "ax": -0.62,
+    "az": 2.4,
+    "bx": -0.62,
+    "bz": 2.4,
+    "radius": 0.07,
+    "minY": 0.0,
+    "maxY": 2.05,
+    "tag": "plot post"
+   },
+   {
+    "kind": "box",
+    "x": -1.11,
+    "z": 2.4,
+    "halfX": 0.51,
+    "halfZ": 0.02,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.85,
+    "tag": "plot rail"
+   },
+   {
+    "kind": "capsule",
+    "ax": -1.6,
+    "az": 2.4,
+    "bx": -1.6,
+    "bz": 2.4,
+    "radius": 0.07,
+    "minY": 0.0,
+    "maxY": 0.9492216700450659,
+    "tag": "plot post"
+   },
+   {
+    "kind": "box",
+    "x": -2.4000000000000004,
+    "z": 2.4,
+    "halfX": 0.8200000000000001,
+    "halfZ": 0.02,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.85,
+    "tag": "plot rail"
+   },
+   {
+    "kind": "capsule",
+    "ax": -3.2,
+    "az": 2.4,
+    "bx": -3.2,
+    "bz": 2.4,
+    "radius": 0.07,
+    "minY": 0.0,
+    "maxY": 0.9659590627661492,
+    "tag": "plot post"
+   },
+   {
+    "kind": "box",
+    "x": -3.2,
+    "z": 1.6,
+    "halfX": 0.02,
+    "halfZ": 0.82,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.85,
+    "tag": "plot rail"
+   },
+   {
+    "kind": "capsule",
+    "ax": -3.2,
+    "az": 0.8,
+    "bx": -3.2,
+    "bz": 0.8,
+    "radius": 0.07,
+    "minY": 0.0,
+    "maxY": 0.9020673341982679,
+    "tag": "plot post"
+   },
+   {
+    "kind": "box",
+    "x": -3.2,
+    "z": 1.1102230246251565e-16,
+    "halfX": 0.02,
+    "halfZ": 0.82,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.85,
+    "tag": "plot rail"
+   },
+   {
+    "kind": "capsule",
+    "ax": -3.2,
+    "az": -0.7999999999999998,
+    "bx": -3.2,
+    "bz": -0.7999999999999998,
+    "radius": 0.07,
+    "minY": 0.0,
+    "maxY": 0.9610033383722842,
+    "tag": "plot post"
+   },
+   {
+    "kind": "box",
+    "x": -3.2,
+    "z": -1.5999999999999999,
+    "halfX": 0.02,
+    "halfZ": 0.8200000000000001,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.85,
+    "tag": "plot rail"
+   },
+   {
+    "kind": "capsule",
+    "ax": -2.05,
+    "az": -2.0,
+    "bx": -2.05,
+    "bz": -2.0,
+    "radius": 0.06,
+    "minY": 0.0,
+    "maxY": 1.15,
+    "tag": "grave marker"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.0,
+    "az": -2.0,
+    "bx": 0.0,
+    "bz": -2.0,
+    "radius": 0.06,
+    "minY": 0.0,
+    "maxY": 1.3,
+    "tag": "grave marker"
+   },
+   {
+    "kind": "capsule",
+    "ax": 2.05,
+    "az": 0.22,
+    "bx": 2.05,
+    "bz": 0.22,
+    "radius": 0.06,
+    "minY": 0.0,
+    "maxY": 1.05,
+    "tag": "grave marker"
+   },
+   {
+    "kind": "capsule",
+    "ax": -2.05,
+    "az": 0.25,
+    "bx": -2.05,
+    "bz": 0.25,
+    "radius": 0.06,
+    "minY": 0.0,
+    "maxY": 0.95,
+    "tag": "grave marker"
+   },
+   {
+    "kind": "box",
+    "x": 2.03,
+    "z": -2.04,
+    "halfX": 0.27,
+    "halfZ": 0.08,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.78,
+    "tag": "headstone"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "shrine": {
+  "url": "/world/shrine.glb",
+  "radius": 4.4,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": 2.911019486364182,
+    "az": 1.3944029941441987,
+    "bx": 2.911019486364182,
+    "bz": 1.3944029941441987,
+    "radius": 0.23726971263203733,
+    "minY": 0.0,
+    "maxY": 1.2916392813613746,
+    "tag": "standing stone"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.5384063006461401,
+    "az": 3.0589121980026497,
+    "bx": 0.5384063006461401,
+    "bz": 3.0589121980026497,
+    "radius": 0.23538940011002923,
+    "minY": 0.0,
+    "maxY": 1.443048767987206,
+    "tag": "standing stone"
+   },
+   {
+    "kind": "capsule",
+    "ax": -2.3677935991046195,
+    "az": 2.5079779907985302,
+    "bx": -2.3677935991046195,
+    "bz": 2.5079779907985302,
+    "radius": 0.23940259447620868,
+    "minY": 0.0,
+    "maxY": 1.5419408747368668,
+    "tag": "standing stone"
+   },
+   {
+    "kind": "capsule",
+    "ax": -3.4175417554669063,
+    "az": -0.33290483779435776,
+    "bx": -3.4175417554669063,
+    "bz": -0.33290483779435776,
+    "radius": 0.29144092135104516,
+    "minY": 0.0,
+    "maxY": 1.2655581879734732,
+    "tag": "standing stone"
+   },
+   {
+    "kind": "capsule",
+    "ax": -2.108515975104811,
+    "az": -2.8290499165584837,
+    "bx": -2.108515975104811,
+    "bz": -2.8290499165584837,
+    "radius": 0.2855420826620148,
+    "minY": 0.0,
+    "maxY": 0.837997573420493,
+    "tag": "standing stone"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.48816556063602934,
+    "az": -3.5016155882564584,
+    "bx": 0.48816556063602934,
+    "bz": -3.5016155882564584,
+    "radius": 0.29471623516153284,
+    "minY": 0.0,
+    "maxY": 1.2110071391986406,
+    "tag": "standing stone"
+   },
+   {
+    "kind": "capsule",
+    "ax": 2.950913238116331,
+    "az": -1.3908610991714236,
+    "bx": 2.950913238116331,
+    "bz": -1.3908610991714236,
+    "radius": 0.20904853770747545,
+    "minY": 0.0,
+    "maxY": 1.4970906896933265,
+    "tag": "standing stone"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": -0.2,
+    "halfX": 0.84,
+    "halfZ": 0.38,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.62,
+    "tag": "altar"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.0,
+    "az": -1.25,
+    "bx": 0.0,
+    "bz": -1.25,
+    "radius": 0.09,
+    "minY": 0.0,
+    "maxY": 3.4,
+    "tag": "pole"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "effigy": {
+  "url": "/world/effigy.glb",
+  "radius": 1.4,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": 0.0,
+    "az": 0.0,
+    "bx": 0.0,
+    "bz": 0.0,
+    "radius": 0.3,
+    "minY": 0.0,
+    "maxY": 1.2,
+    "tag": "effigy"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "wall": {
+  "url": "/world/wall.glb",
+  "radius": 2.4,
+  "colliders": [
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": 0.0,
+    "halfX": 2.0,
+    "halfZ": 0.27,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 1.05,
+    "tag": "stone wall"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "wall_gap": {
+  "url": "/world/wall_gap.glb",
+  "radius": 2.6,
+  "colliders": [
+   {
+    "kind": "box",
+    "x": -1.375,
+    "z": 0.0,
+    "halfX": 0.775,
+    "halfZ": 0.27,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.95,
+    "tag": "stone wall"
+   },
+   {
+    "kind": "box",
+    "x": 1.525,
+    "z": 0.0,
+    "halfX": 0.475,
+    "halfZ": 0.27,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.95,
+    "tag": "stone wall"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "pumphouse": {
+  "url": "/world/pumphouse.glb",
+  "radius": 3.6,
+  "colliders": [
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": 0.0,
+    "halfX": 1.7,
+    "halfZ": 1.4,
+    "yaw": 0.0,
+    "minY": -0.2,
+    "maxY": 0.08,
+    "tag": "pump house floor"
+   },
+   {
+    "kind": "box",
+    "x": 0.5,
+    "z": 2.02,
+    "halfX": 0.95,
+    "halfZ": 0.62,
+    "yaw": 0.0,
+    "minY": -0.2,
+    "maxY": 0.06,
+    "tag": "apron"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": -1.2999999999999998,
+    "halfX": 1.7,
+    "halfZ": 0.1,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 2.5,
+    "tag": "pump house wall"
+   },
+   {
+    "kind": "box",
+    "x": -1.5999999999999999,
+    "z": 0.0,
+    "halfX": 0.1,
+    "halfZ": 1.4,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 2.5,
+    "tag": "pump house wall"
+   },
+   {
+    "kind": "box",
+    "x": 1.5999999999999999,
+    "z": 0.0,
+    "halfX": 0.1,
+    "halfZ": 1.4,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 2.5,
+    "tag": "pump house wall"
+   },
+   {
+    "kind": "box",
+    "x": -0.8099999999999999,
+    "z": 1.2999999999999998,
+    "halfX": 0.89,
+    "halfZ": 0.1,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 2.5,
+    "tag": "pump house wall"
+   },
+   {
+    "kind": "box",
+    "x": 1.35,
+    "z": 1.2999999999999998,
+    "halfX": 0.35,
+    "halfZ": 0.1,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 2.5,
+    "tag": "pump house wall"
+   },
+   {
+    "kind": "box",
+    "x": 0.54,
+    "z": 1.2999999999999998,
+    "halfX": 0.46,
+    "halfZ": 0.1,
+    "yaw": 0.0,
+    "minY": 2.22,
+    "maxY": 2.5,
+    "tag": "door lintel"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": 0.0,
+    "halfX": 1.88,
+    "halfZ": 1.5799999999999998,
+    "yaw": 0.0,
+    "minY": 2.5,
+    "maxY": 2.65,
+    "tag": "pump house roof"
+   },
+   {
+    "kind": "capsule",
+    "ax": 1.9,
+    "az": -0.45,
+    "bx": 2.65,
+    "bz": -0.45,
+    "radius": 0.12,
+    "minY": 0.0,
+    "maxY": 1.15,
+    "tag": "water main"
+   },
+   {
+    "kind": "box",
+    "x": 0.35,
+    "z": -0.62,
+    "halfX": 0.76,
+    "halfZ": 0.43,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 1.25,
+    "tag": "pump set"
+   },
+   {
+    "kind": "box",
+    "x": -1.0,
+    "z": 0.75,
+    "halfX": 0.23,
+    "halfZ": 0.18,
+    "yaw": 0.3,
+    "minY": 0.0,
+    "maxY": 0.41000000000000003,
+    "tag": "crate"
+   }
+  ],
+  "hooks": {},
+  "ladders": [],
+  "doors": [
+   {
+    "asset": "door_steel_r",
+    "hinge": [
+     0.96,
+     0.092,
+     1.445
+    ],
+    "yaw": 3.1416,
+    "swing": 1.85,
+    "width": 0.84,
+    "height": 2.1,
+    "thickness": 0.045,
+    "start": 0.55
+   }
+  ]
+ },
+ "watertower": {
+  "url": "/world/watertower.glb",
+  "radius": 4.6,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": -1.95,
+    "az": -1.95,
+    "bx": -1.6,
+    "bz": -1.6,
+    "radius": 0.17,
+    "minY": 0.0,
+    "maxY": 5.05,
+    "tag": "tower leg"
+   },
+   {
+    "kind": "capsule",
+    "ax": -1.95,
+    "az": 1.95,
+    "bx": -1.6,
+    "bz": 1.6,
+    "radius": 0.17,
+    "minY": 0.0,
+    "maxY": 5.05,
+    "tag": "tower leg"
+   },
+   {
+    "kind": "capsule",
+    "ax": 1.95,
+    "az": -1.95,
+    "bx": 1.6,
+    "bz": -1.6,
+    "radius": 0.17,
+    "minY": 0.0,
+    "maxY": 5.05,
+    "tag": "tower leg"
+   },
+   {
+    "kind": "capsule",
+    "ax": 1.95,
+    "az": 1.95,
+    "bx": 1.6,
+    "bz": 1.6,
+    "radius": 0.17,
+    "minY": 0.0,
+    "maxY": 5.05,
+    "tag": "tower leg"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.0,
+    "az": 0.0,
+    "bx": 2.8,
+    "bz": 0.0,
+    "radius": 0.08,
+    "minY": 0.0,
+    "maxY": 1.4,
+    "tag": "outlet pipe"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.0,
+    "az": 0.0,
+    "bx": 0.0,
+    "bz": 0.0,
+    "radius": 0.1,
+    "minY": 0.0,
+    "maxY": 5.0,
+    "tag": "outlet pipe"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "door_steel": {
+  "url": "/world/door_steel.glb",
+  "radius": 1.2,
+  "colliders": [],
+  "hooks": {},
+  "ladders": []
+ },
+ "door_plank": {
+  "url": "/world/door_plank.glb",
+  "radius": 1.2,
+  "colliders": [],
+  "hooks": {},
+  "ladders": []
+ },
+ "tunnel": {
+  "url": "/world/tunnel.glb",
+  "radius": 13,
+  "colliders": [
+   {
+    "kind": "box",
+    "x": -4.85,
+    "z": -0.45,
+    "halfX": 1.7499999999999998,
+    "halfZ": 0.45,
+    "yaw": 0.0,
+    "minY": -0.4,
+    "maxY": 7.7,
+    "tag": "tunnel headwall"
+   },
+   {
+    "kind": "box",
+    "x": 4.85,
+    "z": -0.45,
+    "halfX": 1.7499999999999998,
+    "halfZ": 0.45,
+    "yaw": 0.0,
+    "minY": -0.4,
+    "maxY": 7.7,
+    "tag": "tunnel headwall"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": -0.45,
+    "halfX": 3.1,
+    "halfZ": 0.45,
+    "yaw": 0.0,
+    "minY": 4.9,
+    "maxY": 7.7,
+    "tag": "tunnel headwall"
+   },
+   {
+    "kind": "capsule",
+    "ax": -6.3,
+    "az": 0.0,
+    "bx": -7.1903999999999995,
+    "bz": 1.92284,
+    "radius": 0.36,
+    "minY": 0.0,
+    "maxY": 6.2,
+    "tag": "wing wall"
+   },
+   {
+    "kind": "capsule",
+    "ax": -7.1819999999999995,
+    "az": 1.9047,
+    "bx": -8.0724,
+    "bz": 3.82754,
+    "radius": 0.36,
+    "minY": 0.0,
+    "maxY": 4.9,
+    "tag": "wing wall"
+   },
+   {
+    "kind": "capsule",
+    "ax": -8.064,
+    "az": 3.8094,
+    "bx": -8.9544,
+    "bz": 5.73224,
+    "radius": 0.36,
+    "minY": 0.0,
+    "maxY": 3.6,
+    "tag": "wing wall"
+   },
+   {
+    "kind": "capsule",
+    "ax": -8.946,
+    "az": 5.714100000000001,
+    "bx": -9.8364,
+    "bz": 7.63694,
+    "radius": 0.36,
+    "minY": 0.0,
+    "maxY": 2.3,
+    "tag": "wing wall"
+   },
+   {
+    "kind": "capsule",
+    "ax": 6.3,
+    "az": 0.0,
+    "bx": 7.1903999999999995,
+    "bz": 1.92284,
+    "radius": 0.36,
+    "minY": 0.0,
+    "maxY": 6.2,
+    "tag": "wing wall"
+   },
+   {
+    "kind": "capsule",
+    "ax": 7.1819999999999995,
+    "az": 1.9047,
+    "bx": 8.0724,
+    "bz": 3.82754,
+    "radius": 0.36,
+    "minY": 0.0,
+    "maxY": 4.9,
+    "tag": "wing wall"
+   },
+   {
+    "kind": "capsule",
+    "ax": 8.064,
+    "az": 3.8094,
+    "bx": 8.9544,
+    "bz": 5.73224,
+    "radius": 0.36,
+    "minY": 0.0,
+    "maxY": 3.6,
+    "tag": "wing wall"
+   },
+   {
+    "kind": "capsule",
+    "ax": 8.946,
+    "az": 5.714100000000001,
+    "bx": 9.8364,
+    "bz": 7.63694,
+    "radius": 0.36,
+    "minY": 0.0,
+    "maxY": 2.3,
+    "tag": "wing wall"
+   },
+   {
+    "kind": "box",
+    "x": -3.4,
+    "z": -4.3,
+    "halfX": 0.3,
+    "halfZ": 4.3,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 7.7,
+    "tag": "tunnel wall"
+   },
+   {
+    "kind": "box",
+    "x": 3.4,
+    "z": -4.3,
+    "halfX": 0.3,
+    "halfZ": 4.3,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 7.7,
+    "tag": "tunnel wall"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": -3.6999999999999997,
+    "halfX": 3.1,
+    "halfZ": 4.8999999999999995,
+    "yaw": 0.0,
+    "minY": -0.2,
+    "maxY": 0.04,
+    "tag": "tunnel road"
+   },
+   {
+    "kind": "capsule",
+    "ax": -1.3,
+    "az": -1.1,
+    "bx": -1.3,
+    "bz": -1.1,
+    "radius": 0.558,
+    "minY": 0.0,
+    "maxY": 0.682,
+    "tag": "fallen rock"
+   },
+   {
+    "kind": "capsule",
+    "ax": 1.5,
+    "az": -0.6,
+    "bx": 1.5,
+    "bz": -0.6,
+    "radius": 0.45,
+    "minY": 0.0,
+    "maxY": 0.55,
+    "tag": "fallen rock"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.3,
+    "az": -1.5,
+    "bx": 0.3,
+    "bz": -1.5,
+    "radius": 0.63,
+    "minY": 0.0,
+    "maxY": 0.77,
+    "tag": "fallen rock"
+   },
+   {
+    "kind": "capsule",
+    "ax": 2.4,
+    "az": -1.5,
+    "bx": 2.4,
+    "bz": -1.5,
+    "radius": 0.378,
+    "minY": 0.0,
+    "maxY": 0.462,
+    "tag": "fallen rock"
+   },
+   {
+    "kind": "capsule",
+    "ax": -2.3,
+    "az": 0.2,
+    "bx": -2.3,
+    "bz": 0.2,
+    "radius": 0.342,
+    "minY": 0.0,
+    "maxY": 0.41800000000000004,
+    "tag": "fallen rock"
+   },
+   {
+    "kind": "capsule",
+    "ax": 0.9,
+    "az": 0.6,
+    "bx": 0.9,
+    "bz": 0.6,
+    "radius": 0.27,
+    "minY": 0.0,
+    "maxY": 0.33,
+    "tag": "fallen rock"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": -4.6,
+    "halfX": 3.1,
+    "halfZ": 2.4,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 7.7,
+    "tag": "rockfall"
+   },
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": -2.6,
+    "halfX": 3.1,
+    "halfZ": 0.5,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 1.6,
+    "tag": "rockfall"
+   }
+  ],
+  "hooks": {},
+  "ladders": []
+ },
+ "tunnelrock": {
+  "url": "/world/tunnelrock.glb",
+  "radius": 18,
+  "colliders": [
+   {
+    "kind": "box",
+    "x": -8.4,
+    "z": -6.8,
+    "halfX": 4.9,
+    "halfZ": 6.0,
+    "yaw": 0,
+    "minY": -1,
+    "maxY": 11,
+    "tag": "rock"
+   },
+   {
+    "kind": "box",
+    "x": 8.4,
+    "z": -6.8,
+    "halfX": 4.9,
+    "halfZ": 6.0,
+    "yaw": 0,
+    "minY": -1,
+    "maxY": 11,
+    "tag": "rock"
+   },
+   {
+    "kind": "box",
+    "x": 0,
+    "z": -11.6,
+    "halfX": 3.5,
+    "halfZ": 1.4,
+    "yaw": 0,
+    "minY": -1,
+    "maxY": 11,
+    "tag": "rock"
+   },
+   {
+    "kind": "box",
+    "x": 0,
+    "z": -5.6,
+    "halfX": 3.5,
+    "halfZ": 4.6,
+    "yaw": 0,
+    "minY": 6.4,
+    "maxY": 11,
+    "tag": "rock"
+   }
+  ],
+  "hooks": {}
+ },
+ "streetlight": {
+  "url": "/world/streetlight.glb",
+  "radius": 2,
+  "colliders": [
+   {
+    "kind": "capsule",
+    "ax": 0.0,
+    "az": 0.0,
+    "bx": 0.0,
+    "bz": 0.0,
+    "radius": 0.13,
+    "minY": 0.0,
+    "maxY": 6.4,
+    "tag": "lamp column"
+   }
+  ],
+  "hooks": {
+   "lamp": [
+    0.0,
+    6.55,
+    1.24
+   ]
+  },
+  "ladders": []
+ },
+ "door_privy": {
+  "url": "/world/door_privy.glb",
+  "radius": 1.2,
+  "colliders": [],
+  "hooks": {},
+  "ladders": []
+ },
+ "door_chapel": {
+  "url": "/world/door_chapel.glb",
+  "radius": 1.3,
+  "colliders": [],
+  "hooks": {},
+  "ladders": []
+ },
+ "door_steel_r": {
+  "url": "/world/door_steel_r.glb",
+  "radius": 1.2,
+  "colliders": [],
+  "hooks": {},
+  "ladders": []
+ },
+ "door_chapel_r": {
+  "url": "/world/door_chapel_r.glb",
+  "radius": 1.3,
+  "colliders": [],
+  "hooks": {},
+  "ladders": []
+ },
+ "bench": {
+  "url": "/world/bench.glb",
+  "radius": 1.4,
+  "colliders": [
+   {
+    "kind": "box",
+    "x": 0.0,
+    "z": 0.0,
+    "halfX": 0.95,
+    "halfZ": 0.2,
+    "yaw": 0.0,
+    "minY": 0.0,
+    "maxY": 0.58,
+    "tag": "bench"
+   },
+   {
+    "kind": "capsule",
+    "ax": -0.7,
+    "az": -0.38,
+    "bx": 0.7,
+    "bz": -0.38,
+    "radius": 0.05,
+    "minY": 0.0,
+    "maxY": 0.95,
+    "tag": "bench rail"
    }
   ],
   "hooks": {},

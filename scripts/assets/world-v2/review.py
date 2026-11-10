@@ -21,16 +21,16 @@ OUT = os.path.join(ROOT, "assets/world-v2/review")
 GLB = os.path.join(ROOT, "public/world")
 os.makedirs(OUT, exist_ok=True)
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
-COMPANIONS = {"mine": ["minerock"]}
-FRONT_ONLY = {"mine": 15.0}
+COMPANIONS = {"mine": ["minerock"], "tunnel": ["tunnelrock"]}
+FRONT_ONLY = {"mine": 15.0, "tunnel": 22.0}
 FRAME = {"hut": 11.0, "fuse": .55, "stump_axe": 1.25, "cans": .6, "shovel": 1.0}
 # Game coordinates (x, y up, z). BODY: frame the views on this box instead of the whole bounds (a hut with 13 m of cable
 # is still a hut). CLOSE: where the sixth, close view stands and what it looks at.
 BODY = {"hut": ((0, 0, .3), 3.4, 3.2), "pole": ((0, 0, 0), 1.3, 10.0), "mast": ((0, 0, 0), 4.5, 37)}
-CLOSE = {"hut": ((1.3, 1.6, 6.4), (-.2, 1.35, 1.7)), "cabin": ((2.2, 1.65, 7.4), (.9, 1.5, 2.5)), "chapel": ((6.5, 1.65, 7.5), (2.5, 1.9, 2.0)),
+CLOSE = {"tunnel": ((1.5, 1.65, 13.0), (0, 2.6, 0)), "pumphouse": ((.55, 1.6, 3.6), (.45, 1.2, -.6)), "hut": ((1.3, 1.6, 6.4), (-.2, 1.35, 1.7)), "cabin": ((2.2, 1.65, 7.4), (.9, 1.5, 2.5)), "chapel": ((6.5, 1.65, 7.5), (2.5, 1.9, 2.0)),
          "lookout": ((5.5, 1.65, 6.5), (0, 2.2, 0)), "mast": ((6, 1.65, 7), (0, 2.5, 0)), "pole": ((1.8, 1.65, 2.6), (0, 1.5, 0)),
          "logstack": ((-1.5, 1.65, 12.5), (-3.5, 1.4, 6.5)), "camp": ((1.5, 1.6, 4.2), (-.5, .5, -.4)), "roadbridge": ((-17, -1.2, 14), (-6, -2.2, 0))}
-names = argv or sorted(f[:-4] for f in os.listdir(GLB) if f.endswith(".glb") and f[:-4] != "minerock")
+names = argv or sorted(f[:-4] for f in os.listdir(GLB) if f.endswith(".glb") and f[:-4] not in ("minerock", "tunnelrock"))
 CONTACT = .02   # metres: closer than this counts as touching
 
 

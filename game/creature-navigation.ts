@@ -13,6 +13,13 @@ export function obstacleClearance(c:SolidCollider,x:number,z:number){
   return Math.hypot(Math.max(0,lx),Math.max(0,lz))+Math.min(0,Math.max(lx,lz));
 }
 const ignored=(c:SolidCollider)=>c.tag?.startsWith('creature');
+/** Where a collider can be at all: x0, x1, z0, z1 (a box is taken at its widest turn). Anything outside this, whatever its margin, is clear of it. */
+const boundsOf=(c:SolidCollider):[number,number,number,number]=>{
+  if(c.kind==='capsule')return[Math.min(c.ax,c.bx)-c.radius,Math.max(c.ax,c.bx)+c.radius,Math.min(c.az,c.bz)-c.radius,Math.max(c.az,c.bz)+c.radius];
+  const co=Math.abs(Math.cos(c.yaw)),si=Math.abs(Math.sin(c.yaw)),ex=co*c.halfX+si*c.halfZ,ez=si*c.halfX+co*c.halfZ;
+  return[c.x-ex,c.x+ex,c.z-ez,c.z+ez];
+};
+const near=(b:[number,number,number,number],x:number,z:number,r:number)=>x>=b[0]-r&&x<=b[1]+r&&z>=b[2]-r&&z<=b[3]+r;
 export function creatureCanClimb(c:SolidCollider,heightAt:(x:number,z:number)=>number){
   const x=c.kind==='capsule'?(c.ax+c.bx)*.5:c.x,z=c.kind==='capsule'?(c.az+c.bz)*.5:c.z;
   return walkableTags.has(c.tag??'')&&c.maxY-heightAt(x,z)<2.5;
@@ -21,8 +28,12 @@ export function creatureCanClimb(c:SolidCollider,heightAt:(x:number,z:number)=>n
  * active during an encounter; static geometry is never rebuilt for the agent. */
 export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,world:Query={nearby:()=>[]},waterSurfaceAt?:(x:number,z:number)=>number|undefined){
   const radius=2.6,hardRadius=.85;
+  /** m/s squared: how fast a body that has lost its route eases down when nothing slower was asked for. */
+  const COAST_BRAKE=9,COAST_BRAKE_MAX=45,COAST_LOOK=7,APPROACH_BRAKE=8,ROUTE_END_REPLAN=4;
   const MAX_ROUTE_ITERATIONS=900;
   let solids:SolidCollider[]=[],blockers:SolidCollider[]=[],supports:SolidCollider[]=[],layers:SolidCollider[]=[],cacheX=Infinity,cacheZ=Infinity,cacheAge=1;
+  // Each list's bounds, so the many questions asked of them (a route search asks thousands) only look at what is near the point.
+  let blockerBounds:[number,number,number,number][]=[],supportBounds:[number,number,number,number][]=[],layerBounds:[number,number,number,number][]=[];
   let route:{x:number;z:number}[]=[],goal={x:0,z:0},lastHeading={x:0,z:0},replanIn=0,replans=0,lastBlocked=false,routeRadius=radius;
   let travelSpeed=0,heading=0,headingReady=false,angularVelocity=0,lastDesiredSpeed=0,referenceY:number|undefined;
   // Footholds that could not be found, by where they were asked for, for a moment: a foot with nowhere to go is asked
@@ -32,10 +43,16 @@ export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,wo
   function refresh(x:number,z:number,dt=0,force=false){
     clock+=dt;cacheAge+=dt;if(!force&&cacheAge<.3&&Math.hypot(x-cacheX,z-cacheZ)<2)return;
     cacheX=x;cacheZ=z;cacheAge=0;solids=world.nearby(x,z,27).filter(c=>!ignored(c));layers=solids.filter(c=>c.tag==='bridge deck'||c.tag==='bridge timber');const layered=new Set(layers);supports=solids.filter(c=>!layered.has(c)&&creatureCanClimb(c,heightAt));const climbable=new Set(supports);blockers=solids.filter(c=>!climbable.has(c)&&!layered.has(c));
+    blockerBounds=blockers.map(boundsOf);supportBounds=supports.map(boundsOf);layerBounds=layers.map(boundsOf);
   }
   function clear(x:number,z:number,r=radius){
-    for(const c of blockers)if(obstacleClearance(c,x,z)<r)return false;
-    if(layers.length){const floor=supportAt(x,z);for(const c of layers)if(c.maxY>floor+.18&&c.minY<floor+2.8&&obstacleClearance(c,x,z)<r)return false;}
+    for(let i=0;i<blockers.length;i++)if(near(blockerBounds[i],x,z,r)&&obstacleClearance(blockers[i],x,z)<r)return false;
+    let floor:number|undefined;
+    for(let i=0;i<layers.length;i++){
+      if(!near(layerBounds[i],x,z,r))continue;
+      const c=layers[i];floor??=supportAt(x,z);
+      if(c.maxY>floor+.18&&c.minY<floor+2.8&&obstacleClearance(c,x,z)<r)return false;
+    }
     return true;
   }
   function segmentClear(ax:number,az:number,bx:number,bz:number,r=radius){
@@ -44,7 +61,8 @@ export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,wo
   }
   function supportAt(x:number,z:number){
     let y=baseSurfaceAt(x,z);
-    for(const c of supports){
+    for(let i=0;i<supports.length;i++){
+      const c=supports[i];if(!near(supportBounds[i],x,z,.035))continue;
       if(obstacleClearance(c,x,z)>.035||c.maxY<=y)continue;
       // Geometry supplies a top intersection, avoiding an invisible flat rock lid.
       const exact=c.surfaceHeight?.(x,z);
@@ -57,7 +75,8 @@ export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,wo
     // Bridge decks are reachable layers, not terrain. A creature approaching
     // beneath follows the water/ground; one already on a ramp can stay on top.
     const from=referenceY??baseSurfaceAt(x,z);
-    for(const c of layers){
+    for(let i=0;i<layers.length;i++){
+      const c=layers[i];if(!near(layerBounds[i],x,z,.02))continue;
       if(obstacleClearance(c,x,z)>.02||c.maxY<=y)continue;
       const top=c.surfaceHeight?c.surfaceHeight(x,z):c.maxY;
       if(top!==undefined&&top<=from+.65&&top>y)y=top;
@@ -268,7 +287,10 @@ export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,wo
       referenceY=position.y;refresh(position.x,position.z,dt);replanIn-=dt;
       const len=Math.hypot(hx,hz)||1;hx/=len;hz/=len;
       const goalChange=hx*lastHeading.x+hz*lastHeading.z<.94;
-      if(speed>.001&&(goalChange||(!route.length&&replanIn<=0)||Math.hypot(goal.x-position.x,goal.z-position.z)<3))plan(position.x,position.z,hx,hz);
+      // A route that stops short of its goal (the way on is shut) is planned again as its end comes near, not only after it has been
+      // used up: from a few metres on the planner often sees a way round.
+      const shortEnd=(()=>{const e=route[route.length-1];return !!e&&Math.hypot(e.x-goal.x,e.z-goal.z)>1.5;})();
+      if(speed>.001&&(goalChange||(!route.length&&replanIn<=0)||Math.hypot(goal.x-position.x,goal.z-position.z)<3||(shortEnd&&replanIn<=0&&Math.hypot(route[route.length-1].x-position.x,route[route.length-1].z-position.z)<ROUTE_END_REPLAN)))plan(position.x,position.z,hx,hz);
       while(route.length&&Math.hypot(route[0].x-position.x,route[0].z-position.z)<.035)route.shift();
       if(!headingReady){heading=Math.atan2(route[0]?route[0].x-position.x:hx,route[0]?route[0].z-position.z:hz);headingReady=true;}
       if(speed<=.001&&travelSpeed<.001){
@@ -277,11 +299,27 @@ export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,wo
       }
       // Curvature can ease the pace, but never creates a stop-and-pivot at each
       // waypoint. Acceleration is bounded independently from frame frequency.
-      let remaining=.9+speed*.22,anchor={x:position.x,z:position.z},look=anchor,sharpness=0,lastAngle:number|undefined;
-      for(const point of route){const distance=Math.hypot(point.x-anchor.x,point.z-anchor.z);if(distance<.001){anchor=point;continue;}const angle=Math.atan2(point.x-anchor.x,point.z-anchor.z);if(lastAngle!==undefined)sharpness+=Math.abs(Math.atan2(Math.sin(angle-lastAngle),Math.cos(angle-lastAngle)));lastAngle=angle;if(distance>=remaining){look={x:anchor.x+(point.x-anchor.x)*remaining/distance,z:anchor.z+(point.z-anchor.z)*remaining/distance};break;}remaining-=distance;look=point;anchor=point;}
-      const curvaturePace=1/(1+sharpness*.22),desiredSpeed=route.length?speed*Math.max(.68,curvaturePace):0;
-      const acceleration=desiredSpeed>travelSpeed?Math.max(1.5,speed*1.8):Math.max(brake,speed*2.2);
+      let remaining=.9+speed*.22,anchor={x:position.x,z:position.z},look=anchor,sharpness=0,lastAngle:number|undefined,routeLength=0;
+      for(const point of route){const distance=Math.hypot(point.x-anchor.x,point.z-anchor.z);routeLength+=distance;if(distance<.001){anchor=point;continue;}const angle=Math.atan2(point.x-anchor.x,point.z-anchor.z);if(lastAngle!==undefined)sharpness+=Math.abs(Math.atan2(Math.sin(angle-lastAngle),Math.cos(angle-lastAngle)));lastAngle=angle;if(distance>=remaining){look={x:anchor.x+(point.x-anchor.x)*remaining/distance,z:anchor.z+(point.z-anchor.z)*remaining/distance};break;}remaining-=distance;look=point;anchor=point;}
+      // A route that has run out (the planner found no way on: a wall of trunks, a gap too narrow) is not a wall in
+      // front of the body. Moving, it coasts on along its heading and eases down: to the pace it was asked to
+      // slow to (a stun's eased stop) or, with none asked, at COAST_BRAKE. It never stops dead from a run.
+      const coasting=!route.length&&travelSpeed>.3;
+      const curvaturePace=1/(1+sharpness*.22);
+      let desiredSpeed=route.length?speed*Math.max(.68,curvaturePace):coasting&&speed<travelSpeed?speed:0;
+      // Running up to the end of a route that stops short of its goal, it eases down to arrive at a standstill: the end of the
+      // route is where the planner could take it, and it is not a place to arrive at a run.
+      const endPoint=route[route.length-1];
+      if(endPoint&&Math.hypot(endPoint.x-goal.x,endPoint.z-goal.z)>1.5)desiredSpeed=Math.min(desiredSpeed,Math.sqrt(2*APPROACH_BRAKE*Math.max(0,routeLength-.3)));
+      // Coasting, it brakes in time for whatever is in the way: just hard enough to stop short of the bark, never a collision.
+      let coastBrake=0;
+      if(coasting){
+        let free=COAST_LOOK;for(let d=.3;d<=COAST_LOOK;d+=.3)if(!clear(position.x+Math.sin(heading)*d,position.z+Math.cos(heading)*d,hardRadius+.08)){free=d-.3;break;}
+        coastBrake=Math.max(COAST_BRAKE,Math.min(COAST_BRAKE_MAX,travelSpeed*travelSpeed/(2*Math.max(.05,free-.15))));
+      }
+      const acceleration=desiredSpeed>travelSpeed?Math.max(1.5,speed*1.8):Math.max(brake,speed*2.2,coastBrake);
       travelSpeed+=Math.max(-acceleration*dt,Math.min(acceleration*dt,desiredSpeed-travelSpeed));lastDesiredSpeed=desiredSpeed;
+      if(coasting){look={x:position.x+Math.sin(heading)*5,z:position.z+Math.cos(heading)*5};route=[{x:position.x+Math.sin(heading)*(travelSpeed*dt+.6),z:position.z+Math.cos(heading)*(travelSpeed*dt+.6)}];}
       let budget=travelSpeed*dt,x=position.x,z=position.z,lastDX=Math.sin(heading),lastDZ=Math.cos(heading);lastBlocked=false;
       // Consume distance continuously across small arc samples. Reaching a
       // waypoint never discards the remaining motion for this frame.
@@ -291,6 +329,7 @@ export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,wo
         if(!clear(nx,nz,hardRadius)){lastBlocked=true;route=[];replanIn=0;travelSpeed=0;break;}
         x=nx;z=nz;budget-=step;lastDX=dx/distance;lastDZ=dz/distance;if(distance<=step+1e-6)route.shift();
       }
+      if(coasting)route=[];
       const futureAngle=Math.atan2(look.x-position.x,look.z-position.z),stepAngle=Math.atan2(lastDX,lastDZ),anticipation=Math.atan2(Math.sin(futureAngle-stepAngle),Math.cos(futureAngle-stepAngle));
       const desiredHeading=stepAngle+Math.max(-.32,Math.min(.32,anticipation*.65));
       const error=Math.atan2(Math.sin(desiredHeading-heading),Math.cos(desiredHeading-heading));

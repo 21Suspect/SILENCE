@@ -10,6 +10,7 @@ import type { SolidCollider } from './collision';
 import { createMeshSurface } from './surface-support';
 import { branchSpec, broadleafGeometry, crownBranches, crownGeometry, stumpGeometry } from './forest-assets';
 import { createVegetationBatcher, type VegetationBatchDefinition, type VegetationBatchHandle } from './vegetation-batches';
+import { perfOn } from './perf-flags';
 
 type Collider = { x: number; z: number; radius: number };
 type Tree = { x: number; z: number; y: number; height: number; width: number; yaw: number; kind: number; seed: number };
@@ -596,6 +597,9 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
           if (map && map.image?.width > 0) renderer.initTexture(map);
         }
       }
+      // Every other map the forest owns (bark, birch and oak, needles, broadleaf, litter) reaches the GPU in the same frames: left to the
+      // first draw, each one stalls the frame in which the first birch or oak comes into view for 50-100 ms.
+      if (perfOn('streamWarmup')) for (const map of textures) if (map.image?.width > 0 && map.image?.complete !== false) renderer.initTexture(map);
     },
     update(time: number, player: THREE.Vector3) {
       if(disposed)return false;

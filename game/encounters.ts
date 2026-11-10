@@ -60,13 +60,15 @@ export function createEncounters(
   const toe=new THREE.Vector3(),pole=new THREE.Vector3(),candidateJoint=new THREE.Vector3(),candidateWorld=new THREE.Vector3(),movementDirection=new THREE.Vector3(),previewDirection=new THREE.Vector3();
   const attentionTarget=new THREE.Vector3(),localAttention=new THREE.Vector3();
   const colliderA=new THREE.Vector3(),colliderB=new THREE.Vector3();
-  const stepErrors=new Float32Array(6),LIFT_SWEEP_SAMPLES=10;
+  const stepErrors=new Float32Array(6),stepErrors2=new Float32Array(6),LIFT_SWEEP_SAMPLES=10;
   const motion={speed:0,turnRate:0,lookTarget:localAttention};
-  let gaitGroup=0,gaitReady=false,visualTest=false,nextLift=0,lastMoveSpeed=0,bodyLift=0,bodyCrouch=0,shoulderWidth=1;
+  let gaitGroup=0,gaitReady=false,visualTest=false,nextLift=0,lastMoveSpeed=0,bodyLift=0,bodyCrouch=0,shoulderWidth=1,moveEase=1;
+  /** How fast, per second, the soft allowance on the body's movement (legs, bark) may fall: 1 to .35 takes about a fifth of a second. */
+  const MOVE_EASE_FALL=3;
   const waveOrder=[2,4,0,5,1,3];let waveIndex=0;
   function resetFeet(){
     navigation.refresh(root.position.x,root.position.z,0,true);
-    body.position.set(0,0,0);body.rotation.set(0,0,0);bodyLift=bodyCrouch=0;
+    body.position.set(0,0,0);body.rotation.set(0,0,0);bodyLift=bodyCrouch=0;moveEase=1;
     root.updateMatrixWorld(true);
     for(const limb of limbs){
       desired.copy(limb.rest);root.localToWorld(desired);
@@ -210,10 +212,19 @@ export function createEncounters(
     const nx=THREE.MathUtils.lerp(root.position.x,moved.x,alignment),nz=THREE.MathUtils.lerp(root.position.z,moved.z,alignment),ny=THREE.MathUtils.damp(root.position.y,moved.y,9,dt);
     let worstReach=0,minClearance=Infinity;
     for(const limb of limbs){worstReach=Math.max(worstReach,limb.reachDistance);minClearance=Math.min(minClearance,limb.legClearance);}
-    let fraction=Math.min(1,THREE.MathUtils.clamp((4.48-worstReach)/.38,.2,1),THREE.MathUtils.clamp((minClearance-.075)/.085,.35,1));
+    // The legs and the trunks about it hold the body back, softly. It may be let go at once but never clamped at once: an
+    // abrupt drop of the allowance is a hard brake (a knee brushing bark at a charge took 6 m/s down to 1.5 in two frames).
+    const soft=Math.min(1,THREE.MathUtils.clamp((4.48-worstReach)/.38,.2,1),THREE.MathUtils.clamp((minClearance-.075)/.085,.35,1));
+    moveEase=soft<moveEase?Math.max(soft,moveEase-dt*MOVE_EASE_FALL):soft;
+    let fraction=moveEase;
+    // The hard limit: no foot may be pulled beyond 4.40 m from its hip (the leg is 4.6 m long). The step is judged by how far it
+    // adds to each hip-to-foot distance as the pose measures it now, not by this rough shoulder estimate on its own: the estimate
+    // sits a quarter of a metre above the measured distance, which tripped the limit a stride early and stopped the body dead.
+    const hipToFoot=(limb:Limb,f:number)=>{const yaw=oldYaw+turn*f,co=Math.cos(yaw),si=Math.sin(yaw),sx=THREE.MathUtils.lerp(root.position.x,nx,f)+limb.shoulder.x*shoulderWidth*co+limb.shoulder.z*si,sz=THREE.MathUtils.lerp(root.position.z,nz,f)-limb.shoulder.x*shoulderWidth*si+limb.shoulder.z*co,sy=THREE.MathUtils.lerp(root.position.y,ny,f)+limb.shoulder.y+body.position.y;return Math.hypot(sx-limb.foot.position.x,sy-limb.foot.position.y,sz-limb.foot.position.z);};
+    for(let i=0;i<limbs.length;i++)stepErrors2[i]=limbs[i].reachDistance-hipToFoot(limbs[i],0);
     for(let iteration=0;iteration<7;iteration++){
-      const yaw=oldYaw+turn*fraction,co=Math.cos(yaw),si=Math.sin(yaw);let safe=true;
-      for(const limb of limbs){const sx=THREE.MathUtils.lerp(root.position.x,nx,fraction)+limb.shoulder.x*shoulderWidth*co+limb.shoulder.z*si,sz=THREE.MathUtils.lerp(root.position.z,nz,fraction)-limb.shoulder.x*shoulderWidth*si+limb.shoulder.z*co,sy=THREE.MathUtils.lerp(root.position.y,ny,fraction)+limb.shoulder.y+body.position.y;const reach=Math.hypot(sx-limb.foot.position.x,sy-limb.foot.position.y,sz-limb.foot.position.z);if(reach>4.40)safe=false;}
+      let safe=true;
+      for(let i=0;i<limbs.length;i++)if(hipToFoot(limbs[i],fraction)+stepErrors2[i]>4.40)safe=false;
       if(safe)break;fraction*=.4;
     }
     root.position.set(THREE.MathUtils.lerp(root.position.x,nx,fraction),THREE.MathUtils.lerp(root.position.y,ny,fraction),THREE.MathUtils.lerp(root.position.z,nz,fraction));
@@ -223,21 +234,28 @@ export function createEncounters(
   }
   // --- Persistence. Within NEAR it gets a body (placed out of view); beyond FAR, once off screen, it loses it again.
   // Unseen it may not close inside FAR_HOLD: the body has to be placed out of view first.
-  const NEAR=80,FAR=105,FAR_HOLD=50,SIGHT_LIMIT=90,LOOK_EVERY=.2,BEAM_RANGE=26,BEAM_ANGLE=15*Math.PI/180,REVEAL_GAP=180;
+  const NEAR=80,FAR=105,FAR_HOLD=50,SIGHT_LIMIT=90,LOOK_EVERY=.2,BEAM_RANGE=26,BEAM_ANGLE=15*Math.PI/180,REVEAL_GAP=300;
   // From the middle of its body, how far it can bend and reach down, for a player it has run over.
   // DEAD_AIR: seconds of free roam with neither a sighting nor a sound before it is steered in and makes one.
-  // HISS_GAP, ROAR_GAP: a chain of stuns hisses once, a hunt taken up again straight after a lost one does not roar again.
-  const BODY_REACH=1.2,CALL_GAP=180,PRESENCE_GAP=30,STUN_BRAKE=14,STOP_BRAKE=22,DEAD_AIR=150,DEAD_AIR_CALL=30,HISS_GAP=8,ROAR_GAP=20;
+  // Every sound has to mean something. HISS_QUIET: it hisses when the beam first pins it in an engagement and not again until
+  // the beam has been off it this long (or a new hunt begins). ROAR_GAP, HUNT_GAP: one roar per hunt, at its start; a hunt
+  // that begins within ROAR_GAP of the last roar, or within HUNT_GAP of the last hunt ending, is the same hunt taken up again.
+  // LOUD_QUIET, SIGHT_QUIET: an ambient sound (clicks, knock, branch, call) is no use straight after it has been loud or seen.
+  const BRANCH_FAR=70,BODY_REACH=1.2,CALL_GAP=180,PRESENCE_GAP=30,STUN_BRAKE=20,STOP_BRAKE=22,DEAD_AIR=150,DEAD_AIR_CALL=30,HISS_QUIET=45,ROAR_GAP=75,HUNT_GAP=45,LOUD_QUIET=25,SIGHT_QUIET=30;
   const seed=options.seed??7741,brain=createCreatureBrain({random:createRandom(seed),places:options.places}),hostRandom=createRandom(seed*31+7);
   const director=createOpeningDirector({random:createRandom(seed*17+3)});
   if(options.opening===false)director.jump('free');else brain.holdHunting();
   const trace=(elapsed:number,event:{type:string;[key:string]:unknown})=>{options.trace?.({t:elapsed,...event});};
+  let frozen=0;
+  const FROZEN_AFTER=2,FROZEN_IN_VIEW=6;
   let placed=false,materializeIn=0,lookIn=0,lineOfSight=false,beamOnIt=false,reach=Infinity,strikePending=false,grabbing=false,strikePose=0,blackout=false;
   let lastReveal=-Infinity,lastCall=-Infinity,nextBranch=150,nextClicks=40,nextKnock=240,lastPresence=-Infinity,nearSince=-1,stillFor=0,lastSpot={x:0,z:0},stuck=0,detourUntil=0,detourSide=1;
   // What the player has had of it: the last time it was seen or heard (for the no-dead-air rule) and the last sighting.
-  let lastEvidence=0,lastSighted=-Infinity,deadAirAt=0,lastHiss=-Infinity,lastRoar=-Infinity;
-  /** A creature sound was played: it counts as evidence, and an ambient one opens the PRESENCE_GAP. */
-  const voiced=(elapsed:number,kind:string,at:THREE.Vector3,presence:boolean)=>{lastEvidence=elapsed;if(presence)lastPresence=elapsed;trace(elapsed,{type:'sound',kind,presence,x:at.x,y:at.y,z:at.z,seen:directSight});};
+  let lastEvidence=0,lastSighted=-Infinity,deadAirAt=0,lastRoar=-Infinity,lastHuntEnd=-Infinity,lastLoud=-Infinity,lastBeam=-Infinity,hissArmed=true;
+  /** A creature sound was played: it counts as evidence, and an ambient one opens the PRESENCE_GAP; a loud one (reveal, hiss, roar, grab) quietens the ambient ones for a while. */
+  const voiced=(elapsed:number,kind:string,at:THREE.Vector3,presence:boolean)=>{lastEvidence=elapsed;if(presence)lastPresence=elapsed;else lastLoud=elapsed;trace(elapsed,{type:'sound',kind,presence,x:at.x,y:at.y,z:at.z,seen:directSight});};
+  /** Free roam: whether an ambient sound would still mean something (the PRESENCE_GAP is kept separately). Not just after it was loud, nor just after it was seen. */
+  const ambientOk=(elapsed:number,afterSight=true)=>elapsed-lastPresence>PRESENCE_GAP&&elapsed-lastLoud>LOUD_QUIET&&(!afterSight||elapsed-lastSighted>SIGHT_QUIET);
   const percept:PlayerPercept={x:0,y:0,z:0,vx:0,vz:0,sprinting:false,crouching:false,flashlightOn:false,inWater:false,onLadder:false,indoors:false,untouchable:false};
   const eye=new THREE.Vector3(),chest=new THREE.Vector3();
   let treeCrawl:ReturnType<typeof createTreeCrawl>|undefined;
@@ -505,13 +523,17 @@ export function createEncounters(
     if(e.type==='strike'){
       if(!root.visible||grabbing)return;
       grabbing=strikePending=true;eyes(cuePosition);audio.screech(cuePosition,1);voiced(elapsed,'grab',cuePosition,false);recordTransition('strike',elapsed,protectedNow(),'strike');
-    }else if(e.type==='hunt-started'){trace(elapsed,{type:'hunt'});if(elapsed-lastRoar>ROAR_GAP){lastRoar=elapsed;eyes(cuePosition);audio.screech(cuePosition,.5);voiced(elapsed,'roar',cuePosition,false);}}
-    // The call is ambient, like the clicks: it waits out the presence gap too.
-    else if(e.type==='lost-player'&&elapsed-lastCall>CALL_GAP&&elapsed-lastPresence>PRESENCE_GAP){lastCall=elapsed;cuePosition.copy(root.position);cuePosition.y+=2;audio.cue('call',cuePosition);voiced(elapsed,'call',cuePosition,true);}
-    // The hiss, once for a run of stuns: pinned again within a few seconds it only recoils.
-    else if(e.type==='flinch'){trace(elapsed,{type:'stun',phase:'slowing',seconds:e.seconds});if(root.visible&&elapsed-lastHiss>HISS_GAP){lastHiss=elapsed;eyes(cuePosition);audio.hiss(cuePosition);voiced(elapsed,'hiss',cuePosition,false);}}
+    }else if(e.type==='hunt-started'){
+      trace(elapsed,{type:'hunt'});
+      // One roar per hunt, at its start. A hunt taken up again straight after a stun or a lost chase is the same hunt: silent.
+      if(elapsed-lastRoar>ROAR_GAP&&elapsed-lastHuntEnd>HUNT_GAP){lastRoar=elapsed;hissArmed=true;eyes(cuePosition);audio.screech(cuePosition,.5);voiced(elapsed,'roar',cuePosition,false);}
+    }
+    // The call is ambient, like the clicks: it is for a chase it has lost (not a shadowing that fizzled out), unseen, once the presence gap and the quiet after a loud sound have passed.
+    else if(e.type==='lost-player'&&e.from==='hunt'&&!directSight&&elapsed-lastCall>CALL_GAP&&ambientOk(elapsed,false)){lastCall=elapsed;cuePosition.copy(root.position);cuePosition.y+=2;audio.cue('call',cuePosition);voiced(elapsed,'call',cuePosition,true);}
+    // The hiss belongs to the start of a stun sequence: the first time the beam pins it in an engagement. Pinned again, it only recoils, until the beam has been off it a good while or a new hunt begins.
+    else if(e.type==='flinch'){trace(elapsed,{type:'stun',phase:'slowing',seconds:e.seconds});if(root.visible&&hissArmed){hissArmed=false;eyes(cuePosition);audio.hiss(cuePosition);voiced(elapsed,'hiss',cuePosition,false);}}
     else if(e.type==='stun')trace(elapsed,{type:'stun',phase:e.phase,seconds:e.seconds});
-    if(e.type==='behaviour')trace(elapsed,{type:'behaviour',from:e.from,to:e.to});
+    if(e.type==='behaviour'){trace(elapsed,{type:'behaviour',from:e.from,to:e.to});if(e.from==='hunt')lastHuntEnd=elapsed;}
   }
   function aim(g?:Point){
     if(g)attentionTarget.set(g.x,g.y??heightAt(g.x,g.z)+1.3,g.z);
@@ -529,6 +551,11 @@ export function createEncounters(
     // A dead end or a foot with nowhere to go: try the other way round for a moment. Never teleport.
     if(speed>.6&&lastMoveSpeed<Math.min(.3,speed*.2)){stuck+=dt;if(stuck>1.4){stuck=0;detourUntil=elapsed+2.2;detourSide=-detourSide;navigation.replan();}}
     else stuck=Math.max(0,stuck-dt*.5);
+    // Frozen: it wants to go and has not moved at all for a while. A foot left out of reach with no hold to be found (it was
+    // seen to hang there for minutes, each frame searching again) pins the body; its feet are set down under it again. Unseen
+    // that is at once, in view only after a long wait.
+    if(speed>.6&&lastMoveSpeed<.05){frozen+=dt;if(frozen>(outsideReady?FROZEN_AFTER:FROZEN_IN_VIEW)){frozen=0;trace(elapsed,{type:'restance',x:root.position.x,z:root.position.z});resetFeet();}}
+    else frozen=Math.max(0,frozen-dt*2);
     if(elapsed<detourUntil){const a=detourSide*1.1,c=Math.cos(a),s=Math.sin(a),x=movementDirection.x;movementDirection.x=x*c+movementDirection.z*s;movementDirection.z=movementDirection.z*c-x*s;}
     moveCreature(dt,speed,movementDirection,brake);
     animateCreature(dt,elapsed);
@@ -913,6 +940,8 @@ export function createEncounters(
     const near=root.visible;
     if(near)notice(dt);else directSight=false;
     lookIn-=dt;if(lookIn<=0){lookIn=LOOK_EVERY;look(player);}
+    // The beam on it keeps the engagement going; off it long enough, the next stun hisses again.
+    if(beamOnIt)lastBeam=elapsed;else if(!hissArmed&&elapsed-lastBeam>HISS_QUIET)hissArmed=true;
     measureReach(player);
     const out=brain.tick({dt,hours,darkness:currentDarkness,creature:{x:root.position.x,z:root.position.z,yaw:root.rotation.y,speed:near?lastMoveSpeed:undefined},player:percept,lineOfSight,playerLooking:near&&directSight,beamOnIt,reach});
     for(const e of out.events)react(e,elapsed);
@@ -921,13 +950,15 @@ export function createEncounters(
     const distance=Math.hypot(player.x-root.position.x,player.z-root.position.z);
     // The reveal recording marks the first sighting in a while, at the moment it is seen.
     if(near&&directSight){
-      if(elapsed-lastSighted>20&&elapsed-lastReveal>REVEAL_GAP&&distance<45){eyes(cuePosition);if(audio.creatureReveal(cuePosition)){lastReveal=elapsed;awareness.revealed();voiced(elapsed,'reveal',cuePosition,false);}}
+      if(elapsed-lastSighted>20&&elapsed-lastReveal>REVEAL_GAP&&elapsed-lastLoud>LOUD_QUIET&&distance<45){eyes(cuePosition);if(audio.creatureReveal(cuePosition)){lastReveal=elapsed;awareness.revealed();voiced(elapsed,'reveal',cuePosition,false);}}
       lastSighted=lastEvidence=elapsed;
     }
     if(near){
       strikePose=Math.max(0,strikePose-dt*2);listener.setStrike(strikePose);
       // The torch: it shrinks from the light and steps back while it is held, then gets going again.
       listener.setRecoil(out.stun.recoil);if(out.stun.backstep>0)backstep(dt,out.stun.backstep);
+      // A hunt begins with it rearing and roaring on the spot (the brain holds it still for huntWindup), then it runs.
+      listener.setRear(out.behaviour==='hunt'&&out.intent.speed===0&&out.stun.phase==='none'?1:0);
       aim(out.gaze);drive(dt,elapsed,out.intent,out.stun.phase==='none'?undefined:STUN_BRAKE);
       if(protectedNow()){outsideReady=false;offscreen.reset();}
       if(dismissRequested){if(outsideReady&&hideBody(elapsed,'dismiss')){placeFar(player,150,220);dismissRequested=false;brain.forget();}}
@@ -939,16 +970,16 @@ export function createEncounters(
       stillFor=Math.hypot(percept.vx,percept.vz)<.4?stillFor+dt:0;
       const closeBy=distance<(percept.indoors?45:28);
       nearSince=closeBy?(nearSince<0?elapsed:nearSince):-1;
-      if(root.visible&&!directSight&&!grabbing&&out.behaviour!=='hunt'&&out.behaviour!=='strike'&&elapsed-lastPresence>PRESENCE_GAP){
+      if(root.visible&&!directSight&&!grabbing&&out.behaviour!=='hunt'&&out.behaviour!=='strike'&&ambientOk(elapsed)){
         if(closeBy&&elapsed-nearSince>8&&elapsed>nextClicks){
           // Clicks: it has been close for a while and the player has not found it. From where its head is. A player
           // shut indoors hears it a little more often: it is outside, and wants them to know.
           cuePosition.copy(root.position);cuePosition.y+=1.2;
-          if(audio.stalkCue(cuePosition)){voiced(elapsed,'clicks',cuePosition,true);nextClicks=elapsed+(percept.indoors?50:80)+hostRandom()*(percept.indoors?50:90);}
+          if(audio.stalkCue(cuePosition)){voiced(elapsed,'clicks',cuePosition,true);nextClicks=elapsed+(percept.indoors?70:100)+hostRandom()*(percept.indoors?60:100);}
         }else if(elapsed>nextKnock&&stillFor>5&&distance>10&&distance<38&&!percept.indoors){
           // A knock on the trunk beside it: the answer to a player who has stopped to listen. Rare.
           cuePosition.copy(root.position);cuePosition.y+=1.6;
-          if(audio.knock(cuePosition)){voiced(elapsed,'knock',cuePosition,true);nextKnock=elapsed+240+hostRandom()*240;}
+          if(audio.knock(cuePosition)){voiced(elapsed,'knock',cuePosition,true);nextKnock=elapsed+300+hostRandom()*300;}
         }
       }
     }else{
@@ -965,8 +996,8 @@ export function createEncounters(
       }
     }
     // A branch breaks where it really is, but only when it has actually covered ground out of sight since the last one.
-    if(!directSight&&elapsed>nextBranch&&distance>25&&distance<90&&elapsed-lastPresence>PRESENCE_GAP&&Math.hypot(root.position.x-lastSpot.x,root.position.z-lastSpot.z)>18){
-      nextBranch=elapsed+150+hostRandom()*150;lastSpot.x=root.position.x;lastSpot.z=root.position.z;cuePosition.copy(root.position);cuePosition.y+=1;audio.cue('branch',cuePosition);voiced(elapsed,'branch',cuePosition,true);
+    if(!directSight&&elapsed>nextBranch&&distance>28&&distance<BRANCH_FAR&&ambientOk(elapsed)&&Math.hypot(root.position.x-lastSpot.x,root.position.z-lastSpot.z)>18){
+      nextBranch=elapsed+180+hostRandom()*180;lastSpot.x=root.position.x;lastSpot.z=root.position.z;cuePosition.copy(root.position);cuePosition.y+=1;audio.cue('branch',cuePosition);voiced(elapsed,'branch',cuePosition,true);
     }
     deadAir(elapsed,player,distance);
   }
@@ -1001,7 +1032,7 @@ export function createEncounters(
     let kind:'clicks'|'branch'|'call'|undefined;
     if(root.visible&&!directSight&&distance<26)kind='clicks';
     else if(!directSight&&distance>18&&distance<70)kind='branch';
-    else if(elapsed-deadAirAt>DEAD_AIR_CALL)kind='call';
+    else if(!directSight&&elapsed-deadAirAt>DEAD_AIR_CALL)kind='call';
     if(!kind)return;
     cuePosition.copy(root.position);cuePosition.y+=kind==='clicks'?1.2:kind==='call'?2:1;
     if(kind==='clicks'){if(!audio.stalkCue(cuePosition))return;}else audio.cue(kind,cuePosition);

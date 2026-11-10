@@ -190,10 +190,41 @@ def minerock():
         kit.DEPTH_DARK = None
 
 
+def tunnelrock():
+    """The rock the road tunnel is driven into: a face behind and above the portal, its flanks dying into the hillside."""
+    h = .1
+    f = sdf.Field((-14.5, -1.6, -14), (14.5, 12.0, 5.5), h)
+    def face(p):
+        x, y, z = p
+        ax = np.abs(x)
+        front = -1.25 + .012 * x ** 2 + .09 * np.maximum(ax - 6.6, 0) ** 2
+        taper = sdf.smoothstep(8.5, 13.6, ax)
+        top = 10.4 * (1 - taper) + .35 + .12 * np.maximum(front - z, 0) * np.exp(-(x / 5.0) ** 2)
+        ridge = sdf.fbm(x * .5 + 7.3, y * .5, z * .5 - 2.9, 3) * .8
+        return np.maximum(np.maximum(z - front + ridge, y - top + ridge * .55), -(z + 13.0)) * .72
+    f.d[:] = np.minimum(f.d, np.asarray(face(f.coords(tuple(slice(0, n) for n in f.n))), f.d.dtype))
+    cleave(f, 17, (0, 4.5, -5), 14.0, count=56, depth=(.8, 1.05))
+    weather(f, 17, 1.0, 1.2, dip=.3, azimuth=.9)
+    # The bore. The concrete lining stands inside it, so it only has to be bigger than the lining and smaller than the headwall.
+    def bore(p):
+        x, y, z = p
+        return np.maximum(np.maximum(np.abs(x) - 3.45, np.abs(y - 2.3) - 4.05), np.abs(z + 4.4) - 5.7)
+    f.subtract(bore, ((-4.2, -1.6, -10.6), (4.2, 6.9, 1.8)), k=.1)
+    f.d[:, :int(1.3 / h), :] = np.minimum(f.d[:, :int(1.3 / h), :], .4)
+    hv, hq, lv, lq = meshes(f, 3)
+    col = [
+        dict(kind="box", x=-8.4, z=-6.8, halfX=4.9, halfZ=6.0, yaw=0, minY=-1, maxY=11, tag="rock"),
+        dict(kind="box", x=8.4, z=-6.8, halfX=4.9, halfZ=6.0, yaw=0, minY=-1, maxY=11, tag="rock"),
+        dict(kind="box", x=0, z=-11.6, halfX=3.5, halfZ=1.4, yaw=0, minY=-1, maxY=11, tag="rock"),
+        dict(kind="box", x=0, z=-5.6, halfX=3.5, halfZ=4.6, yaw=0, minY=6.4, maxY=11, tag="rock"),
+    ]
+    return kit.build_rock("tunnelrock", hv, hq, lv, lq, 4096, None, col, radius=18)
+
+
 def rock_builder(i, c):
     return lambda: outcrop(f"rock_{c}", 11 + i * 7)
 
 
-ASSETS = {"minerock": (minerock, None)}
+ASSETS = {"minerock": (minerock, None), "tunnelrock": (tunnelrock, None)}
 for i, c in enumerate("abcd"):
     ASSETS[f"rock_{c}"] = (rock_builder(i, c), None)

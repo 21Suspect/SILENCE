@@ -90,3 +90,36 @@ test('a tree dismount inside the broad limb radius can still plan an escape',()=
  let p={x:0,y:0,z:2};for(let i=0;i<600;i++)p=nav.move(p,0,1,3,1/60);
  assert.ok(p.z>18,`escape must not wait forever inside the wide radius: ${p.z}`);
 });
+test('a way ahead that is shut: it eases down to the end of the route the planner could offer, it does not arrive there at a run',()=>{
+  // Up to a charge in the open; then a wall of trunks closes the way ahead, wider than the planner looks, so the planner can
+  // offer only a route to just short of it. The body reaches the end of that route at a standstill: no pace lost in one step,
+  // no collision with the wall (the hard stop of a collision).
+  const wall=[],nav=createCreatureNavigation(flat,{nearby:()=>wall});let p={x:0,y:0,z:0};
+  for(let i=0;i<120;i++)p=nav.move(p,0,1,6.5,1/60);
+  assert.ok(nav.inspect().travelSpeed>6,'at a charge');
+  const wallAt=p.z+14;for(let x=-45;x<=45;x+=1.8)wall.push(tree(x,wallAt,.9));
+  let last=nav.inspect().travelSpeed,worst=0,hit=false;
+  for(let i=0;i<300;i++){
+    const before=p.z;p=nav.move(p,0,1,6.5,1/60);
+    const speed=(p.z-before)*60;worst=Math.max(worst,last-speed);last=speed;
+    if(nav.blocked)hit=true;
+  }
+  assert.ok(!hit,'it never ran into the wall');
+  assert.ok(wallAt-.9-p.z>.9,`and stopped ${(wallAt-.9-p.z).toFixed(2)} m short of the bark`);
+  assert.ok(worst<1.3,`the biggest drop in pace between two frames was ${worst.toFixed(2)} m/s`);
+  assert.ok(Math.abs(last)<.3,'at rest');
+});
+test('with no route at all and trunks close ahead, a body still moving brakes to a stop short of them instead of running into them',()=>{
+  // A ring of trunks closes round it while it is at pace: the planner has nowhere to offer (every foothold is too near bark).
+  const ring=[],nav=createCreatureNavigation(flat,{nearby:()=>ring});let p={x:0,y:0,z:0};
+  for(let i=0;i<120;i++)p=nav.move(p,0,1,5,1/60);
+  assert.ok(nav.inspect().travelSpeed>4.5);
+  for(let k=0;k<18;k++){const a=k*Math.PI/9;ring.push(tree(p.x+Math.sin(a)*2.6,p.z+Math.cos(a)*2.6,1));}
+  nav.refresh(p.x,p.z,1,true);nav.replan();
+  const start=p.z;let hit=false,last=5,worst=0;
+  for(let i=0;i<90;i++){const before=p.z;p=nav.move(p,0,1,5,1/60);const speed=(p.z-before)*60;worst=Math.max(worst,last-speed);last=speed;if(nav.blocked)hit=true;}
+  assert.ok(!hit,'it did not touch the ring');
+  assert.ok(p.z-start<.8,`it ran on ${(p.z-start).toFixed(2)} m, then stopped`);
+  assert.ok(Math.abs(last)<.3);
+  assert.ok(worst<1,`braked as hard as the stopping distance needs, but not in one step (the biggest drop in a frame was ${worst.toFixed(2)} m/s)`);
+});

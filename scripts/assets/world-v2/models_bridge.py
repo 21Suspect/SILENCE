@@ -33,7 +33,7 @@ def roadbridge():
     # Cast abutments at each lip of the gorge, with wing walls running back along it to hold the road fill.
     for s_ in (-1, 1):
         wall_x = s_ * 15.35
-        m.box((wall_x + s_ * .35, -DROP / 2, 0), (.9, DROP, 2 * W + 1.1), "concrete", chamfer=.03)
+        m.box((wall_x + s_ * .35, -DROP / 2 - .008, 0), (.9, DROP - .016, 2 * W + 1.1), "concrete", chamfer=.03)   # its top sits just under the deck's, never in the same plane
         m.box((wall_x - s_ * .22, -.62, 0), (.44, .3, 2 * W + .6), "concrete", chamfer=.03)   # the seat the girders bear on
         for side in (-1, 1):
             # Three lifts of formwork, each shorter than the last, stepped down as the rock comes up to meet them.

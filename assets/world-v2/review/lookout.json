@@ -1,9 +1,37 @@
 {
- "looseParts": 701,
- "connectedGroups": 3,
+ "looseParts": 692,
+ "connectedGroups": 5,
  "groupsOnGround": 2,
- "floatingGroups": 1,
+ "floatingGroups": 3,
  "floating": [
+  {
+   "parts": 4,
+   "centre": [
+    -1.89,
+    0.94,
+    -2.27
+   ],
+   "size": [
+    0.36,
+    0.03,
+    0.36
+   ],
+   "lowest": 0.76
+  },
+  {
+   "parts": 4,
+   "centre": [
+    1.89,
+    0.94,
+    -2.29
+   ],
+   "size": [
+    0.36,
+    0.03,
+    0.36
+   ],
+   "lowest": 0.76
+  },
   {
    "parts": 1,
    "centre": [
@@ -24,6 +52,6 @@
   19.46,
   5.48
  ],
- "triangles": 24588,
- "fileMB": 7.67
+ "triangles": 24412,
+ "fileMB": 7.68
 }

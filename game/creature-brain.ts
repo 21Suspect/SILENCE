@@ -63,7 +63,8 @@ export type BrainEvent =
   | { type: 'heard'; source: string; strength: number }
   | { type: 'hunt-started' }
   | { type: 'strike' }
-  | { type: 'lost-player' }
+  /** It lost them: `from` is the behaviour that ended (a hunt lost is a chase that got away; a shadow lost is nothing much). */
+  | { type: 'lost-player'; from: string }
   /** The torch has pinned it: it begins to slow to a halt and will be held for `seconds` if the beam stays on it. */
   | { type: 'flinch'; seconds: number }
   /** The stun moves on: held (it has stopped), starting (it is getting going again, `seconds` it was held), over. */
@@ -132,11 +133,16 @@ export const CREATURE_TUNING = {
    * seconds; then the drive rises from huntPermitFloor to its full strength over huntPermitRamp: rare at first, certain
    * later.
    */
-  huntPermitDelay: 90, huntPermitFloor: 0, huntPermitRamp: 180,
+  huntPermitDelay: 150, huntPermitFloor: 0, huntPermitRamp: 120,
+  /**
+   * A hunt that has run this long without a grab is broken off (it loses the scent, or its nerve): it withdraws, and for
+   * huntCooldown seconds after any hunt ends (lost, broken off, timed out) it will not take one up again.
+   */
+  huntLimit: 15, huntCooldown: 50,
   /** Seconds of continuous sight before it commits to a hunt, when bold and when timid. */
   huntSight: 1.2, huntSightTimid: 3,
   /** After a death it is calm for a while (boldness scaled down); after losing a chase, briefly. */
-  calmAfterDeath: 80, calmScale: .25, calmAfterLoss: 25, calmLossScale: .7,
+  calmAfterDeath: 130, calmScale: .25, calmAfterLoss: 25, calmLossScale: .7,
   /** Developer "hunt" spawn: boldness 1 for this long. */
   provokeSeconds: 90,
 
@@ -149,9 +155,9 @@ export const CREATURE_TUNING = {
   shadowDaylight: 1, shadowDark: .75,
   /** Roam waypoints near the player's area keep at least this far off when timid, this far when bold. */
   roamOffTimid: 55, roamOffBold: 30,
-  huntApproach: 3.8, huntCharge: 6.5, huntChargeDistance: 24,
+  huntApproach: 3.8, huntCharge: 5.6, huntChargeDistance: 24,
   /** It rears for this long when a hunt starts (and screeches) before it runs. */
-  huntWindup: .7,
+  huntWindup: 1.5,
   /** Seconds of the player's velocity it leads them by. */
   huntLead: .45,
   withdrawSpeed: 3.8, withdrawDistance: 42, withdrawSeconds: 12,
@@ -162,8 +168,8 @@ export const CREATURE_TUNING = {
   // --- Torch stun, in three phases: it slows to a halt, it is held, it gets going again. Never a hard stop.
   /** Seconds the beam must hold on its face before it takes. */
   stunPin: .35,
-  /** Seconds it takes to slow from whatever it was doing to a standstill. */
-  stunSlow: .8,
+  /** Seconds it takes to slow from whatever it was doing to a standstill (an eased stop, not a hard brake). */
+  stunSlow: .58,
   /** Seconds it is held, first use onward. It stops shrinking at the last: never immune. */
   stunHeld: [2.5, 1.8, 1.2, .7],
   /** The beam must stay on it: off its face during the held phase, it is released this much later. */
@@ -181,6 +187,8 @@ export const CREATURE_TUNING = {
    * from its full hunting drive. Early in the night the light can save you; deep in it, it only buys a moment.
    */
   stunBreakOff: .7,
+  /** How much of its hunting drive shields a hunt from being broken off by the torch: at full drive the chance is stunBreakOff x (1 - this). */
+  stunBreakDrive: .5,
 
   // --- Being watched: seconds the player can stare before a timid / bold creature melts back.
   watchTolerance: 1.6, watchToleranceBold: 3.5,
@@ -490,7 +498,7 @@ export function createCreatureBrain(options: CreatureBrainOptions) {
   // The stun: its phase and how long it has been in it, how long the held phase lasts this time, when a beam that has
   // left its face lets it go, how many uses have worn it down, and the pace it was slowing from.
   let stunPhase: StunPhase = 'none', stunT = 0, stunHeldFor = 0, stunRelease = Infinity, stunSpent = 0, stunFrom = 0, outOfBeam = 0, beamTime = 0, flinchEnded = -Infinity;
-  let calmUntil = -Infinity, calmScale = 1, provokedUntil = -Infinity, dismissed = false, shaken = false, flank = 1, huntAllowed = true, huntAllowedAt = -Infinity;
+  let calmUntil = -Infinity, calmScale = 1, provokedUntil = -Infinity, dismissed = false, shaken = false, flank = 1, huntAllowed = true, huntAllowedAt = -Infinity, huntCooldownUntil = -Infinity;
   let scores: Record<string, number> = {}, last: BrainOutput | undefined, lastInput: BrainInput | undefined, boldness = 0, huntDrive = 0, creature = { x: 0, z: 0, yaw: 0 };
 
   const stateOf = (id: string) => (states[id] ??= {});
@@ -569,7 +577,7 @@ export function createCreatureBrain(options: CreatureBrainOptions) {
       if (stunT >= Math.min(stunHeldFor, stunRelease)) {
         events.push({ type: 'stun', phase: 'starting', seconds: stunT });
         stunPhase = 'starting'; stunT = 0; flinchEnded = now;
-        if (current === 'hunt' && now >= provokedUntil && random() < tuning.stunBreakOff * (1 - huntDrive)) { shaken = true; decideIn = 0; }
+        if (current === 'hunt' && now >= provokedUntil && random() < tuning.stunBreakOff * (1 - tuning.stunBreakDrive * huntDrive)) { shaken = true; decideIn = 0; }
       }
     } else if (stunT >= tuning.stunStart) { stunPhase = 'none'; stunT = 0; beamTime = 0; outOfBeam = 0; events.push({ type: 'stun', phase: 'over' }); }
   }
@@ -612,9 +620,10 @@ export function createCreatureBrain(options: CreatureBrainOptions) {
   function switchTo(id: string, input: BrainInput, events: BrainEvent[]) {
     const from = current;
     byId.get(from)?.exit?.(context(input, events, from));
+    if (from === 'hunt' && id !== 'strike') huntCooldownUntil = now + tuning.huntCooldown;
     if ((from === 'hunt' && id !== 'strike') || (from === 'shadow' && (id === 'investigate' || id === 'roam'))) {
       if (!sees) {
-        events.push({ type: 'lost-player' });
+        events.push({ type: 'lost-player', from });
         // A lost chase takes the edge off for a while, unless it is already calmer than that (after a death).
         if (from === 'hunt' && !(now < calmUntil && calmScale <= tuning.calmLossScale)) { calmUntil = now + tuning.calmAfterLoss; calmScale = tuning.calmLossScale; }
       }
@@ -649,10 +658,12 @@ export function createCreatureBrain(options: CreatureBrainOptions) {
       now += dt; creature = { ...input.creature }; lastInput = input;
       const calm = now < calmUntil ? calmScale : 1, provoked = now < provokedUntil;
       boldness = provoked ? 1 : baseBoldness(input.hours, now, tuning) * calm;
-      huntDrive = provoked ? 1 : smoothstep(boldness, tuning.huntBoldnessMin, tuning.huntBoldnessFull) * huntPermit();
+      huntDrive = provoked ? 1 : now < huntCooldownUntil ? 0 : smoothstep(boldness, tuning.huntBoldnessMin, tuning.huntBoldnessFull) * huntPermit();
       listen(input, events);
       look(input, events);
       stun(input, events);
+      // A hunt that has gone on too long is given up: it withdraws, and the cooldown (set as it ends) keeps it from starting another straight away.
+      if (current === 'hunt' && !shaken && now >= provokedUntil && now - enteredAt > tuning.huntLimit && !stunning()) { shaken = true; decideIn = 0; }
       decideIn -= dt;
       // A grab cannot wait for the next decision tick.
       const reachable = current === 'hunt' && input.reach < tuning.grabReach;
@@ -676,7 +687,7 @@ export function createCreatureBrain(options: CreatureBrainOptions) {
     /** The player was taken and woke elsewhere: forget them and stay calm for a while. */
     struck() {
       forget(); beamTime = 0; stunPhase = 'none'; stunT = 0;
-      calmUntil = now + tuning.calmAfterDeath; calmScale = tuning.calmScale; provokedUntil = -Infinity; dismissed = false;
+      calmUntil = now + tuning.calmAfterDeath; calmScale = tuning.calmScale; provokedUntil = -Infinity; dismissed = false; huntCooldownUntil = -Infinity;
       current = 'roam'; enteredAt = now; states = {}; decideIn = 0;
     },
     /** The host moved the body (a spawn or relocation): drop half-finished plans, keep what it knows. */
@@ -711,7 +722,7 @@ export function createCreatureBrain(options: CreatureBrainOptions) {
       exposure = 0; sees = false; sightTime = 0; watched = 0; lastSeen = undefined; lead = undefined;
       stunPhase = 'none'; stunT = stunHeldFor = stunSpent = stunFrom = outOfBeam = beamTime = 0; stunRelease = Infinity; flinchEnded = -Infinity;
       calmUntil = provokedUntil = -Infinity; calmScale = 1; dismissed = shaken = false; flank = 1; scores = {}; last = undefined;
-      huntAllowed = true; huntAllowedAt = -Infinity;
+      huntAllowed = true; huntAllowedAt = -Infinity; huntCooldownUntil = -Infinity;
     },
     inspect() {
       return {
@@ -719,7 +730,7 @@ export function createCreatureBrain(options: CreatureBrainOptions) {
         sees, exposure, sightTime, watched, creature: { ...creature },
         lastSeen: lastSeen && { ...lastSeen, age: now - lastSeen.at }, lead: lead && { ...lead, age: now - lead.at },
         flinch: { active: stunning(), phase: stunPhase, inPhase: stunT, held: stunHeldFor, spent: stunSpent, nextHeld: tuning.stunHeld[Math.min(stunSpent, tuning.stunHeld.length - 1)], outOfBeam },
-        calm: Math.max(0, calmUntil - now), provoked: Math.max(0, provokedUntil - now), dismissed, shaken, flank,
+        calm: Math.max(0, calmUntil - now), cooldown: Math.max(0, huntCooldownUntil - now), provoked: Math.max(0, provokedUntil - now), dismissed, shaken, flank,
         intent: last?.intent,
       };
     },

@@ -73,13 +73,9 @@ def chapel():
     for x in (-.8, .8):
         m.beam((x, FLOOR, L + .08), (x, 2.82, L + .08), .12, .12, "white_paint")
     m.beam((-.9, 2.86, L + .08), (.9, 2.86, L + .08), .12, .16, "white_paint")
-    for hinge, ang, sign in ((-.76, 1.25, 1), (.76, 1.9, -1)):
-        dx, dz = math.cos(ang) * sign, math.sin(ang)
-        for i in range(4):
-            t = (i + .5) * .19
-            p = np.array((hinge + dx * t, FLOOR + .02, L + .03 + dz * t))
-            m.plank(p, p + (0, 2.32, 0), .18, .03, mat="wood_dark", up=(dz, 0, -dx), warp=.004)
-        m.collide_post(hinge, L + .03, hinge + dx * .76, L + .03 + dz * .76, .04, 0, 2.5, "chapel door")
+    # Two leaves, each its own hinged model: one stands wide, the other has swung most of the way shut.
+    m.door("door_chapel", (-.74, FLOOR + .02, L + .05), 0.0, -1.7, width=.73, height=2.34, thickness=.035, start=.8)
+    m.door("door_chapel_r", (.74, FLOOR + .02, L + .05), math.pi, 1.7, width=.73, height=2.34, thickness=.035, start=.3)
     for i in range(2):
         y = FLOOR - .14 * (i + 1)
         m.box((0, y - .03, L + .32 + i * .3), (1.9, .1, .3), "stone", chamfer=.03)
@@ -232,4 +228,44 @@ def chapel():
     return m
 
 
+def door_chapel():
+    """One leaf of the chapel door: four dark boards, ledged, long strap hinges and an iron ring. Hinge edge on the origin."""
+    m = Model("door_chapel", tex=1024, seed=75)
+    rng = m.rng
+    W_, H_, T_ = .73, 2.34, .035
+    n = 4
+    for i in range(n):
+        x = (i + .5) * W_ / n
+        m.beam((x, rng.uniform(0, .01), 0), (x, H_ - rng.uniform(0, .012), 0), W_ / n - .004, T_, "wood_dark", up=(0, 0, 1), chamfer=.004)
+    zi = -T_ / 2 - .014
+    for y in (.32, 1.2, 2.05):
+        m.beam((.03, y, zi), (W_ - .03, y, zi), .12, .028, "wood_dark", up=(0, 0, 1), chamfer=.004)
+        for i in range(n):
+            m.nail(((i + .5) * W_ / n, y, T_ / 2 + .001), (0, 0, 1))
+    m.beam((.07, .4, zi), (W_ - .07, 1.12, zi), .09, .026, "wood_dark", up=(0, 0, 1), chamfer=.004)
+    zo = T_ / 2 + .005
+    for y in (.32, 2.05):
+        m.beam((.0, y, zo), (.6, y, zo), .05, .008, "soot_iron", up=(0, 0, 1), chamfer=.002)
+        m.lathe([(.017, 0), (.017, 1)], (.0, y - .06, zo + .008), (.0, y + .06, zo + .008), "soot_iron", 8)
+        for dx in (.1, .32, .54):
+            m.bolt((dx, y, zo + .004), (0, 0, 1), .008, "soot_iron")
+    # An iron ring on a plate, both faces.
+    for z, s_ in ((zo, 1), (-T_ / 2 - .004, -1)):
+        hx = W_ - .1
+        m.box((hx, 1.1, z + s_ * .002), (.07, .07, .008), "soot_iron", chamfer=.002)
+        m.tube([(hx + math.cos(t) * .045, 1.06 + math.sin(t) * .045, z + s_ * .018) for t in np.linspace(0, math.tau, 11)], .007, "soot_iron", 5)
+        m.tube([(hx, 1.1, z), (hx, 1.105, z + s_ * .02)], .008, "soot_iron", 5)
+    m.radius = 1.3
+    return m
+
+
 ASSETS = {"chapel": (chapel, [((9, 1.7, 15), (0, 3.2, 0), 34), ((-15, 1.7, 7), (-6, 1.0, 0), 34)])}
+ASSETS["door_chapel"] = (door_chapel, None)
+
+
+def door_chapel_r():
+    from models_poi2 import mirror_z
+    return mirror_z(door_chapel(), "door_chapel_r")
+
+
+ASSETS["door_chapel_r"] = (door_chapel_r, None)

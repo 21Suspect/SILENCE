@@ -253,3 +253,42 @@ test('no long dead air: neither seen nor heard for 150 s, it is steered in and m
   // Every placement and removal was out of view.
   assert.ok(events.filter(e => e.type === 'transition' && e.action !== 'strike').every(e => !e.inView));
 });
+
+test('every sound means something once: a run of stuns hisses once; a hunt begun again within the gap does not roar again', async () => {
+  // A provoked hunt beside a player who keeps the torch on it whenever it can be seen: pinned, held, up again, pinned again.
+  const events = [], s = await stage({ seed: 8, solids: grove(), trace: e => events.push(e) });
+  const sounds = kind => events.filter(e => e.type === 'sound' && e.kind === kind), pins = () => events.filter(e => e.type === 'stun' && e.phase === 'slowing'), hunts = () => events.filter(e => e.type === 'hunt');
+  const run = (seconds, { beam = true, look = true } = {}) => {
+    for (let i = 0; i < 30 * seconds; i++) {
+      if (look && s.encounters.probe().visible) s.lookAt(); else s.lookAway();
+      s.frame({ hours: 23.5, darkness: 1, flashlightOn: beam });
+      // Taken: black, and it is moved far off and left to calm down (as the engine does).
+      if (s.encounters.takeStrike()) { s.frame({ untouchable: true, blackout: true }); s.encounters.relocate(s.player, s.elapsed); return true; }
+    }
+    return false;
+  };
+  s.frame({ hours: 23.5, darkness: 1, flashlightOn: true });
+  s.encounters.spawn(s.player, new THREE.Vector3(0, 0, -1), 'hunt');
+  const struck = run(40);
+  assert.ok(pins().length >= 3, `pinned ${pins().length} times before it reached them (${struck ? 'taken' : 'not taken'})`);
+  assert.equal(hunts().length, 1);
+  assert.equal(sounds('hiss').length, 1, 'three stuns, one hiss');
+  assert.equal(sounds('roar').length, 1, 'one roar, at the hunt\'s start');
+  // Another hunt a minute later (inside the roar gap) is the same hunt taken up again: silent. After the gap it roars.
+  s.player.set(0, 0, 0);
+  s.encounters.dismiss(s.elapsed); run(12, { beam: false, look: false });
+  const roared = sounds('roar')[0].t;
+  s.encounters.spawn(s.player, new THREE.Vector3(0, 0, -1), 'hunt'); run(4, { beam: false, look: false });
+  assert.equal(hunts().length, 2, 'it hunted again');
+  assert.ok(s.elapsed - roared < 75, `${(s.elapsed - roared).toFixed(0)} s after the roar`);
+  assert.equal(sounds('roar').length, 1, 'but did not roar again');
+  s.encounters.dismiss(s.elapsed); run(80, { beam: false, look: false });
+  s.encounters.spawn(s.player, new THREE.Vector3(0, 0, -1), 'hunt'); run(4, { beam: false, look: false });
+  assert.equal(hunts().length, 3);
+  assert.equal(sounds('roar').length, 2, 'a hunt long after the last roars again');
+  assert.ok(sounds('roar')[1].t - roared >= 75);
+  // And the torch on it again after the engagement has long gone cold hisses again (the beam has been off it far more than 45 s).
+  s.player.set(0, 0, 0); s.encounters.dismiss(s.elapsed); run(10, { beam: false, look: false });
+  s.encounters.spawn(s.player, new THREE.Vector3(0, 0, -1), 'hunt'); run(15);
+  assert.ok(pins().length > 3 && sounds('hiss').length === 2, `${pins().length} stuns, ${sounds('hiss').length} hisses`);
+});

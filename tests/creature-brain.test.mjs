@@ -178,7 +178,9 @@ test('losing sight mid-hunt: it investigates the last known point, then gives up
   // The player ducks behind cover and slips away out of sight and earshot.
   w.player = { x: -70, z: -60 };
   r = w.run(6, { los: false });
-  assert.ok(types(r.events).includes('lost-player'));
+  const lost = r.events.find(e => e.type === 'lost-player');
+  assert.ok(lost, 'it lost them');
+  assert.equal(lost.from, 'hunt', 'a chase that got away (the host answers that with its call; a shadowing that fizzled out gets none)');
   assert.equal(r.out.behaviour, 'investigate');
   assert.ok(dist(r.out.intent.target, lastKnown) < 3, 'toward where it last saw them');
   r = w.run(40, { los: false });
@@ -312,6 +314,21 @@ test('the torch stun: an eased slow to a halt, a held stand with a step back, an
   assert.ok(!starting.some(f => f.flinching), 'it can strike again once it is moving');
 });
 
+test('the torch stun: the slow to a halt is about 0.58 s on a smooth curve, from its pace to nothing, never an instant stop', () => {
+  assert.ok(T.stunSlow >= .55 && T.stunSlow <= .6, `stunSlow ${T.stunSlow}`);
+  const w = charging(), before = w.step({ los: true, move: false, reach: 10 }).intent.speed;
+  const { slowing, held } = firstStun(pinned(w, { seconds: 5.4 }));
+  // The pace follows 1 - smoothstep of the time since the pin: gentle at both ends, steepest in the middle.
+  slowing.forEach((f, i) => {
+    const u = Math.min(1, i * .05 / T.stunSlow), expected = before * (1 - u * u * (3 - 2 * u));
+    assert.ok(Math.abs(f.speed - expected) < before * .02, `frame ${i}: ${f.speed.toFixed(2)} m/s, wanted ${expected.toFixed(2)}`);
+  });
+  // The steepest braking asked of the body: 1.5 x pace / stunSlow. The host's stun brake has to be able to follow that.
+  const steepest = Math.max(...slowing.slice(1).map((f, i) => (slowing[i].speed - f.speed) / .05));
+  assert.ok(steepest <= before * 1.5 / T.stunSlow * 1.05, `steepest ${steepest.toFixed(1)} m/s per s`);
+  assert.ok(held[0].speed === 0 && slowing.at(-1).speed < before * .1, 'it is at a standstill when the held phase begins');
+});
+
 test('the torch stun: held 2.5, 1.8, 1.2, then 0.7 s for good (never immune); full strength again after 90 s out of the beam', () => {
   const w = charging(), helds = [];
   for (let use = 0; use < 6; use++) {
@@ -337,6 +354,38 @@ test('the torch stun: the beam must stay on it; off its face during the held pha
   const { held } = firstStun(frames), last = held.at(-1);
   assert.ok(Math.abs(last.t + .05 - (off + T.stunRelease)) < .11, `released at ${(last.t + .05).toFixed(2)} s, beam off at ${off.toFixed(2)} s`);
   assert.ok(held.length * .05 < T.stunHeld[0] - .5, 'well short of the full hold');
+});
+
+test('a hunt that has gone on too long is given up, and no new one is taken up for the cooldown', () => {
+  const w = world({ hours: 23.5, darkness: 1, at: { x: 0, z: 40, yaw: Math.PI } });
+  w.player = { x: 0, z: 0, flashlightOn: true };
+  // It never reaches them (it is held where it stands) and always has them in sight.
+  const log = [];
+  for (let t = 0; t < 130; t += .05) { const out = w.step({ los: true, move: false, reach: 10 }); if (log.at(-1)?.b !== out.behaviour) log.push({ t, b: out.behaviour }); }
+  const hunts = log.filter(e => e.b === 'hunt'), first = hunts[0];
+  assert.ok(first, 'it hunted');
+  const end = log.find(e => e.t > first.t && e.b !== 'hunt');
+  assert.ok(end && Math.abs(end.t - first.t - T.huntLimit) < 1, `the hunt ended ${end && (end.t - first.t).toFixed(1)} s in (limit ${T.huntLimit})`);
+  assert.equal(end.b, 'withdraw', 'it breaks off, circling away');
+  const next = hunts.find(e => e.t > end.t);
+  assert.ok(!next || next.t - end.t >= T.huntCooldown - .5, `the next hunt began ${next && (next.t - end.t).toFixed(1)} s after (cooldown ${T.huntCooldown})`);
+});
+
+test('the torch breaks a hunt off more readily early in the night, and still often deep in it', () => {
+  const broke = (hours, seed) => {
+    const w = world({ seed, hours, darkness: 1, at: { x: 0, z: 22, yaw: Math.PI } });
+    w.player = { x: 0, z: 0, flashlightOn: true };
+    w.brain.permitHunting(false);
+    for (let i = 0; i < 80; i++) w.step({ los: true, move: false, reach: 10 });
+    if (w.brain.behaviour !== 'hunt') return undefined;
+    pinned(w, { seconds: T.stunPin + T.stunSlow + T.stunHeld[0] + .4 });
+    return w.brain.behaviour === 'withdraw';
+  };
+  const rate = hours => { let n = 0, hunts = 0; for (let seed = 1; seed <= 60; seed++) { const r = broke(hours, seed); if (r !== undefined) { hunts++; if (r) n++; } } return { n, hunts }; };
+  const deep = rate(23.5), early = rate(21.2);
+  assert.ok(deep.hunts > 30 && early.hunts > 10, `hunts ${deep.hunts} deep, ${early.hunts} early`);
+  assert.ok(deep.n / deep.hunts > .2, `deep in the night the torch still breaks a hunt off ${deep.n}/${deep.hunts}`);
+  assert.ok(early.n / early.hunts > deep.n / deep.hunts, `and early in it more readily (${early.n}/${early.hunts})`);
 });
 
 test('hunting can be withheld by the host, and once allowed it is rare at first and certain later', () => {

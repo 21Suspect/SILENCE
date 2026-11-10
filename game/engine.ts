@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import { WORLD_V2, WORLD_SEED } from './world-flags';
+import { ROAD } from './road-profile';
 import { createWorldV2, doorAt } from './world-v2';
 import { channelOffset } from './world-noise';
-import {readSettings,type Action} from './settings';
-import { createTerrain, heightAt, exclusion, riverX, roadZ, pathX } from './terrain';
+import {readSettings,keyLabel,type Action} from './settings';
+import { createTerrain, heightAt, exclusion, riverX, roadZ, roadDistance, pathX } from './terrain';
 import { createForest } from './forest';
 import { createAtmosphere } from './atmosphere';
 import { ForestAudio } from './audio';
@@ -20,9 +21,15 @@ import { createTapTracker } from './tap';
 import type { EncounterView } from './encounter-visibility';
 import { footstepLoudness, FLASHLIGHT_CLICK_LOUDNESS, type FootSurface, type NoiseEvent as CreatureNoise } from './creature-brain';
 import type { CreatureSenses, CreatureMode } from './encounters';
-import type { ObjectiveEvent } from './objectives';
+import { heldKind, type ObjectiveEvent } from './objectives';
+import { createObjectiveHud, OBJECTIVE_KEY } from './objective-hud';
+import { objectiveText } from './objective-text';
 import { POI_PLACEMENTS } from './world-layout';
 import { initialLives, loseLife, respawnHours, deathCard, grabTimeline, NIGHT_START_HOURS, type DeathOutcome } from './lives';
+import { createPerfProbe, drawList, shadowInstanceCulling, textureReport } from './perf-probe';
+import { perfOn, perfSwitches } from './perf-flags';
+import { createGpuWarmup } from './gpu-warmup';
+import { createTextureSlicer } from './texture-slicer';
 
 export function createGame(container:HTMLElement) {
   let saved:string|null=null;try{saved=localStorage.getItem('silence-settings');}catch{}
@@ -49,14 +56,14 @@ export function createGame(container:HTMLElement) {
   const hemi=new THREE.HemisphereLight(0xc5d7d4,0x383e29,1.0);scene.add(hemi);
   const sun=new THREE.DirectionalLight(0xffefd0,.95);
   sun.position.set(25,37,-68);sun.castShadow=true;sun.shadow.autoUpdate=false;
-  const sunShadow=createStableSunShadow(sun,renderer.capabilities.maxTextureSize);
+  const sunShadow=createStableSunShadow(sun,renderer.capabilities.maxTextureSize,()=>perfOn('sunShadowThrottle'));
   scene.add(sun,sun.target);
   const sky=createSky(renderer,scene,sun,hemi);
   const player=new THREE.Vector3(pathX(12),heightAt(pathX(12),12),12);
   const terrain=createTerrain(scene,player);
   const forest=createForest(scene,heightAt,exclusion,player);
   const story=createStory(scene,heightAt);
-  const collisions=createCollisionWorld();
+  const collisions=createCollisionWorld();scene.userData.treesNear=(x:number,z:number,r:number)=>collisions.nearby(x,z,r);   // the fog shades itself under the crowns (atmosphere.ts)
   collisions.replace('story',story.solidColliders);
   let forestCollisionVersion=-1,terrainCollisionVersion=-1;
   const atmosphere=createAtmosphere(renderer,scene,camera,terrain.water,sun);
@@ -70,7 +77,9 @@ export function createGame(container:HTMLElement) {
     subscribe:(listener:(e:Noise)=>void)=>{if(world2)return world2.noise.subscribe(listener);classicNoise.add(listener);return()=>{classicNoise.delete(listener);};},
   };
   const flashlight=createFlashlight(scene,camera,heightAt,collisions,()=>{audio.flashlightClick();noise.emit({type:'noise',loudness:FLASHLIGHT_CLICK_LOUDNESS,source:'flashlight',x:player.x,z:player.z});});
-  const world2=WORLD_V2?createWorldV2({scene,camera,container,heightAt,collisions,flashlight,water:terrain.water,viewHeight:()=>renderer.domElement.height,riverX,exclusion}):undefined;
+  const world2=WORLD_V2?createWorldV2({scene,camera,container,heightAt,collisions,flashlight,water:terrain.water,viewHeight:()=>renderer.domElement.height,riverX,exclusion,interactKey:()=>keyLabel(settings.bindings.interact)}):undefined;
+  // The objective in the top-left corner (rebuilt world only): fades in on its own, O pins it, Settings can switch it off.
+  const objectiveHud=world2?createObjectiveHud(container,{enabled:()=>settings.objectiveHints}):undefined;
   const interact=(pickupOnly=false)=>grab?false:world2?world2.activate(pickupOnly)||(!pickupOnly&&flashlight.toggle()):flashlight.interact(pickupOnly);
   const mouseTap=createTapTracker(),touchTap=createTapTracker();
   let touchTapId:number|undefined,lastTouch=-Infinity;
@@ -138,14 +147,17 @@ export function createGame(container:HTMLElement) {
   let shadowDirty=true,sunDirty=true,lastSunDraw=-Infinity;
   let warmupDraws=0,warmupFence:WebGLSync|null=null;
   const gl=renderer.getContext() as WebGL2RenderingContext;
+  const probe=import.meta.env.DEV?createPerfProbe(renderer):undefined;
   const profileRows:{frame:number,update:number,forest:number,terrain:number,encounter:number,submit:number,calls:number,triangles:number,sunShadow:boolean,creature:boolean}[]=[];
   const coarse=matchMedia('(pointer: coarse)').matches;
   const touches=new Map<number,{x:number,y:number,startX:number,startY:number,side:'move'|'look'}>();
   const touchMove=new THREE.Vector2();
   const temp=new THREE.Vector3();
-  const isActive=()=>!loading && started && !document.hidden && document.hasFocus() && !admin.open;
+  // Dev measurement only (window.__SILENCE__.perf): run the simulation as if the player were playing, with scripted keys and, optionally, the creature.
+  let benchActive=false,benchCreature=false;const benchHeld=new Set<Action>(),perfHidden:THREE.Object3D[]=[];
+  const isActive=()=>!loading && ((benchActive&&!admin.open) || (started && !document.hidden && document.hasFocus() && !admin.open));
 
-  const held=(action:Action)=>keys.has(settings.bindings[action])||(settings.bindings[action]==='ShiftLeft'&&keys.has('ShiftRight'))||(settings.bindings[action]==='ControlLeft'&&keys.has('ControlRight'));
+  const held=(action:Action)=>(import.meta.env.DEV&&benchHeld.has(action))||keys.has(settings.bindings[action])||(settings.bindings[action]==='ShiftLeft'&&keys.has('ShiftRight'))||(settings.bindings[action]==='ControlLeft'&&keys.has('ControlRight'));
   const start=(touch=false)=>{
     if(admin.open)return;
     started=true;
@@ -176,6 +188,7 @@ export function createGame(container:HTMLElement) {
     if(e.code===settings.bindings.interact&&!e.repeat){start();if(isActive()&&interact(true))shadowDirty=true;}
     if(e.code===settings.bindings.rise&&!e.repeat&&isActive()&&!grab)world2?.letGo();
     if(e.code===settings.bindings.drop&&!e.repeat&&isActive()&&!grab&&world2?.drop())shadowDirty=true;
+    if(e.code===OBJECTIVE_KEY&&!e.repeat&&isActive()&&!grab&&!Object.values(settings.bindings).includes(e.code))objectiveHud?.toggle();
     if(e.code===settings.bindings.fullscreen && started && !e.repeat){
       if(!document.fullscreenElement)void container.requestFullscreen?.().catch(()=>{});
       else void document.exitFullscreen();
@@ -241,6 +254,25 @@ export function createGame(container:HTMLElement) {
   let frame=0;
   const filtered=new WeakMap<THREE.Texture,number>(),anisotropy=renderer.capabilities.getMaxAnisotropy();
   function filterTextures(){scene.traverse(o=>{if(!(o instanceof THREE.Mesh))return;for(const material of Array.isArray(o.material)?o.material:[o.material])for(const value of Object.values(material))if(value instanceof THREE.Texture&&!value.isRenderTargetTexture&&value.image?.width>0&&value.image?.complete!==false&&filtered.get(value)!==Math.min(anisotropy,settings.anisotropy)){const af=Math.min(anisotropy,settings.anisotropy);filtered.set(value,af);value.anisotropy=af;value.needsUpdate=true;}});}
+  // Props stream in with textures of up to 4096 px and their own shader programs. pois.ts hands each model to this queue as it arrives; one
+  // texture or one light state's programs is built per step, with a pause that grows with the cost of the last step (game/gpu-warmup.ts).
+  const lampStates=()=>world2?.debug.streetLights.count?4:2,slicer=createTextureSlicer(renderer);
+  const gpuWarmup=createGpuWarmup({
+    states:lampStates(),
+    upload:(t,urgent)=>{
+      if(!(t.image?.width>0)||t.image?.complete===false)return 'wait';
+      const af=Math.min(anisotropy,settings.anisotropy);
+      if(filtered.get(t)!==af){filtered.set(t,af);t.anisotropy=af;t.needsUpdate=true;}
+      if(!perfOn('slicedUpload')){renderer.initTexture(t);return 'done';}
+      return slicer.upload(t,urgent);
+    },
+    compile:(object,state)=>{
+      const light=flashlight.light,was=light.visible;light.visible=state%2===1;
+      const unlit=state>=2?world2?.debug.streetLights.warm():undefined;
+      try{renderer.compile(object,camera,scene);}finally{unlit?.();light.visible=was;}
+    },
+  });
+  scene.userData.gpuWarmup=gpuWarmup;
   const diagnostic={ready:true,position:player,elapsed:0,darkness:0,fps:60,drawCalls:0,triangles:0,active:false,
     flashlightStatus(){return flashlight.inspect();},
     /** Dev: play one creature sound 4 m in front of the player. Names: screech, grab, hiss, stalk (clicks), knock, branch, breath, call, reveal. */
@@ -323,8 +355,49 @@ export function createGame(container:HTMLElement) {
     move(dx:number,dz:number){const p=moveCharacter(player,dx,dz,1.69,heightAt,collisions);player.set(p.x,p.y,p.z);return player.toArray();},
     teleport,
     look(y:number,p:number){yaw=y;pitch=p;},
+    /** Every door of the rebuilt world: id ("<placement>#<n>"), placement, open (0 shut .. 1 wide), target, closed, hinge position and yaw. */
+    doors(){return world2?world2.debug.doors.list():[];},
+    /** Put a door at `open` (0..1 or true/false) at once, or pass animate=true to swing it; `id` may be just the placement id. */
+    setDoor(id:string,open:number|boolean,animate=false){return world2?world2.debug.doors.set(id,open,animate):false;},
     /** Run one whole engine frame now (sky, forest and colliders, drawing): a hidden tab may not run frames at all. */
-    snap(){last=performance.now()-16;animate(performance.now());return camera.position.toArray();},
+    snap(){cancelAnimationFrame(raf);last=performance.now()-16;animate(performance.now());return camera.position.toArray();},
+    /** Dev measurement (game/perf-probe.ts, game/perf-flags.ts). drive() runs the real simulation without a focused tab; hold() presses scripted keys; start()/stop() record one row per frame. */
+    perf:{
+      gpuTimer:!!probe?.gpuTimer,
+      /** Changes whenever the game is rebuilt (a hot update remounts it without reloading the page); a measurement is only valid if it did not change. */
+      instance:Math.round(performance.now()*1000),
+      drive(on:boolean,creature=false){benchActive=on;benchCreature=creature;if(!on)benchHeld.clear();},
+      hold(...actions:Action[]){benchHeld.clear();for(const a of actions)benchHeld.add(a);},
+      start(){probe?.start();},stop(){return probe?.stop()??[];},
+      switches:perfSwitches,on:perfOn,
+      setSpeed(speed:number){cycleSpeed=speed;},
+      /** True once nothing is still streaming in: loading done, no asset in flight, terrain chunks cut, props loaded. */
+      settled(){return !loading&&pendingAssets===0&&terrain.streamingStats.pendingChunks===0&&(world2?world2.debug.pois.ready():true)&&!!scene.getObjectByName('Photographic forest understory')?.userData.ready&&gpuWarmup.pending===0;},
+      /** Ablation for measurement: hide every named object matching the regex (a vegetation rebuild may bring sectors back), and put them back. */
+      hide(pattern:string){const re=new RegExp(pattern,'i'),found:THREE.Object3D[]=[];scene.traverse(o=>{if(o.visible&&o.name&&re.test(o.name)&&!(o as THREE.Light).isLight)found.push(o);});for(const o of found){o.visible=false;perfHidden.push(o);}return found.length;},
+      unhide(){for(const o of perfHidden)o.visible=true;perfHidden.length=0;},
+      /** Ablation: switch the sun's shadow pass off or on, skip the fog passes or the water reflection. */
+      ablate(o:{sunShadow?:boolean;fog?:boolean;reflection?:boolean}){if(o.sunShadow!==undefined){sun.castShadow=o.sunShadow;shadowDirty=true;}scene.userData.profileSkipFog=o.fog===false;scene.userData.profileSkipReflection=o.reflection===false;},
+      /** Time the collision query the sun-ray canopy map is built from: `runs` calls of nearby(player, radius). Dev measurement only. */
+      nearbyCost(radius=54,runs=40){const times:number[]=[];let n=0;for(let i=0;i<runs;i++){const t=performance.now();n=collisions.nearby(player.x+i*.37,player.z,radius).length;times.push(performance.now()-t);}times.sort((a,b)=>a-b);return{count:n,medianMs:times[Math.floor(runs/2)],maxMs:times[runs-1]};},
+      /** Switch the torch on or off (it eases up or down over half a second of game time). Dev measurement only. */
+      torch(on:boolean){const s=flashlight.inspect();if(s.owned&&s.on!==on)flashlight.toggle();},
+      /** GPU texture memory estimate by source file, with duplicate uploads called out. */
+      textures(){return textureReport(scene);},
+      /** What the GPU warm-up queue has done so far and what is left. */
+      warmup(){return{pending:gpuWarmup.pending,log:gpuWarmup.log()};},
+      /** What the camera would submit, grouped by mesh name (frustum and layer tests only). */
+      drawList(){return drawList(scene,camera);},
+      /** What the sun's shadow pass would draw right now: casters inside the shadow camera's frustum. */
+      shadowList(){sun.shadow.updateMatrices(sun);return drawList(scene,camera,sun.shadow.camera);},
+      /** Of the instances the sun's shadow pass submits, how many reach the shadow frustum. */
+      shadowCulling(){sun.shadow.updateMatrices(sun);return shadowInstanceCulling(scene,camera,sun.shadow.camera);},
+      /** Names of the compiled shader programs, to see which ones appeared between two moments. */
+      programNames(){return (renderer.info.programs??[]).map(p=>`${p.name}#${(p as unknown as {id:number}).id}`);},
+      renderInfo(){const i=renderer.info;return{programs:i.programs?.length??0,textures:i.memory.textures,geometries:i.memory.geometries,lights:(()=>{let n=0;scene.traverse(o=>{if((o as THREE.Light).isLight&&o.visible)n++;});return n;})(),buffer:renderer.getDrawingBufferSize(new THREE.Vector2()).toArray()};},
+      /** GPU milliseconds per stage of one frame (opaque, water, terrainSun, fog, resolve, antialias); shadows=true redraws the sun and torch maps inside 'opaque'. */
+      async gpuStages(shadows=false){benchmarking=true;try{renderer.info.reset();renderer.shadowMap.needsUpdate=shadows;sun.shadow.needsUpdate=shadows;return await atmosphere.measure(elapsed,diagnostic.darkness);}finally{benchmarking=false;}},
+    },
   };
   if(import.meta.env.DEV)(window as unknown as {__SILENCE__:typeof diagnostic}).__SILENCE__=diagnostic;
 
@@ -336,24 +409,51 @@ export function createGame(container:HTMLElement) {
     (window as unknown as {__SPIDER__:typeof spiderLab}).__SPIDER__=spiderLab;
   });
 
+  // The torch and the street lamps are the only lights that come and go, and each combination is a different shader program for every lit
+  // material: torch off/on, then (when there are lamps) the same with the lamp pool lit. Every one is drawn here, behind the loading veil,
+  // so neither picking the torch up nor the first dusk ever compiles anything mid-game.
+  // Every texture a material in the scene (or a shader uniform) holds goes to the GPU now, behind the veil: the river's normal and foam
+  // maps, the understory atlases, the creature's skin. Each is 50-100 ms in the frame it would otherwise be first drawn.
+  function uploadSceneTextures(){
+    const seen=new Set<THREE.Texture>();
+    const add=(value:unknown)=>{
+      const t=value as THREE.Texture|undefined;
+      if(!t?.isTexture||seen.has(t))return;seen.add(t);
+      const d=t as unknown as {isRenderTargetTexture?:boolean;isDepthTexture?:boolean;isCubeTexture?:boolean;isData3DTexture?:boolean;isCompressedTexture?:boolean};
+      if(d.isRenderTargetTexture||d.isDepthTexture||d.isCubeTexture||d.isData3DTexture||d.isCompressedTexture)return;
+      if(!(t.image?.width>0)||t.image?.complete===false)return;
+      if((renderer.properties.get(t) as {__webglTexture?:unknown}).__webglTexture)return;
+      renderer.initTexture(t);
+    };
+    scene.traverse(o=>{
+      const m=(o as THREE.Mesh).material as THREE.Material|THREE.Material[]|undefined;if(!m)return;
+      for(const material of Array.isArray(m)?m:[m]){
+        for(const v of Object.values(material))add(v);
+        const uniforms=(material as THREE.ShaderMaterial).uniforms;if(uniforms)for(const key of Object.keys(uniforms))add(uniforms[key]?.value);
+      }
+    });
+  }
+  const warmupTotal=()=>perfOn('lampWarmup')&&world2?.debug.streetLights.count?4:2;
   function warmupRender(darkness:number){
-    // Draw the rig and its depth material with both light configurations while
+    // Draw the rig and its depth material with every light configuration while
     // the loading veil still covers the canvas. A compile alone would leave
     // skin buffers, bone textures, and texture uploads to the first encounter.
-    if(warmupDraws===0)forest.warmupTextures(renderer);
+    if(warmupDraws===0){forest.warmupTextures(renderer);if(perfOn('streamWarmup'))uploadSceneTextures();}
     const light=flashlight.light,wasVisible=creature.visible,beamWasVisible=light.visible;
-    creature.visible=true;light.visible=warmupDraws===1;
+    creature.visible=true;light.visible=warmupDraws%2===1;
+    const unlit=warmupDraws>=2?world2?.debug.streetLights.warm():undefined;
     renderer.shadowMap.needsUpdate=true;sun.shadow.needsUpdate=true;light.shadow.needsUpdate=light.visible;
     try{atmosphere.render(elapsed,darkness);}finally{
-      creature.visible=wasVisible;light.visible=beamWasVisible;shadowDirty=true;
+      unlit?.();creature.visible=wasVisible;light.visible=beamWasVisible;shadowDirty=true;
     }
-    if(++warmupDraws===2){warmupFence=gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE,0);gl.flush();}
+    if(++warmupDraws===warmupTotal()){warmupFence=gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE,0);gl.flush();}
   }
 
   function animate(now:number){
     if(disposed)return;
     raf=requestAnimationFrame(animate);
     const frameDuration=now-last,startCPU=performance.now();
+    if(probe)probe.marks.start=startCPU;
     const rawDelta=Math.min(frameDuration/1000,.1);last=now;
     if(benchmarking)return;
     if(document.hidden)return;
@@ -371,6 +471,7 @@ export function createGame(container:HTMLElement) {
     }
     const skyState=sky.update(hours,player,elapsed),darkness=skyState.darkness;
     diagnostic.darkness=darkness;diagnostic.elapsed=elapsed;
+    if(probe)probe.marks.sky=performance.now();
     // Taken: no walking away.
     const directionZ=grab?0:(held('forward')?1:0)-(held('back')?1:0)-touchMove.y;
     const directionX=grab?0:(held('right')?1:0)-(held('left')?1:0)+touchMove.x;
@@ -408,7 +509,7 @@ export function createGame(container:HTMLElement) {
       stride+=speed*dt;
       if(stride>.82){
         stride%=.82;
-        const surface:FootSurface=inWater?'water':Math.abs(player.z-roadZ(player.x))<2.7?'road':offTrail<.25?'forest':'dirt';
+        const surface:FootSurface=inWater?'water':(WORLD_V2?roadDistance(player.x,player.z)<ROAD.footstep:Math.abs(player.z-roadZ(player.x))<2.7)?'road':offTrail<.25?'forest':'dirt';
         const loudness=footstepLoudness({speed,sprinting:hurry&&!crouch,crouching:crouch,surface})*(world2?.indoors(player)?.5:1);
         if(loudness>0)noise.emit({type:'noise',loudness,source:'footstep',x:player.x,z:player.z});
       }
@@ -438,15 +539,18 @@ export function createGame(container:HTMLElement) {
     }
     camera.getWorldDirection(forward);
     const startTerrain=performance.now(),terrainChanged=terrain.update(elapsed,player,darkness),startForest=performance.now(),forestChanged=forest.update(elapsed,player),endForest=performance.now();
+    if(probe){const m=probe.marks;m.terrain0=startTerrain;m.forest0=startForest;m.forest1=endForest;}
     const storyChanged=story.update(player);
     const worldChanged=world2?world2.update({dt,time:elapsed,player,darkness,active:active&&!grab,simulate}):false;
+    if(objectiveHud&&world2)objectiveHud.update({now,allowed:active&&!grab,text:objectiveText(world2.objectiveState,heldKind(world2.objectiveState,world2.localPlayer),{dropKey:coarse?undefined:keyLabel(settings.bindings.drop)})});
+    if(probe)probe.marks.world1=performance.now();
     const creatureWasVisible=creature.visible;
     if(forest.collisionVersion!==forestCollisionVersion){forestCollisionVersion=forest.collisionVersion;collisions.replace('forest',forest.solidColliders);}
     if(terrain.collisionVersion!==terrainCollisionVersion){terrainCollisionVersion=terrain.collisionVersion;collisions.replace('terrain',terrain.solidColliders);}
     const profile=import.meta.env.DEV&&now<profileUntil;
     const startEncounter=profile?performance.now():0;
     if(import.meta.env.DEV&&spiderLab&&!loading)spiderLab.update(rawDelta);
-    if(simulate){
+    if(simulate&&(!benchActive||benchCreature)){
       encounters.update(dt,elapsed,player,forward,darkness,hours,senses(dt,crouch,hurry,inWater,!!climb));lastFoot.copy(player);
       if(encounters.takeStrike())beginGrab();
       if(creatureWasVisible||creature.visible)collisions.replace('creature',encounters.solidColliders());
@@ -459,6 +563,7 @@ export function createGame(container:HTMLElement) {
       }
     }
     const encounterCost=profile?performance.now()-startEncounter:0;
+    if(probe)probe.marks.encounter1=performance.now();
     flashlight.update(elapsed,speed);
     const shadowMoved=sunShadow.update(player,skyState.sunDirection);
     const castersChanged=shadowDirty||terrainChanged||forestChanged||storyChanged||worldChanged||creatureWasVisible!==creature.visible;
@@ -472,20 +577,30 @@ export function createGame(container:HTMLElement) {
     flashlight.updateShadow(castersChanged||animatedCaster);
     renderer.shadowMap.needsUpdate=drawSun||flashlight.light.shadow.needsUpdate;
     shadowDirty=false;
-    audio.update(dt,{position:camera.position,direction:forward,speed:active?speed:0,sprinting:active&&hurry&&!flying&&!crouch,darkness,surface:inWater?'water':Math.abs(player.z-roadZ(player.x))<2.7?'road':'dirt',riverDistance:waterDistance});
+    if(probe)probe.marks.shadow1=performance.now();
+    audio.update(dt,{position:camera.position,direction:forward,speed:active?speed:0,sprinting:active&&hurry&&!flying&&!crouch,darkness,surface:inWater?'water':(WORLD_V2?roadDistance(player.x,player.z)<ROAD.footstep:Math.abs(player.z-roadZ(player.x))<2.7)?'road':'dirt',riverDistance:waterDistance});
+    if(probe)probe.marks.audio1=performance.now();
     renderer.info.reset();
     if(texturesDirty){filterTextures();texturesDirty=false;}
-    const startRender=performance.now(),loadingQuiet=loading&&pendingAssets===0&&now-lastAsset>900&&frame>8;
-    if(loadingQuiet&&warmupDraws<2)warmupRender(darkness);
+    // While the veil is up the queue is emptied without pauses, so nothing near the start is half built when it lifts.
+    const warming=loading&&perfOn('streamWarmup')?gpuWarmup.drain(24):0;
+    const startRender=performance.now(),loadingQuiet=loading&&pendingAssets===0&&now-lastAsset>900&&frame>8&&warming===0;
+    if(probe){probe.marks.render0=startRender;probe.beginRender();}
+    if(loadingQuiet&&warmupDraws<warmupTotal())warmupRender(darkness);
     else{
       atmosphere.render(elapsed,darkness);
       if(loadingQuiet&&(!warmupFence||gl.clientWaitSync(warmupFence,0,0)!==gl.TIMEOUT_EXPIRED)){
         if(warmupFence){gl.deleteSync(warmupFence);warmupFence=null;}
         loading=false;loadCompleteAt=now;renderBudget.pause();
+        // Everything already in the scene, in every light state it can meet: materials that were out of view during the warm-up draws too.
+        if(perfOn('streamWarmup'))gpuWarmup.add({label:'scene',textures:[],object:scene});
       }
     }
+    if(probe)probe.marks.render1=performance.now();
     if(!loading&&veil.isConnected){veil.style.opacity=String(1-THREE.MathUtils.smoothstep((now-loadCompleteAt)/1000,0,2.8));if(now-loadCompleteAt>3300)veil.remove();}
     if(profile)profileRows.push({frame:frameDuration,update:startRender-startCPU,forest:endForest-startForest,terrain:startForest-startTerrain,encounter:encounterCost,submit:performance.now()-startRender,calls:renderer.info.render.calls,triangles:renderer.info.render.triangles,sunShadow:drawSun,creature:creature.visible});
+    if(!loading&&perfOn('streamWarmup'))gpuWarmup.update();
+    if(probe)probe.endFrame(frameDuration,drawSun);
     frame++;admin.update(now);
     if(active&&!fixedQuality){const ratio=renderBudget.update(frameDuration,now);if(ratio!==undefined){pixelRatio=ratio;resize();}}
     if(frame%120===0){
@@ -499,7 +614,7 @@ export function createGame(container:HTMLElement) {
     window.removeEventListener('mouseup',mouseUp);window.removeEventListener('mousemove',mouseMove);window.removeEventListener('keydown',keyDown);window.removeEventListener('keyup',keyUp);window.removeEventListener('blur',blur);window.removeEventListener('resize',resize);window.visualViewport?.removeEventListener('resize',resize);window.removeEventListener('orientationchange',blur);
     document.removeEventListener('pointerlockchange',lockChange);document.removeEventListener('visibilitychange',blur);
     renderer.domElement.removeEventListener('mousedown',mouseDown);renderer.domElement.removeEventListener('touchstart',touchStart);renderer.domElement.removeEventListener('touchmove',touchUpdate);renderer.domElement.removeEventListener('touchend',touchEnd);renderer.domElement.removeEventListener('touchcancel',touchEnd);
-    unsubscribeNoise();blackout.remove();world2?.dispose();admin.dispose();flashlight.dispose();sun.shadow.dispose();sky.dispose();audio.dispose();encounters.dispose();forest.dispose();story.dispose();terrain.dispose();atmosphere.dispose();
+    unsubscribeNoise();blackout.remove();objectiveHud?.dispose();world2?.dispose();admin.dispose();flashlight.dispose();sun.shadow.dispose();sky.dispose();audio.dispose();encounters.dispose();forest.dispose();story.dispose();terrain.dispose();atmosphere.dispose();
     scene.traverse(object=>{if(object instanceof THREE.Mesh){object.geometry.dispose();const mats=Array.isArray(object.material)?object.material:[object.material];for(const mat of mats){for(const v of Object.values(mat))if(v instanceof THREE.Texture)v.dispose();mat.dispose();}}});
     renderer.dispose();renderer.domElement.remove();
   };

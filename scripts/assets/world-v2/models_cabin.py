@@ -9,7 +9,8 @@ from kit import Model
 
 def stone(m, c, s, rng):
     j = rng.uniform(-.07, .07)
-    m.beam((c[0], c[1] - s[1] / 2, c[2]), (c[0] + rng.uniform(-.012, .012), c[1] + s[1] / 2, c[2] + rng.uniform(-.012, .012)), s[0], s[2], "stone", up=(math.sin(j), 0, math.cos(j)), chamfer=min(s) * .22)
+    s = (s[0], s[1] + rng.uniform(-.007, .007), s[2])
+    m.beam((c[0], c[1] - s[1] / 2 + rng.uniform(-.004, .004), c[2]), (c[0] + rng.uniform(-.012, .012), c[1] + s[1] / 2, c[2] + rng.uniform(-.012, .012)), s[0], s[2], "stone", up=(math.sin(j), 0, math.cos(j)), chamfer=min(s) * .22)
 
 
 def cabin():
@@ -17,7 +18,7 @@ def cabin():
     rng = m.rng
     W, D = 3.3, 2.5
     FLOOR = .42
-    r, pitch, courses, y0 = .125, .225, 10, .3
+    r, pitch, courses, y0 = .125, .225, 11, .3      # eleven courses: head room at the door and under the porch beam
     top = y0 + pitch * courses
     over = .34
 
@@ -40,7 +41,8 @@ def cabin():
                 A2, B2 = A + (0, pitch * .5, 0), B + (0, pitch * .5, 0)
                 m.beam(A2, B2, .1, .1, "concrete", chamfer=.02)
 
-    door = (-1.15, -.25, FLOOR, 2.42)
+    DOOR_TOP = 2.62
+    door = (-1.15, -.25, FLOOR, DOOR_TOP)
     front_window = (.75, 1.85, 1.2, 2.08)
     back_window = (-.5, .5, 1.25, 2.0)
     side_window = (-.55, .55, 1.25, 2.0)
@@ -71,7 +73,7 @@ def cabin():
     slope = RISE / D
     for x in np.arange(-W - .25, W + .3, .86):
         for sgn in (-1, 1):
-            m.beam((x, RIDGE - .1, 0), (x, RIDGE - .1 - eave * slope, sgn * eave), .09, .15, "wood_dark", up=(0, 1, 0))
+            m.beam((x + sgn * .047, RIDGE - .1, -sgn * .06), (x + sgn * .047, RIDGE - .1 - eave * slope, sgn * eave), .09, .15, "wood_dark", up=(0, 1, 0))
     for off in (.5, 1.5, 2.5):
         for sgn in (-1, 1):
             y = RIDGE - .02 - off * slope
@@ -90,7 +92,7 @@ def cabin():
     # Ridge cap.
     for x0 in np.arange(-W - .55, W + .5, .9):
         def cap(u, v, x0=x0):
-            return np.array((x0 + u * .95, RIDGE + .075 - abs(v - .5) * .3, (v - .5) * .5))
+            return np.array((x0 + u * .95, RIDGE + .075 + (round(x0 * 10) % 2) * .004 - abs(v - .5) * .3, (v - .5) * .5))
         m.surface("tin", cap, 2, 6, (1, 1))
 
     # Floor, inside and on the porch.
@@ -142,22 +144,17 @@ def cabin():
         m.log((a0, FLOOR + .86, D + 2.05), (b0, FLOOR + .9, D + 2.05), .045, "logwood", sides=6, segs=2)
         m.log((a0, FLOOR + .46, D + 2.05), (b0, FLOOR + .44, D + 2.05), .04, "logwood", sides=6, segs=2)
 
-    # Door frame, and the door left ajar.
+    # Door frame with a fixed board over the leaf. The door itself is a separate, hinged model the game opens and shuts.
     for x in (-1.2, -.2):
-        m.beam((x, FLOOR, D + .03), (x, 2.46, D + .03), .1, .12, "wood_dark")
-    m.beam((-1.28, 2.48, D + .03), (-.12, 2.48, D + .03), .12, .12, "wood_dark")
-    ang = math.radians(68)
-    dx, dz = math.cos(ang), -math.sin(ang)
-    hinge = np.array((-1.13, FLOOR + .03, D + .02))
-    for i in range(5):
-        t = (i + .5) * .172
-        a_ = hinge + np.array((dx * t, 0, dz * t))
-        m.plank(a_, a_ + (0, 1.94, 0), .165, .035, up=(-dz, 0, dx), warp=.004)
-    for h in (.28, 1.66):
-        m.plank(hinge + (dx * .02, h, dz * .02 + .03 * dx), hinge + (dx * .84, h, dz * .84 + .03 * dx), .1, .025, up=(-dz, 0, dx), mat="wood_dark")
-    m.plank(hinge + (dx * .06, .32, dz * .06 + .03 * dx), hinge + (dx * .8, 1.62, dz * .8 + .03 * dx), .09, .025, up=(-dz, 0, dx), mat="wood_dark")
-    for h in (.28, 1.66):
-        m.box(hinge + (.03, h, 0), (.2, .06, .012), "tin")
+        m.beam((x, FLOOR, D + .03), (x, DOOR_TOP + .04, D + .03), .1, .12, "wood_dark")
+    m.beam((-1.28, DOOR_TOP + .06, D + .03), (-.12, DOOR_TOP + .06, D + .03), .12, .12, "wood_dark")
+    m.plank((-1.15, 2.555, D + .03), (-.25, 2.555, D + .03), .12, .03, up=(0, 0, 1), mat="wood", warp=0)
+    for x in (-1.0, -.4):
+        m.nail((x, 2.555, D + .046), (0, 0, 1))
+    # Opens inwards, as cabin doors do where the snow drifts; it stands a little ajar.
+    m.door("door_plank", (-1.14, FLOOR + .025, D + .03), 0.0, 1.75, width=.86, height=2.06, thickness=.03, start=.3)
+    for h in (.72, 2.2):
+        m.box((-1.185, h, D + .09), (.05, .12, .012), "soot_iron", chamfer=.003)
 
     # Windows: dirty panes behind whatever someone nailed over them in a hurry.
     def window(lo, hi, bottom, roof, z, boards=3):
@@ -171,7 +168,7 @@ def cabin():
         m.beam((lo - .22, roof + .13, z - .05), (hi + .22, roof + .13, z - .05), .2, .2, "logwood", up=(0, 1, 0))
         # Sloped sill, proud of the logs.
         m.beam((lo - .1, bottom - .05, z + .05), (hi + .1, bottom - .05, z + .05), .1, .05, "wood_dark", up=(0, 1, .25))
-        m.box(((lo + hi) / 2, (bottom + roof) / 2, z - .01), (hi - lo, roof - bottom, .01), "glass", chamfer=.001)
+        m.box(((lo + hi) / 2, (bottom + roof) / 2, z), (hi - lo, roof - bottom, .006), "glass", chamfer=.001)
         for i in range(boards):
             y = bottom + (roof - bottom) * (i + .5) / boards
             tilt = rng.uniform(-.14, .14)
@@ -193,7 +190,7 @@ def cabin():
         t = min(1, y / (RIDGE - .5))
         hw = .55 * (1 - .38 * t ** 1.5)
         h = rng.uniform(.15, .27)
-        m.box((cx, y + h / 2, cz), (hw * 2 - .04, h + .02, hw * 2 - .04), "concrete", chamfer=.01)
+        m.box((cx, y + h / 2, cz), (hw * 2 - .04 - (course % 2) * .008, h + .02, hw * 2 - .04 - (course % 2) * .008), "concrete", chamfer=.01)
         for side in range(4):
             along = -hw
             if course % 2:
@@ -256,10 +253,11 @@ def cabin():
     m.box((2.78, FLOOR + .62, -1.85), (.75, .08, .92), "canvas", chamfer=.03)
 
     # Storm lantern on a wire hook over a porch rafter; the runtime can light it.
-    lx, lz = rafters[3], D + 1.2
+    lx, lz = rafters[5], D + .5
     raft_y = ledger_y + .1 + (py + .15 - ledger_y - .1) * (lz - D - .12) / 2.1
     m.lathe([(0, 0), (.075, .05), (.09, .2), (.055, .55), (.075, .62), (.075, .7), (0, .72)], (lx, py - .62, lz), (lx, py - .26, lz), "tin", 10)
-    m.tube([(lx, py - .27, lz), (lx, raft_y - .07, lz), (lx + .05, raft_y - .02, lz), (lx + .05, raft_y + .07, lz), (lx, raft_y + .075, lz), (lx - .045, raft_y + .06, lz)], .005, "steel_bare", 5)
+    m.tube([(lx - .06, py - .39, lz), (lx - .03, py - .26, lz), (lx, py - .2, lz), (lx + .03, py - .26, lz), (lx + .06, py - .39, lz)], .006, "steel_bare", 5)
+    m.tube([(lx, py - .21, lz), (lx, raft_y - .07, lz), (lx + .042, raft_y - .02, lz), (lx + .042, raft_y + .066, lz), (lx, raft_y + .068, lz), (lx - .04, raft_y + .05, lz)], .008, "steel_bare", 6)
     m.hook("lantern", (lx, py - .45, lz))
     # The sheet missing from the porch roof lies where it came down, one corner folded under.
     def fallen(u, v):
@@ -279,7 +277,7 @@ def cabin():
     m.collide_box(W, 0, t, D + .1, 0, top, tag="cabin wall")
     m.collide_box((-W - 1.2) / 2, D, (W - 1.2) / 2, t, 0, top, tag="cabin wall")
     m.collide_box((W - .22) / 2, D, (W + .22) / 2, t, 0, top, tag="cabin wall")
-    m.collide_box(-.7, D, .5, t, 2.42, top, tag="door lintel")
+    m.collide_box(-.7, D, .5, t, DOOR_TOP, top, tag="door lintel")
     # Walkable floor and steps: each lip is under the character's step height.
     m.collide_box(0, 1.08, W + .2, D + 1.14, 0, FLOOR, tag="cabin floor")
     m.collide_box(-.7, D + 2.42, .78, .17, 0, FLOOR - .14, tag="step")

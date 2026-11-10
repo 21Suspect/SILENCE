@@ -30,7 +30,7 @@ const LIMITS = {
   entranceAreaM: 3, // 5. a POI's own colliders may stand this close to its own entrance
   stuckS: 2, speed: 1.8, fps: 60,
 };
-const SUNK = /^(rock_|minerock$)/; // modelled to sit below the ground: not judged for floating or burying
+const SUNK = /^(rock_|minerock$|tunnelrock$)/; // modelled to sit below the ground: not judged for floating or burying
 const FINDINGS = { 1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 7: [] };
 const NOTES = [];
 const found = (check, text) => FINDINGS[check].push(text);
@@ -155,7 +155,7 @@ const sameSpot = (a, b) => Math.hypot(a.p.x - b.p.x, a.p.z - b.p.z) < .01 && Mat
 /** Things set on each other on purpose: one object made of two placements at one origin (the mine and its rock face), or a crate standing on a pallet. */
 const deliberate = (a, b) => sameSpot(a, b) || [[a, b], [b, a]].some(([x, y]) => x.p.asset === 'crate' && y.p.asset === 'pallet' && inPoly([x.p.x, x.p.z], rectPoly(y.seat.placement, y.rect)));
 /** Sunk into the ground on purpose: a post that stands on the surface is the thing that would look wrong. */
-const DRIVEN = new Set(['pole', 'roadsign', 'trailmarker', 'mailbox', 'guardrail', 'guardrail_end', 'guardrail_endr', 'antler_post', 'canline', 'fence']);
+const DRIVEN = new Set(['pole', 'roadsign', 'trailmarker', 'mailbox', 'guardrail', 'guardrail_end', 'guardrail_endr', 'antler_post', 'canline', 'fence', 'wall', 'wall_gap']);
 function issuesOf(e, others = entries) {
   const issues = [], id = e.p.id, where = at(e.p.x, e.p.z), label = `${id} (${e.p.asset}) at ${where}`;
   // 1. floating or buried
@@ -246,7 +246,7 @@ for (const e of entries) {
 
 // 2. a building on a tilted or rumpled pad looks fake
 for (const e of entries) {
-  if (!e.p.footprint) continue;
+  if (!e.p.footprint || e.p.asset === 'tunnel') continue;   // a tunnel mouth is cut into a slope: world.ts shapes the ground for it, and the slope behind is the point
   let lo = Infinity, hi = -Infinity, loAt, hiAt;
   for (const [lx, lz] of sampleRect(e, e.p.footprint)) { const w = placePoint(e.p, lx, lz), y = heightAt(w.x, w.z); if (y < lo) { lo = y; loAt = w; } if (y > hi) { hi = y; hiAt = w; } }
   if (hi - lo <= LIMITS.ledgeM) continue;
@@ -282,6 +282,8 @@ for (const e of entries) {
     continue;
   }
   claimed.add(end.line);
+  // A path between two places (a loop) ends at a door that already has its own path: both lead somewhere.
+  TRAIL_LINES.forEach((line, i) => { const [lx, lz] = line[line.length - 1]; if (Math.hypot(lx - ex, lz - ez) <= LIMITS.entranceM) claimed.add(i); });
   const start = TRAIL_LINES[end.line][0], where = startsOn(start);
   if (where) continue;
   const near = nearestRoute(start);

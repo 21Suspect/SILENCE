@@ -168,16 +168,9 @@ def hut():
     for x in (-1.37, -.43):
         m.beam((x, 0, D + .08), (x, 2.27, D + .08), .05, .08, "steel")
     m.beam((-1.4, 2.28, D + .08), (-.4, 2.28, D + .08), .05, .08, "steel")
-    ang = math.radians(112)
-    hx, hz = -1.33, D + .12
-    ax, az = math.cos(ang), math.sin(ang)
-    m.beam((hx + ax * .44, .03, hz + az * .44), (hx + ax * .44, 2.24, hz + az * .44), .88, .045, "olive", up=(az, 0, -ax), chamfer=.005)
-    for y in (.3, 1.2, 2.0):
-        m.cyl((hx, y - .07, hz), (hx, y + .07, hz), .018, "steel_bare", 8)
-        m.beam((hx, y, hz), (hx + ax * .16, y, hz + az * .16), .05, .012, "steel_bare", up=(az, 0, -ax), chamfer=.002)
-    p_ = np.array((hx + ax * .78, 1.05, hz + az * .78)) + np.array((az, 0, -ax)) * .05
-    m.tube([p_ - np.array((az, 0, -ax)) * .03, p_ + np.array((az, 0, -ax)) * .02, p_ + np.array((az, 0, -ax)) * .02 - np.array((ax, 0, az)) * .1], .012, "steel_bare", 6)
-    m.collide_post(hx, hz, hx + ax * .88, hz + az * .88, .05, 0, 2.2, "steel door")
+    # The leaf is a separate, hinged model; a fixed steel panel fills the frame above it.
+    m.beam((-1.345, 2.2, D + .08), (-.455, 2.2, D + .08), .11, .03, "olive", up=(0, 0, 1), chamfer=.004)
+    m.door("door_steel", (-1.335, .03, D + .105), 0.0, -1.9, width=.84, height=2.1, thickness=.045, start=.45)
     m.poster("sign_voltage", (-1.72, 1.62, D + .105), (1, 0, 0), (0, 1, 0), .46, .34)
     # Fuse box on the outside wall: three sockets, cover swung open.
     fx, fy, fz = 1.72, 1.42, D + .17
@@ -198,8 +191,6 @@ def hut():
     m.tube([(fx, fy + .36, fz), (fx, H - .3, fz), (fx - .9, H - .3, fz), (-1.9, H - .3, fz), (-1.9, H + .3, fz + .1)], .022, "steel_bare", 6)
     for x in np.arange(-1.7, fx, .9):
         m.beam((x, H - .3, D + .1), (x, H - .3, fz + .03), .03, .05, "steel", chamfer=.004)
-    # Door furniture: a lever and lock plate on the leaf.
-    m.cyl((-1.36, 1.03, D + .14), (-1.34, 1.03, D + .14), .03, "steel_bare", 8)
     # Inside: a radio rack and desk seen through the door.
     m.box((-1.3, 1.05, -D + .35), (.82, 2.0, .5), "steel", chamfer=.012)
     for i in range(6):

@@ -65,6 +65,7 @@ class Model:
         self.rng = random.Random(seed)
         self.parts = {}
         self.colliders, self.hooks, self.ladders = [], {}, []
+        self.doors = []
         self.radius = 1.0
         self.xf = None
         self.density = 1.0   # texels relative to the rest; drop for hidden undersides
@@ -449,6 +450,14 @@ class Model:
     def ladder(self, bottom, top, exit_, width=.5):
         """Climbable span. `exit_` is where the player stands after topping out."""
         self.ladders.append(dict(bottom=[round(float(v), 3) for v in self._p(np.asarray(bottom, float))], top=[round(float(v), 3) for v in self._p(np.asarray(top, float))], exit=[round(float(v), 3) for v in self._p(np.asarray(exit_, float))], width=width))
+
+    def door(self, asset, hinge, yaw, swing, width=.9, height=2.0, thickness=.05, start=0.0):
+        """A separate, hinged leaf the game opens and closes. `asset` is a door model authored with its hinge edge on
+        the origin, running along +x, standing on y=0. `yaw` is the closed leaf's rotation.y in this model's frame
+        (three.js convention: +x turns to (cos yaw, 0, -sin yaw)); `swing` is added to it when fully open; `start` is
+        how far open (0..1) it stands when the game begins."""
+        assert self.xf is None, "author doors in the model frame"
+        self.doors.append(dict(asset=asset, hinge=[round(float(v), 3) for v in hinge], yaw=round(float(yaw), 4), swing=round(float(swing), 4), width=width, height=height, thickness=thickness, start=start))
 
     def hook(self, name, p):
         self.hooks[name] = [round(float(v), 3) for v in self._p(np.asarray(p, float))]
@@ -1253,12 +1262,45 @@ def finalise(obj, albedo, normal, orm):
         obj.data.color_attributes.remove(obj.data.color_attributes["seed"])
 
 
-def export(obj, quality=82):
+def glass_object(name, bucket):
+    """Old window glass: thin, greenish, filmed with dirt, and you can see through it."""
+    verts = to_blender(np.concatenate(bucket["v"]))
+    normals = to_blender(np.concatenate(bucket["n"]))
+    mesh = bpy.data.meshes.new(name + "_glass")
+    mesh.from_pydata(verts.tolist(), [], bucket["f"])
+    mesh.update()
+    mesh.polygons.foreach_set("use_smooth", np.ones(len(bucket["f"]), bool))
+    mesh.normals_split_custom_set_from_vertices(normals.tolist())
+    mat = bpy.data.materials.new(name + " glass")
+    mat.use_nodes = True
+    mat.use_backface_culling = False
+    bsdf = mat.node_tree.nodes["Principled BSDF"]
+    bsdf.inputs["Base Color"].default_value = (.36, .42, .39, 1)
+    bsdf.inputs["Alpha"].default_value = .3
+    bsdf.inputs["Roughness"].default_value = .12
+    bsdf.inputs["Metallic"].default_value = 0
+    for attr, value in (("surface_render_method", "BLENDED"), ("blend_method", "BLEND")):
+        try:
+            setattr(mat, attr, value)
+        except (AttributeError, TypeError):
+            pass
+    mesh.materials.append(mat)
+    obj = bpy.data.objects.new(name + "_glass", mesh)
+    bpy.context.collection.objects.link(obj)
+    return obj
+
+
+def export(obj, quality=82, extra=()):
     bpy.ops.object.select_all(action="DESELECT")
     obj.select_set(True)
+    for o in extra:
+        o.select_set(True)
     bpy.context.view_layer.objects.active = obj
     path = os.path.join(OUT, obj.name + ".glb")
     bpy.ops.export_scene.gltf(filepath=path, export_format="GLB", use_selection=True, export_apply=False, export_animations=False, export_yup=True, export_normals=True, export_texcoords=True, export_materials="EXPORT", export_image_format="WEBP", export_image_quality=quality, export_vertex_color="NONE" if False else "MATERIAL")
+    # Normal and ORM maps leave at half the colour map's size: a third of the GPU memory, nothing seen (shrink_textures.py).
+    import shrink_textures
+    shrink_textures.shrink(path, quiet=True)
     log(obj.name, "exported", round(os.path.getsize(path) / 1e6, 2), "MB")
 
 
@@ -1352,7 +1394,7 @@ def build_rock(name, high_v, high_q, low_v, low_q, tex=2048, shots=None, collide
     albedo, normal, orm = bake_model(obj, {mat.name: metal}, tex, 18, high=high)
     bpy.data.objects.remove(high)
     finalise(obj, albedo, normal, orm)
-    export(obj)
+    export(obj, extra=[glass_object(model.name, panes)] if panes else ())
     if shots:
         preview(obj, name, shots)
     return dict(url=f"/world/{name}.glb", radius=radius, colliders=list(colliders), hooks=hooks or {})
@@ -1362,12 +1404,17 @@ def build(model, shots=None, samples=20):
     """Author -> atlas -> bake -> GLB. Returns the asset's JSON entry."""
     clear_scene()
     setup_cycles()
+    # Window glass is not baked into the atlas: it leaves as a second, see-through mesh in the same file.
+    panes = model.parts.pop("glass", None)
     obj, metals = assemble(model)
     atlas_uv(obj, model)
     albedo, normal, orm = bake_model(obj, metals, model.tex, samples)
     log(model.name, "baked")
     finalise(obj, albedo, normal, orm)
-    export(obj)
+    export(obj, extra=[glass_object(model.name, panes)] if panes else ())
     if shots and os.environ.get("SILENCE_ASSET_PREVIEW", "1") != "0":
         preview(obj, model.name, shots)
-    return dict(url=f"/world/{model.name}.glb", radius=model.radius, colliders=model.colliders, hooks=model.hooks, ladders=model.ladders)
+    entry = dict(url=f"/world/{model.name}.glb", radius=model.radius, colliders=model.colliders, hooks=model.hooks, ladders=model.ladders)
+    if model.doors:
+        entry["doors"] = model.doors
+    return entry

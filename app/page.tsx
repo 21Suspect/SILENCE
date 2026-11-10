@@ -12,5 +12,5 @@ export default function Silence() {
     });
     return () => { disposed = true; cleanup?.(); };
   }, []);
-  return <main ref={container} aria-label="SILENCE. Click to enter. WASD to walk, mouse to look, Shift to hurry, Control to crouch, Escape for pause settings. E to interact, Q to drop." />;
+  return <main ref={container} aria-label="SILENCE. Click to enter. WASD to walk, mouse to look, Shift to hurry, Control to crouch, Escape for pause settings. E to interact, Q to drop, O to show or hide the objective." />;
 }

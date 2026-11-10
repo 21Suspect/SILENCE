@@ -6,13 +6,18 @@ import type { PoiFootprint, PoiPlacement } from './world-layout';
 import { WORLD_V2 } from './world-flags';
 import worldAssets from './world-assets.json';
 import type { Ladder } from './ladders';
+import type { DoorSpec } from './doors';
+import type { GpuWarmup } from './gpu-warmup';
+import { perfOn } from './perf-flags';
 
 /** Model-local footprint (Y up, metres, Y=0 is the ground), as written by the Blender export. */
 export type ModelCollider = ({ kind: 'box'; x: number; z: number; halfX: number; halfZ: number; yaw?: number } |
   { kind: 'capsule'; ax: number; az: number; bx: number; bz: number; radius: number }) & { minY: number; maxY: number; tag?: string };
 /** A ladder in model-local metres: the line from `bottom` to `top`, and where to stand after topping out. */
 export type ModelLadder = { bottom: readonly [number, number, number]; top: readonly [number, number, number]; exit: readonly [number, number, number]; width?: number };
-export type PoiAsset = { url: string; radius: number; colliders?: ModelCollider[]; hooks?: Record<string, readonly [number, number, number]>; ladders?: ModelLadder[] };
+export type PoiAsset = { url: string; radius: number; colliders?: ModelCollider[]; hooks?: Record<string, readonly [number, number, number]>; ladders?: ModelLadder[];
+  /** Hinged door leaves (game/doors.ts): each names another asset, a GLB of just the leaf. */
+  doors?: DoorSpec[] };
 /** A ladder in world metres, ready for game/ladders.ts. `id` is `<placement id>#<index in the asset's ladders>`. */
 export type WorldLadder = Ladder & { placement: string };
 /** A scatter entry has the same shape as a POI; `scale` is optional and uniform. */
@@ -139,7 +144,7 @@ export function seatPlacement(asset: PoiAsset, p: Placement, heightAt: (x: numbe
   const s = p.scale ?? 1, rect = p.asset === 'shovel' ? { cx: 0, cz: -.04, hx: .13, hz: .74 } : footprintOf(asset, p.footprint), tilt = p.fit === 'tilt';
   if (p.fit === 'run') {
     // A length of something continuous: it follows the ground from one end to the other, dead straight, so lengths meet.
-    const half = 3.9 * s, c = Math.cos(p.yaw), n = Math.sin(p.yaw);
+    const half = (p.asset.startsWith('wall') ? 2 : 3.9) * s, c = Math.cos(p.yaw), n = Math.sin(p.yaw);   // a guard rail is 7.8 m long, a length of field wall 4 m
     const a = heightAt(p.x - c * half, p.z + n * half), b = heightAt(p.x + c * half, p.z - n * half);
     const q = new THREE.Quaternion().setFromAxisAngle(THREE.Object3D.DEFAULT_UP, p.yaw)
       .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.atan2(b - a, half * 2)));
@@ -192,7 +197,16 @@ type Entry = {
 type Model = {
   name: string; def: PoiAsset; entries: Entry[]; status: 'idle' | 'loading' | 'ready' | 'failed';
   scene?: THREE.Object3D; prims: { mesh: THREE.InstancedMesh; rel: THREE.Matrix4 }[]; scatterX: number; scatterZ: number; repack: boolean;
+  /** True while the GPU warm-up (game/gpu-warmup.ts) is still bringing this model's textures in; nothing of it is drawn until then. */
+  warming?: boolean;
+  /** Settles once `warming` has ended (undefined without the warm-up). */
+  ready?: Promise<void>;
+  /** Settles once the GLB is in (the shared source scene) or has failed (undefined); set when loading begins. */
+  done?: Promise<THREE.Object3D | undefined>;
 };
+/** A placement as it really stands, for gameplay that hangs things on it (doors). `loadRange` and `drawRange` apply the same distances as the model itself. */
+export type PoiSeat = { id: string; asset: string; def: PoiAsset; placement: Placement; ground: number; quaternion?: THREE.Quaternion;
+  loadRange: (x: number, z: number) => boolean; drawRange: (x: number, z: number, wasShown: boolean) => boolean };
 
 /**
  * Hand-authored places in the rebuilt world. Collision and hooks come from metadata and
@@ -216,7 +230,7 @@ export function createPois(scene: THREE.Scene, heightAt: (x: number, z: number) 
 
   const models = new Map<string, Model>(), entries = new Map<string, Entry>(), warned = new Set<string>();
   const solidColliders: SolidCollider[] = [], ladders: WorldLadder[] = [], unlisted = new Set<string>();
-  let version = 1, dirty = false, updated = false, disposed = false, loader: GLTFLoader | undefined;
+  let version = 1, dirty = false, updated = false, disposed = false, loader: GLTFLoader | undefined, lastX = Infinity, lastZ = Infinity;
   const warnOnce = (key: string, message: string) => { if (!warned.has(key)) { warned.add(key); console.warn(`SILENCE: ${message}`); } };
 
   const add = (p: Placement, scatter: boolean) => {
@@ -254,7 +268,8 @@ export function createPois(scene: THREE.Scene, heightAt: (x: number, z: number) 
     // An exported lamp or camera would otherwise be cloned into every placement and cost a light each.
     const stray: THREE.Object3D[] = []; source.traverse(o => { if ((o as THREE.Light).isLight || (o as THREE.Camera).isCamera) stray.push(o); });
     for (const o of stray) o.removeFromParent();
-    source.traverse(o => { if (o instanceof THREE.Mesh) { o.castShadow = true; o.receiveShadow = true; } });
+    // Window glass is see-through: it neither throws a shadow nor takes one.
+    source.traverse(o => { if (o instanceof THREE.Mesh) { const clear = !Array.isArray(o.material) && o.material.transparent; o.castShadow = !clear; o.receiveShadow = !clear; } });
     source.updateMatrixWorld(true);
     model.scene = source; model.status = 'ready';
     const inverse = new THREE.Matrix4().copy(source.matrixWorld).invert();
@@ -278,6 +293,19 @@ export function createPois(scene: THREE.Scene, heightAt: (x: number, z: number) 
       object.updateMatrixWorld(true);
     }
     model.repack = true; dirty = true;
+    // Ask for the textures and shader programs to be built a little at a time, now, instead of all in the frame the model is first drawn.
+    const warm = perfOn('streamWarmup') ? scene.userData.gpuWarmup as GpuWarmup | undefined : undefined;
+    let release: () => void = () => {};
+    if (warm) {
+      const textures: THREE.Texture[] = [];
+      source.traverse(o => { if (o instanceof THREE.Mesh) for (const m of Array.isArray(o.material) ? o.material : [o.material]) for (const v of Object.values(m)) if (v instanceof THREE.Texture) textures.push(v); });
+      const urgent = () => model.entries.some(e => within(e, lastX, lastZ, 0)), cancelled = () => disposed;
+      // Until its textures are on the GPU (they arrive in tiles) the model stays hidden: a half-uploaded map would show as black patches.
+      model.warming = true; model.ready = new Promise<void>(resolve => { release = resolve; });
+      const done = () => { model.warming = false; model.repack = true; dirty = true; release(); };
+      warm.add({ label: model.name, textures, object: source, urgent, cancelled, onDone: done });
+      for (const prim of model.prims) warm.add({ label: `${model.name} (scatter)`, textures: [], object: prim.mesh, urgent, cancelled });
+    }
   }
 
   function begin(model: Model) {
@@ -285,7 +313,8 @@ export function createPois(scene: THREE.Scene, heightAt: (x: number, z: number) 
     const fail = (error: unknown) => { model.status = 'failed'; warnOnce(`load:${model.name}`, `"${model.name}" could not load (${model.def.url}); its colliders stay.${error instanceof Error ? ` ${error.message}` : ''}`); };
     let request: Promise<{ scene: THREE.Object3D }>;
     try { request = options.load ? options.load(model.def.url) : (loader ??= new GLTFLoader()).loadAsync(model.def.url); } catch (error) { request = Promise.reject(error); }
-    request.then(gltf => finish(model, gltf)).catch(fail);
+    // `done` settles when the model can be shown: loaded, and (when the GPU warm-up is on) its textures built.
+    model.done = request.then(async gltf => { finish(model, gltf); await model.ready; return model.scene; }).catch(error => { fail(error); return undefined; });
   }
 
   const tmp = new THREE.Matrix4();
@@ -293,7 +322,7 @@ export function createPois(scene: THREE.Scene, heightAt: (x: number, z: number) 
     let n = 0, changed = false;
     for (const e of model.entries) {
       if (!e.scatter) continue;
-      const shown = within(e, x, z, e.shown ? HIDE_MARGIN : 0);
+      const shown = !model.warming && within(e, x, z, e.shown ? HIDE_MARGIN : 0);
       if (shown !== e.shown) { e.shown = shown; changed = true; }
       if (!shown) continue;
       for (const prim of model.prims) prim.mesh.setMatrixAt(n, tmp.multiplyMatrices(e.matrix, prim.rel));
@@ -314,14 +343,14 @@ export function createPois(scene: THREE.Scene, heightAt: (x: number, z: number) 
     update(player: THREE.Vector3) {
       updated = true;
       let changed = dirty; dirty = false;
-      const x = player.x, z = player.z;
+      const x = player.x, z = player.z; lastX = x; lastZ = z;
       for (const model of models.values()) {
         if (model.status === 'idle' && model.entries.some(e => within(e, x, z, LOAD_MARGIN))) begin(model);
         if (model.status !== 'ready') continue;
         for (const e of model.entries) {
           if (e.scatter || !e.object) continue;
           // Hysteresis, as with distantProps in terrain.ts: no flicker (and no shadow churn) on the boundary.
-          const shown = within(e, x, z, e.shown ? HIDE_MARGIN : 0);
+          const shown = !model.warming && within(e, x, z, e.shown ? HIDE_MARGIN : 0);
           if (shown !== e.shown) { e.shown = e.object.visible = shown; changed = true; }
         }
         if (model.prims.length && (model.repack || Math.hypot(x - model.scatterX, z - model.scatterZ) > SCATTER_STEP) && repack(model, x, z)) changed = true;
@@ -330,6 +359,30 @@ export function createPois(scene: THREE.Scene, heightAt: (x: number, z: number) 
     },
     /** World position of a model-local hook, or undefined if the placement or hook does not exist. Available before the GLB loads. */
     hook(placementId: string, hookName: string): THREE.Vector3 | undefined { return entries.get(placementId)?.hooks.get(hookName)?.clone(); },
+    /** Every placement (hand-placed and scattered) as it stands: its seat, ground and tilt. Fixed once the placements are. */
+    seats(): PoiSeat[] {
+      return [...entries.values()].map(e => ({ id: e.p.id, asset: e.p.asset, def: e.model.def, placement: e.p, ground: e.ground, quaternion: e.quaternion,
+        loadRange: (x, z) => within(e, x, z, LOAD_MARGIN), drawRange: (x, z, wasShown) => within(e, x, z, wasShown ? HIDE_MARGIN : 0) }));
+    },
+    /** Whether world-assets.json lists this asset at all. */
+    known: (name: string) => !!assets[name],
+    /**
+     * A fresh, hidden copy of a listed asset's GLB inside the POI group (loaded once, geometry and materials shared), for a
+     * piece that moves by itself, like a door leaf. Undefined when the asset is not listed or cannot load.
+     */
+    async spawn(name: string, label = name): Promise<THREE.Object3D | undefined> {
+      const def = assets[name];
+      if (disposed) return undefined;
+      if (!def) { warnOnce(`spawn:${name}`, `world-assets.json has no entry for ${name}.`); return undefined; }
+      let model = models.get(name);
+      if (!model) models.set(name, model = { name, def, entries: [], status: 'idle', prims: [], scatterX: Infinity, scatterZ: Infinity, repack: true });
+      if (model.status === 'idle') begin(model);
+      const source = await model.done;
+      if (!source || disposed) return undefined;
+      const object = source.clone(true); object.name = label; object.visible = false; root.add(object);
+      object.traverse(o => { if (o instanceof THREE.Mesh) o.customDepthMaterial = propDepth; });
+      return object;
+    },
     /** The placed model root once its GLB has loaded (a scatter piece has none). */
     object(placementId: string): THREE.Object3D | undefined { return entries.get(placementId)?.object; },
     /** Lets later gameplay (an opened door, a toppled shelf) remove or restore a placement's collision. */

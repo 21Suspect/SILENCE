@@ -91,6 +91,52 @@ def torn_down_tent(m, length, width, mat):
         m.beam(p - (0, s_ * .5, 0), p + (0, s_ * .5, 0), s_ * 1.5, s_ * 1.2, "stone", chamfer=s_ * .3)
 
 
+def collapsed_tent(m, length, width, height, mat):
+    """The second tent: its back pole has snapped and the canvas has come down over whatever was inside."""
+    seed = m.rng.random() * 9
+    ridge = lambda u: height * (.1 + .9 * u ** 1.7)
+    for sign in (-1, 1):
+        def fn(u, v, sign=sign):
+            z = (u - .5) * length
+            top = ridge(u)
+            down = 1 - u
+            belly = .1 * math.sin(v * math.pi) * (.4 + .6 * u)
+            crease = .07 * down * abs(math.sin(v * 7 + u * 11 + seed)) * math.sin(v * math.pi) + .035 * down * math.sin(u * 23 + v * 5)
+            y = top * (1 - v) - belly + crease + folds(u, v, seed)
+            x = sign * width / 2 * v * (1 + .3 * down) + .05 * down * math.sin(u * 9 + seed)
+            return np.array((x, max(.015, y), z))
+        m.surface(mat, fn, 30, 16, (length * 2, 3), flip=sign > 0, wear=lambda u, v: .35 + v ** 2 * .55)
+    # Front pole and ridge still up at this end; the ridge pole runs down to the ground at the other.
+    m.density = .6
+    m.log((0, 0, length / 2), (0, height + .06, length / 2), .022, "wood", sides=6, segs=1, caps=(False, True))
+    m.log((0, height - .01, length / 2), (0, ridge(0) - .02, -length / 2), .022, "wood", sides=6, segs=2)
+    # The back pole, snapped: one half under the canvas edge, one half thrown clear.
+    m.log((.1, .03, -length / 2 - .1), (.15, .3, -length / 2 + .05), .022, "wood", sides=6, segs=1)
+    m.log((.9, .03, -length / 2 - .5), (1.7, .04, -length / 2 + .2), .022, "wood", sides=6, segs=1)
+    m.density = 1
+    for s in (-1, 1):
+        def flap(u, v, s=s):
+            x = s * width / 2 * (1 - v) * (.95 - .5 * u)
+            z = length / 2 + .03 + .08 * u * math.sin(v * math.pi)
+            ripple = .018 * math.sin(v * 14 + u * 3) * u
+            return np.array((x + ripple * s, height * v + .01, z + ripple))
+        m.surface(mat, flap, 6, 10, (1.2, 2.4), flip=s < 0, wear=lambda u, v: (1 - v) ** 2 * .7)
+    # Stakes and lines hold the front half; at the back the pegs have pulled and the lines lie slack.
+    for sx in (-1, 1):
+        for z, slack in ((length / 2 - .15, False), (0, False), (-length / 2 + .2, True)):
+            hem = np.array((sx * width / 2 * (1 + .3 * (.5 - z / length)), .04, z))
+            stake = hem + np.array((sx * .34, -.04, 0))
+            if slack:
+                m.wire(hem + (0, .02, 0), stake + (sx * .2, .02, .3), -.004, .0032, "canvas", 4)
+                m.lathe([(.016, 0), (.016, .8), (.03, .85), (.03, 1)], stake + (sx * .2, .02, .3), stake + (sx * .42, .04, .36), "wood", 6, density=.4)
+            else:
+                m.lathe([(.016, 0), (.016, .8), (.03, .85), (.03, 1)], stake, stake + (sx * .06, .24, 0), "wood", 6, density=.4)
+                m.wire(hem + (0, .2 + .12 * (z > 0), 0), stake + (sx * .05, .22, 0), .004, .0032, "canvas", 3)
+    stake = np.array((0, 0, length / 2 + .8))
+    m.lathe([(.018, 0), (.018, .8), (.033, .85), (.033, 1)], stake, stake + (0, .28, .07), "wood", 6, density=.4)
+    m.wire((0, height + .02, length / 2), stake + (0, .26, .06), .008, .0035, "canvas", 4)
+
+
 def fire_pit(m):
     rng = m.rng
     for i in range(13):
@@ -131,7 +177,8 @@ def camp():
     m.collide_box(0, 0, 1.0, 1.28, 0, 1.3, tag="tent")
     close()
     close = m.at((2.6, 0, -2.3), -.7)
-    torn_down_tent(m, 2.5, 2.0, "canvas_orange")
+    collapsed_tent(m, 2.6, 2.0, 1.35, "tarp")
+    m.collide_box(0, .5, .9, .8, 0, 1.1, tag="tent")
     close()
     # Cooler with handles and latches.
     close = m.at((2.05, 0, 1.8), .3)
@@ -188,9 +235,17 @@ def stack(m, sx, sz, yaw, L, rows):
         n = rows - row + 2
         for i in range(n):
             x = (i - (n - 1) / 2) * R * 2.0
-            r = rng.uniform(.2, .3)
+            r = rng.uniform(.265, .305)      # every trunk bears on its neighbours: none hangs in the stack
             off = rng.uniform(-.55, .55)
-            m.log((x, y, -L / 2 + off), (x + rng.uniform(-.03, .03), y, L / 2 + off), r, "bark", "endgrain", sides=11, segs=5, noise=.04, taper=rng.uniform(.03, .22))
+            # No two trunks alike: some still in bark, some peeled and silvered, each with its own stretch of grain,
+            # girth and taper, and the odd one with a stub where a limb was lopped.
+            peeled = rng.random() < .38
+            m.log((x, y, -L / 2 + off), (x + rng.uniform(-.03, .03), y, L / 2 + off), r, "logwood" if peeled else "bark", "endgrain", sides=11, segs=6, noise=rng.uniform(.03, .08), taper=rng.uniform(.03, .22), grain=rng.uniform(.6, 1.7))
+            if rng.random() < .3:
+                kz = rng.uniform(-L / 2 + off + .6, L / 2 + off - .6)
+                ka = rng.uniform(.3, 2.8)
+                kd = np.array((math.cos(ka), math.sin(ka), 0))
+                m.log(np.array((x, y, kz)) + kd * r * .7, np.array((x, y, kz)) + kd * (r + rng.uniform(.05, .16)), rng.uniform(.035, .06), "logwood" if peeled else "bark", "endgrain", sides=7, segs=1, noise=.05)
         y += R * 1.73
     half = (rows + 2) * R + .1
     for z in (-L * .3, L * .3):
@@ -219,7 +274,7 @@ def logstack():
         h = H + sz * -.35
         m.log((-W - .3, h, sz * D), (W + .3, h, sz * D), .1, "logwood", sides=8, segs=3)
     ridge_at = lambda z: H + .08 - z * .35 / D
-    for x in np.arange(-W, W + .1, 1.03):
+    for x in np.arange(-W, W + .1, .78):
         m.beam((x, ridge_at(-D - .4) + .08, -D - .4), (x, ridge_at(D + .4) + .08, D + .4), .07, .12, "wood_dark")
     # One sheet has torn free and lies against the post, bent over itself.
     def fallen(u, v):
@@ -229,9 +284,9 @@ def logstack():
         if i == 2:
             continue
         x = -W - .35 + i * (2 * W + .7) / 7
-        y0 = ridge_at(-D - .55) + .17
-        y1 = ridge_at(D + .55) + .17
-        m.tin_sheet((x, y0 + i % 2 * .01, -D - .55), (1, 0, 0), (0, y1 - y0, 2 * D + 1.1), (2 * W + .7) / 7 + .05, math.hypot(y1 - y0, 2 * D + 1.1), droop=.012, curl=.25 if i == 5 else 0)
+        y0 = ridge_at(-D - .55) + .152
+        y1 = ridge_at(D + .55) + .152
+        m.tin_sheet((x, y0 + i % 2 * .004, -D - .55), (1, 0, 0), (0, y1 - y0, 2 * D + 1.1), (2 * W + .7) / 7 + .05, math.hypot(y1 - y0, 2 * D + 1.1), droop=.012, curl=.25 if i == 5 else 0)
     # Back wall: even boards, each long enough to be nailed to the posts.
     for i in range(12):
         h = .25 + i * .205

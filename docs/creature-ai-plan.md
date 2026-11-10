@@ -187,3 +187,27 @@ Built as above, with these differences and additions, each found by the playtest
   within 0.6 s keeps it held; strength comes back a step every 30 s out of the beam (full after 90 s); and early in
   the night (low hunting drive) a held hunt may be broken off when it gets going again (chance 0.7 x (1 - drive)).
   It recoils (crouched, head turned from the light) and steps back without turning; the listener rears for the roar.
+
+### Tuning pass (2026-11-10): sounds, the stun's brake, lethality
+Measured with the playtest bot (`scripts/playtest/`), 20 seeds x 7 styles before and after; reports in `work/playtest/`
+(`report-before.txt`, `report-before-newrules.txt`, `report-after.txt`).
+
+- **Sounds mean something once.** The hiss belongs to the start of a stun sequence: it plays when the beam first pins it and
+  not again until the beam has been off it 45 s (`HISS_QUIET`) or a new hunt (a roar) begins; re-stuns only recoil. One roar per
+  hunt, at its start: not within 75 s of the last roar nor within 45 s of the last hunt ending (`ROAR_GAP`, `HUNT_GAP`), so a hunt
+  taken up again after a stun is silent. The lost-player call is for a chase that got away (the brain's `lost-player` event now
+  says which behaviour ended), unseen. In free roam an ambient sound (clicks, knock, branch) waits 25 s after any loud one
+  (reveal, hiss, roar, grab) and 30 s after the creature was seen (the clicks that followed a hiss within a second, the reveal
+  sting seconds after the roar and the calls after a fizzled shadowing were double triggers). The reveal recording waits 300 s
+  between plays; a branch is heard 28-70 m off (was 25-90) every 180-360 s; clicks 100-200 s (indoors 70-130), knock 300-600 s.
+- **Stun.** The slow to a halt is 0.58 s (was 0.8) on the same smooth curve; the host's `STUN_BRAKE` is 20 m/s^2 (was 14) so the
+  body can follow it. Hard brakes had three causes, all outside the stun itself: a route that ran out under a body at a run (the
+  planner's partial route ended at the bark and it stopped dead, then waited up to 0.8 s to plan again: the body now eases to
+  the end of a short route, plans again as the end nears, and coasts down if the route is gone), the leg-clearance allowance
+  snapping from 1 to 0.35 in a frame (now falls at most 3 per second), and the hard 4.40 m foot-reach limit being judged by a
+  shoulder estimate a quarter of a metre too long (now by the step's added distance on the measured pose). A creature whose foot
+  was left out of reach with no hold stood frozen for minutes at 180 ms a frame: its feet are now set down under it after 2 s
+  unseen (6 s in view). Collider bounds make the navigation's clearance queries several times cheaper near the bridge.
+- **Lethality.** Hunting is permitted 150 s after the opening (was 90) and ramps over 120 s (was 180); a hunt opens with a 1.5 s
+  rear and roar (was 0.7 s, held still) and charges at 5.6 m/s (was 6.5); a hunt is given up after 15 s and none is taken up for 50 s
+  after one ends; the torch breaks a held hunt off with chance 0.7 x (1 - 0.5 x drive) (was 0.7 x (1 - drive)); calm after a death is 130 s (was 80).

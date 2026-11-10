@@ -17,6 +17,11 @@ export type Interactable = {
    * platform it comes up to, through that platform's rail. Such things must be tight in `enabled` instead.
    */
   seeThrough?: boolean;
+  /**
+   * Run by the interact key only, never by a mouse click (a click away from anything else works the torch). For things the
+   * player does deliberately, like a door. The prompt names the key: "E to open". A tap still works on touch screens.
+   */
+  keyOnly?: boolean;
 };
 type World = { nearby: (x: number, z: number, radius?: number) => SolidCollider[] };
 
@@ -40,11 +45,12 @@ export function lineOfSight(world: World, from: THREE.Vector3, to: THREE.Vector3
 }
 
 /** "Left click to pick up" / "Tap to pick up" under the crosshair, the only HUD in the game. */
-export function promptText(label: string, touch: boolean) {
-  return CLICK_PREFIX.test(label) ? label.replace(CLICK_PREFIX, touch ? 'Tap to ' : 'Left click to ') : label;
+export function promptText(label: string, touch: boolean, key?: string) {
+  return CLICK_PREFIX.test(label) ? label.replace(CLICK_PREFIX, touch ? 'Tap to ' : key ? `${key} to ` : 'Left click to ') : label;
 }
 
-export function createInteraction(container: HTMLElement, camera: THREE.PerspectiveCamera, world: World, options: { touch?: boolean } = {}) {
+export function createInteraction(container: HTMLElement, camera: THREE.PerspectiveCamera, world: World, options: { touch?: boolean; keyLabel?: () => string } = {}) {
+  const keyName = () => options.keyLabel?.() ?? 'E';
   const touch = options.touch ?? (typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches);
   const items = new Map<string, Interactable>();
   let list: Interactable[] = [], focused: Interactable | undefined, shown = '';
@@ -78,7 +84,7 @@ export function createInteraction(container: HTMLElement, camera: THREE.Perspect
 
   function show(item: Interactable | undefined) {
     focused = item;
-    if (item) { const text = promptText(labelOf(item), touch); if (text !== shown) { shown = text; el.textContent = text; } el.style.opacity = '1'; }
+    if (item) { const text = promptText(labelOf(item), touch, item.keyOnly ? keyName() : undefined); if (text !== shown) { shown = text; el.textContent = text; } el.style.opacity = '1'; }
     else el.style.opacity = '0';
   }
 
@@ -91,8 +97,8 @@ export function createInteraction(container: HTMLElement, camera: THREE.Perspect
     /** Call once a frame. `active` is false while paused or loading: nothing is offered then. */
     update(active = true) { show(active ? pick() : undefined); },
     /** Runs the item being looked at and returns true; false if there was none (so the click can do something else). */
-    activate() {
-      const item = pick(); if (!item) return false;
+    activate(fromKey = false) {
+      const item = pick(); if (!item || (item.keyOnly && !fromKey && !touch)) return false;
       item.activate(); show(pick()); return true;
     },
     get focused() { return focused; },

@@ -13,6 +13,53 @@ from kit import Model, poster_material, ROOT
 ART = os.path.join(ROOT, "assets/world-v2/art")
 
 
+PRIVY_DW = 2 * .62 - .12
+
+
+def door_privy():
+    """The privy door: seven boards on three ledges and two braces, a crescent sawn through the top. Hinge edge on the origin."""
+    m = Model("door_privy", tex=1024, seed=202)
+    DW, DB, DT = PRIVY_DW, .16, 1.93
+    n = 7
+    for i in range(n):
+        x = (i + .5) * DW / n
+        m.plank((x, DB, 0), (x, DT - m.rng.uniform(0, .012), 0), DW / n - .004, .022, up=(0, 0, 1), warp=.002, segs=1)
+    for y in (DB + .2, 1.05, DT - .2):
+        m.plank((.03, y, -.022), (DW - .03, y, -.022), .1, .022, up=(0, 0, -1), mat="wood_dark", warp=.001, segs=1)
+        for i in range(n):
+            m.nail(((i + .5) * DW / n, y + (.02 if i % 2 else -.02), .011), (0, 0, 1), .005)
+    for y0, y1 in ((DB + .26, .99), (1.11, DT - .26)):
+        m.plank((.08, y0, -.022), (DW - .08, y1, -.022), .09, .022, up=(0, 0, -1), mat="wood_dark", warp=.001, segs=1)
+    # Strap hinges: the strap is bolted along the ledge line, its knuckle turns on a pin driven into the post.
+    for y in (DB + .2, DT - .2):
+        m.box((.2, y, .013), (.44, .045, .005), "steel", chamfer=.0015)
+        m.cyl((-.012, y - .04, .012), (-.012, y + .04, .012), .011, "steel", 8)
+        m.box((-.04, y, .004), (.06, .07, .005), "steel", chamfer=.0015)
+        for x in (.06, .2, .36):
+            m.bolt((x, y, .0155), (0, 0, 1), .006, "steel_bare")
+    # A turned wooden pull, and the hook that used to hold it shut.
+    m.cyl((DW - .1, 1.05, .011), (DW - .1, 1.05, .05), .016, "wood_dark", 8)
+    m.tube([(DW - .03, 1.2, .013), (DW - .03, 1.2, .03), (DW + .0, 1.17, .03), (DW + .015, 1.1, .03), (DW + .01, 1.06, .03)], .0035, "steel_bare", 5)
+    # The crescent sawn through the top of the door.
+    cx, cy, ro = DW / 2, DT - .33, .075
+    cv, cn, cuv, cf = [], [], [], []
+    K = 12
+    for k in range(K + 1):
+        t = -1.25 + 2.5 * k / K
+        outer = (cx - .02 + math.cos(t) * ro, cy + math.sin(t) * ro)
+        inner = (cx + .022 + math.cos(t * .8) * ro * .78, cy + math.sin(t) * ro * .96)
+        if inner[0] > outer[0]:
+            inner = outer
+        cv += [(outer[0], outer[1], .0138), (inner[0], inner[1], .0138)]
+        cn += [(0, 0, 1)] * 2
+        cuv += [(outer[0], outer[1]), (inner[0], inner[1])]
+        if k:
+            cf.append((2 * k - 2, 2 * k - 1, 2 * k + 1, 2 * k))
+    m.add("void", cv, cn, cuv, cf, metres_per_uv=1)
+    m.radius = 1.2
+    return m
+
+
 def outhouse():
     """Board-and-batten privy on timber skids. The door is a ledged-and-braced one, hung on two strap hinges and left open."""
     m = Model("outhouse", tex=2048, seed=201)
@@ -58,46 +105,8 @@ def outhouse():
     m.plank((-W - .06, top_at(D) - .03, D + OUT), (W + .06, top_at(D) - .03, D + OUT), .2, .02, up=(0, 0, 1), warp=.002, segs=1)
     for sx in (-1, 1):
         m.plank((sx * (W + .01), .09, D + OUT), (sx * (W + .01), top_at(D) - .13, D + OUT), .1, .02, up=(0, 0, 1), warp=.002, segs=1)
-    # Door: seven boards on three ledges and two braces, standing open on its hinges.
-    DW, DB, DT = 2 * W - .12, .16, 1.93
-    close = m.at((-W + .06, 0, D + OUT + .022), math.radians(-52))
-    n = 7
-    for i in range(n):
-        x = (i + .5) * DW / n
-        m.plank((x, DB, 0), (x, DT - m.rng.uniform(0, .012), 0), DW / n - .004, .022, up=(0, 0, 1), warp=.002, segs=1)
-    for y in (DB + .2, 1.05, DT - .2):
-        m.plank((.03, y, -.022), (DW - .03, y, -.022), .1, .022, up=(0, 0, -1), mat="wood_dark", warp=.001, segs=1)
-        for i in range(n):
-            m.nail(((i + .5) * DW / n, y + (.02 if i % 2 else -.02), .011), (0, 0, 1), .005)
-    for y0, y1 in ((DB + .26, .99), (1.11, DT - .26)):
-        m.plank((.08, y0, -.022), (DW - .08, y1, -.022), .09, .022, up=(0, 0, -1), mat="wood_dark", warp=.001, segs=1)
-    # Strap hinges: the strap is bolted along the ledge line, its knuckle turns on a pin driven into the post.
-    for y in (DB + .2, DT - .2):
-        m.box((.2, y, .013), (.44, .045, .005), "steel", chamfer=.0015)
-        m.cyl((-.012, y - .04, .012), (-.012, y + .04, .012), .011, "steel", 8)
-        m.box((-.04, y, .004), (.06, .07, .005), "steel", chamfer=.0015)
-        for x in (.06, .2, .36):
-            m.bolt((x, y, .0155), (0, 0, 1), .006, "steel_bare")
-    # A turned wooden pull, and the hook that used to hold it shut.
-    m.cyl((DW - .1, 1.05, .011), (DW - .1, 1.05, .05), .016, "wood_dark", 8)
-    m.tube([(DW - .03, 1.2, .013), (DW - .03, 1.2, .03), (DW + .0, 1.17, .03), (DW + .015, 1.1, .03), (DW + .01, 1.06, .03)], .0035, "steel_bare", 5)
-    # The crescent sawn through the top of the door.
-    cx, cy, ro = DW / 2, DT - .33, .075
-    cv, cn, cuv, cf = [], [], [], []
-    K = 12
-    for k in range(K + 1):
-        t = -1.25 + 2.5 * k / K
-        outer = (cx - .02 + math.cos(t) * ro, cy + math.sin(t) * ro)
-        inner = (cx + .022 + math.cos(t * .8) * ro * .78, cy + math.sin(t) * ro * .96)
-        if inner[0] > outer[0]:
-            inner = outer
-        cv += [(outer[0], outer[1], .0138), (inner[0], inner[1], .0138)]
-        cn += [(0, 0, 1)] * 2
-        cuv += [(outer[0], outer[1]), (inner[0], inner[1])]
-        if k:
-            cf.append((2 * k - 2, 2 * k - 1, 2 * k + 1, 2 * k))
-    m.add("void", cv, cn, cuv, cf, metres_per_uv=1)
-    close()
+    # The door is a separate, hinged model (door_privy below): the game opens and shuts it.
+    m.door("door_privy", (-W + .06, 0, D + OUT + .022), 0.0, -1.9, width=PRIVY_DW, height=1.93, thickness=.03, start=.4)
     # Seat: a boxed bench across the back with a hinged lid board and the hole.
     m.box((0, .2 + .21, -D + .27), (2 * W - .08, .42, .5), "wood", chamfer=.01)
     m.plank((-W + .04, .635, -D + .27), (W - .04, .635, -D + .27), .52, .025, mat="wood", warp=.001, segs=1)
@@ -815,7 +824,7 @@ def antler_post():
 
 
 ASSETS = {n: (f, None) for n, f in dict(
-    outhouse=outhouse, picnic_table=picnic_table, sawhorse=sawhorse, pallet=pallet, wheelbarrow=wheelbarrow, shovel=shovel,
+    outhouse=outhouse, door_privy=door_privy, picnic_table=picnic_table, sawhorse=sawhorse, pallet=pallet, wheelbarrow=wheelbarrow, shovel=shovel,
     bucket=bucket, cans=cans, bottles=bottles, canline=canline, totem=totem, trailmarker=trailmarker, cairn=cairn, mailbox=mailbox,
     guardrail=guardrail, guardrail_end=guardrail_end, guardrail_endr=guardrail_endr, fence=fence, chair=chair, toolbox=toolbox, firewood=firewood, stump_axe=stump_axe, antler_post=antler_post,
 ).items()}

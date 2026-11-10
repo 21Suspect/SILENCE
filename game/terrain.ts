@@ -5,6 +5,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createRiver } from './river';
 import { textureVariationGLSL } from './texture-variation';
 import { createRockGeometry, createRockMaterial, createWeatheredWoodMaterial } from './surfaces';
+import { roadSurface } from './road-surface';
 
 import { WORLD_EXTENT, WORLD_RADIUS, TERRAIN_CHUNK, TERRAIN_STEP, hash, noise, pathX, riverX, roadZ, riverPresence, biomeAt, cacheTerrainBlock, heightAt, vegetationExclusion, worldGeographyGLSL, waterHeightAt } from './world';
 import type { SolidCollider } from './collision';
@@ -12,7 +13,7 @@ import { createMeshSurface } from './surface-support';
 import { naturalLayout, groundedOrigin, type LayoutScatter } from './placement';
 import { WORLD_V2, WORLD_SEED } from './world-flags';
 import { groundGeometry, buildTerrainTile, unpackTerrainTile, type TerrainTile, type PreparedTerrainTile } from './terrain-geometry';
-export { hash, noise, pathX, riverX, roadZ, heightAt } from './world';
+export { hash, noise, pathX, riverX, roadZ, roadDistance, heightAt } from './world';
 
 export const exclusion=vegetationExclusion;
 const DETAIL_RADIUS=112, TRANSITION_WIDTH=18, PREFETCH_RADIUS=144, RETAIN_RADIUS=160;
@@ -57,6 +58,8 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
   const leavesMap=texture('leaves-diff',true),leavesNormal=texture('leaves-normal');
   const stoneMap=texture('/plantassets/forest-variety/granite-diff.jpg',true),stoneNormal=texture('/plantassets/forest-variety/granite-normal.jpg');
   material.onBeforeCompile = (shader) => {
+    // The rebuilt world's road is worked out in game/road-surface.ts; the original keeps its narrow dirt track.
+    const road=WORLD_V2?roadSurface():undefined;
     shader.uniforms.uNearCenter={value:nearCenter};shader.uniforms.uNearCoverage=nearCoverage;shader.uniforms.uDistantTint={value:distantTint};
     shader.uniforms.uRoadMap={value:roadMap};shader.uniforms.uRoadNormal={value:roadNormal};
     shader.uniforms.uLeavesMap={value:leavesMap};shader.uniforms.uLeavesNormal={value:leavesNormal};
@@ -73,12 +76,12 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
       ${textureVariationGLSL}
       ${worldGeographyGLSL}
       ${horizonTextureGLSL}
-      float roadHalfWidth(float x){return 1.55+worldNoise(vec2(x*.047,118.))*.65+worldNoise(vec2(x*.17,72.))*.15;}
+      ${road?road.functions:`float roadHalfWidth(float x){return 1.55+worldNoise(vec2(x*.047,118.))*.65+worldNoise(vec2(x*.17,72.))*.15;}
       float roadWeight(vec3 p){
         float width=roadHalfWidth(p.x);
         float erosion=(surfaceNoise(p.xz*.8)-.5)*.24+(surfaceNoise(p.xz*2.3)-.5)*.1;
-        return (1.-smoothstep(width-.55,width+.48,abs(p.z-roadCenter(p.x))+erosion))*trailPresence(p.xz);
-      }
+        return (1.-smoothstep(width-.55,width+.48,abs(p.z-roadCenter(p.x))+erosion))*roadPresence(p.xz);
+      }`}
       float bedWeight(vec3 p){float edge=1.-smoothstep(2.7,8.,streamOffset(p.xz));float damp=1.-smoothstep(.10,1.35,p.y-streamHeight(p.z));return clamp(edge*damp*streamPresence(p.z),0.,1.);}
       ${shader.fragmentShader}`.replace('#include <map_fragment>', `
       vec2 p=vGroundPosition.xz;
@@ -100,7 +103,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
       float stoneBlend=clamp(vBiome.w+vBiome.z*.24+(1.-slopeNormal.y)*vBiome.w*.3,0.,1.);
       TexturePatch roadPatch=groundTexturePatch(groundUv/2.+vec2(47.,13.));
       TexturePatch gravelPatch=groundTexturePatch(groundUv/2.2+vec2(9.,31.));
-      float road=roadWeight(vGroundPosition),bank=bedWeight(vGroundPosition);
+      ${road?road.mask:'float road=roadWeight(vGroundPosition),bank=bedWeight(vGroundPosition);'}
       vec3 groundColor=vec3(0.),leafColor=vec3(0.);
       if(bank<1.){
         groundColor=samplePatch(map,soilPatch).rgb*diffuseColor.rgb;
@@ -130,7 +133,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
       dirtCoverage=max(dirtCoverage,padCoverage);
       groundColor=mix(groundColor,dirt,padCoverage);
       `:''}
-      if(road>.001){
+      ${road?road.colour:`if(road>.001){
         float roadDistance=abs(p.y-roadCenter(p.x));
         float roadWidth=roadHalfWidth(p.x);
         float shoulder=smoothstep(roadWidth*.42,roadWidth+.2,roadDistance);
@@ -145,7 +148,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
         float sediment=shoulder*smoothstep(.36,.7,surfaceNoise(p*.61+vec2(8.,31.)))*.42;
         roadSurface=mix(roadSurface,leafColor*vec3(.66,.6,.49),sediment);
         groundColor=mix(groundColor,roadSurface,road*.94);
-      }
+      }`}
       if(bank>.001){
         vec3 pebbles=samplePatch(uBedMap,gravelPatch).rgb;
         pebbles*=mix(vec3(.86,.88,.79),vec3(1.08,1.03,.97),surfaceNoise(p*.21+36.));
@@ -161,7 +164,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
       float roughnessFactor=roughness;
       if(bank<1.)roughnessFactor*=samplePatch(roughnessMap,soilPatch).g;
       roughnessFactor=mix(roughnessFactor,.89,max(leafBlend,dirtCoverage));roughnessFactor=mix(roughnessFactor,.92,stoneBlend);
-      if(road>.001)roughnessFactor=mix(roughnessFactor,samplePatch(uRoadNormal,roadPatch).a*.82+.08,road);
+      ${road?road.roughness:'if(road>.001)roughnessFactor=mix(roughnessFactor,samplePatch(uRoadNormal,roadPatch).a*.82+.08,road);'}
       if(bank>.001)roughnessFactor=mix(roughnessFactor,samplePatch(uBedNormal,gravelPatch).a*.72+.12,bank);
       roughnessFactor=mix(roughnessFactor,.98,distantBlend);
       `).replace('#include <normal_fragment_maps>',`
@@ -170,7 +173,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
       detailNormal.xy*=normalScale;
       float litterNormalBlend=max(leafBlend,dirtCoverage);
       if(litterNormalBlend>.002){vec3 n=samplePatchNormal(uLeavesNormal,leafPatch);n.xy*=.72;detailNormal=mix(detailNormal,n,litterNormalBlend);}
-      if(road>.001){vec3 n=samplePatchNormal(uRoadNormal,roadPatch);n.xy*=.5;detailNormal=mix(detailNormal,n,road);}
+      ${road?road.normal:'if(road>.001){vec3 n=samplePatchNormal(uRoadNormal,roadPatch);n.xy*=.5;detailNormal=mix(detailNormal,n,road);}'}
       if(bank>.001){vec3 n=samplePatchNormal(uBedNormal,gravelPatch);n.xy*=.65;detailNormal=mix(detailNormal,n,bank);}
       vec3 worldGroundNormal=inverseTransformDirection(normal,viewMatrix);
       vec3 groundTangent=normalize(vec3(worldGroundNormal.y,-worldGroundNormal.x,0.));
@@ -188,7 +191,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
       normal=normalize(mat3(viewMatrix)*mix(surfaceNormal,worldGroundNormal,distantBlend));
       `);
   };
-  material.customProgramCacheKey=()=> `silence-ground-natural-road-v9${WORLD_V2?`-w2-${WORLD_SEED}`:''}`;
+  material.customProgramCacheKey=()=> `silence-ground-natural-road-v10${WORLD_V2?`-w2-${WORLD_SEED}`:''}`;
   const terrainChunks=new Map<string,{tile:TerrainTile;mesh:THREE.Mesh}>();
   // The low-detail distant surface preserves the mountain silhouette and covers
   // teleports while near chunks stream. It is below the exact walkable surface.
