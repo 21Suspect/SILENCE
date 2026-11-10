@@ -7,6 +7,6 @@
   "creature/*.mp3": {
     "source": "Generated for SILENCE by scripts/assets/audio/creature_sounds.py (procedural synthesis).",
     "license": "Same terms as the game's own code and assets.",
-    "note": "call_3 to call_6 are slowed excerpts of 'scary sound.mp3' and carry that file's terms."
+    "note": "call_3 and call_4 are slowed excerpts of 'scary sound.mp3' and carry that file's terms."
   }
 }

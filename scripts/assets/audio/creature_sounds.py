@@ -344,38 +344,18 @@ def branch_heavy(take):
 
 
 # ----------------------------------------------------------------------------- knocks
-def knock(material, seed, force=1.0):
-    """One rap of something hard against a surface.
-
-    trunk: a standing, living trunk is solid. Nearly all of it is the impact itself, a dead 'tock' with a
-           low thump under it and almost no note: any ring makes it sound like a hollow log or bamboo.
-    plank: the board wall of a shack. A flat slap with a short, boxy, woody body and a loose rattle.
-    metal: sheet steel on a frame. A bright bang, an uneven clangy ring, and the sheet buzzing after.
-    """
+def knock(seed, force=1.0):
+    """One rap of something hard on a standing trunk. A living trunk is solid: nearly all of it is the impact
+    itself, a dead 'tock' with a low thump under it and almost no note. Any ring makes it a hollow log."""
     r = np.random.default_rng(seed)
     n = int(.9 * SR)
     t = np.arange(n) / SR
     noise = r.standard_normal(n)
-    if material == "trunk":
-        click = band(noise, 700, 3200) * np.exp(-t / .0035)
-        body = lowpass(noise, 420, 3) * np.exp(-t / .016) * 5
-        thump = np.sin(2 * np.pi * (r.uniform(92, 118) * (1 + .5 * np.exp(-t / .012))) * t) * np.exp(-t / .028)
-        tick = struck_wood(n, [(r.uniform(1050, 1400), .0045, .3), (r.uniform(2100, 2700), .003, .2)], seed)
-        y = click * 1.0 + body * .9 + thump * .8 + tick
-    elif material == "plank":
-        slap = band(noise, 500, 5000) * np.exp(-t / .005)
-        f = r.uniform(.9, 1.12)
-        board = struck_wood(n, [(215 * f, .03, 1.0), (388 * f, .024, .8), (742 * f, .014, .6), (1290 * f, .008, .4), (2350 * f, .005, .25)], seed)
-        rattle = band(noise, 1500, 6000) * np.exp(-t / .05) * (np.sin(2 * np.pi * 47 * t) > .3) * .12
-        y = slap * 1.1 + board * .9 + lowpass(noise, 300, 2) * np.exp(-t / .03) * 2 + rattle
-    else:
-        bang = highpass(noise, 800) * np.exp(-t / .004)
-        f = r.uniform(.88, 1.14)
-        ring = struck_wood(n, [(231 * f, .19, .8), (397 * f, .26, .7), (689 * f, .16, .9), (1113 * f, .21, .6), (1742 * f, .12, .55), (2630 * f, .09, .4), (3907 * f, .06, .3), (5200 * f, .04, .2)], seed)
-        ring *= 1 + .5 * np.sin(2 * np.pi * r.uniform(5, 9) * t)                       # the sheet wobbling
-        buzz = band(noise, 2200, 7000) * np.exp(-t / .12) * (np.sin(2 * np.pi * r.uniform(88, 120) * t) > .55) * .25
-        y = bang * 1.2 + ring * .8 + buzz
-    return y * force
+    click = band(noise, 700, 3200) * np.exp(-t / .0035)
+    body = lowpass(noise, 420, 3) * np.exp(-t / .016) * 5
+    thump = np.sin(2 * np.pi * (r.uniform(92, 118) * (1 + .5 * np.exp(-t / .012))) * t) * np.exp(-t / .028)
+    tick = struck_wood(n, [(r.uniform(1050, 1400), .0045, .3), (r.uniform(2100, 2700), .003, .2)], seed)
+    return (click * 1.0 + body * .9 + thump * .8 + tick) * force
 
 
 # When the knocks come. Unhurried, and never quite even: something that knows it is being listened to.
@@ -387,14 +367,12 @@ KNOCK_PATTERNS = [
 ]
 
 
-def knocks(material, pattern):
+def knocks(pattern):
     def make(take):
         r = take.r
         hits = [(at + (r.uniform(-.03, .03) if i else 0), g * r.uniform(.85, 1.1)) for i, (at, g) in enumerate(KNOCK_PATTERNS[pattern])]
-        d = hits[-1][0] + (1.5 if material == "metal" else .9)
-        y = place([(at, g, knock(material, take.seed * 13 + i, 1.0)) for i, (at, g) in enumerate(hits)], d)
-        wet, tail, damp = dict(trunk=(.16, 1.1, 3800), plank=(.2, .8, 4500), metal=(.2, 1.2, 6500))[material]
-        return finish(forest(y, wet=wet, seconds=tail, damp=damp, seed=take.seed), peak=.86, fade_out=.3)
+        y = place([(at, g, knock(take.seed * 13 + i)) for i, (at, g) in enumerate(hits)], hits[-1][0] + .9)
+        return finish(forest(y, wet=.16, seconds=1.1, damp=3800, seed=take.seed), peak=.86, fade_out=.3)
     return make
 
 
@@ -427,10 +405,6 @@ def call(kind):
             y = call_moan(take)
         elif kind == "drone":
             y = call_drone(take)
-        else:
-            # Both at once: the voice riding on the drone, starting a moment after it.
-            a, b = call_drone(take), call_moan(take)
-            y = place([(0, .8, a), (take.around(.7, .3), 1.0, b)], max(len(a) / SR, len(b) / SR + 1.0))
         return finish(far(y, take.around(55, .15)), fade_out=.6)
     return make
 
@@ -442,13 +416,12 @@ for i, (fn, base) in enumerate(((hiss_teeth, 400), (hiss_teeth, 401), (hiss_ratt
     SOUNDS[f"hiss_{i + 1}"] = (fn, base)
 for i, (fn, base) in enumerate(((branch_dry, 500), (branch_dry, 501), (branch_dry, 502), (branch_green, 510), (branch_green, 511), (branch_heavy, 520))):
     SOUNDS[f"branch_{i + 1}"] = (fn, base)
-for i, kind in enumerate(("moan", "moan", "drone", "drone", "both", "both")):
+for i, kind in enumerate(("moan", "moan", "drone", "drone")):
     SOUNDS[f"call_{i + 1}"] = (call(kind), 600 + i)
 for i in range(len(CLICK_TAKES)):
     SOUNDS[f"clicks_{i + 1}"] = (click_take(i), 700 + i)
-for material in ("trunk", "plank", "metal"):
-    for i in range(len(KNOCK_PATTERNS)):
-        SOUNDS[f"knock_{material}_{i + 1}"] = (knocks(material, i), 800 + i + dict(trunk=0, plank=10, metal=20)[material])
+for i in range(len(KNOCK_PATTERNS)):
+    SOUNDS[f"knock_trunk_{i + 1}"] = (knocks(i), 800 + i)
 
 
 def write(name, x):

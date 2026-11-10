@@ -8,13 +8,11 @@ const GROUPS: [title: string, when: string, sounds: [file: string, label: string
   ["Roar", "the grab, and (quieter, from a distance) the start of a hunt. The game picks a different take each time.",
     takes("screech", ["take", "take", "take", "take", "take"])],
   ["Hiss", "when the flashlight pins it", takes("hiss", ["through teeth", "through teeth", "rattle only", "rattle only", "wet growl", "wet growl"])],
-  ["Clicks", "close, and you are not looking at it; more often when you are shut indoors",
+  ["Clicks", "it has been close for a while and you have not found it",
     takes("clicks", ["short, ends on an in-breath", "slow, swelling once", "stops as if listening, then picks up", "very slow single ticks", "long, runs together near the end", "starts fast and winds down", "with a held breath, ends on an in-breath", "sparse and patient"])],
-  ["Knocks on a tree trunk", "outdoors, never while you are looking at it", takes("knock_trunk", ["two, then one late", "two, slow", "three, a long wait, one more", "once"])],
-  ["Knocks on a board wall", "when you are inside the cabin, chapel or mine", takes("knock_plank", ["two, then one late", "two, slow", "three, a long wait, one more", "once"])],
-  ["Knocks on sheet metal", "when you are inside the relay hut", takes("knock_metal", ["two, then one late", "two, slow", "three, a long wait, one more", "once"])],
+  ["Knocks on a tree trunk", "rare: when you have stopped to listen and are not looking at it", takes("knock_trunk", ["two, then one late", "two, slow", "three, a long wait, one more", "once"])],
   ["Branch", "it moving in the trees, out of sight", takes("branch", ["dry stick", "dry stick", "dry stick", "green limb tearing", "green limb tearing", "heavy break dropping through brush"])],
-  ["Distant call", "when it has lost you", takes("call", ["moan", "moan", "from the recording, slowed", "from the recording, slowed", "both together", "both together"])],
+  ["Distant call", "when it has lost you", takes("call", ["moan", "moan", "from the recording, slowed", "from the recording, slowed"])],
   ["Already in the game", "", [["scary sound", "Reveal recording"]]],
 ];
 

@@ -16,7 +16,7 @@ type Point = { x: number; y: number; z: number };
 
 /** A deliberately quiet soundscape. Nothing is audible until a user gesture. */
 /** How many takes of each creature sound ship in public/audio/creature (see scripts/assets/audio/creature_sounds.py). */
-export const CREATURE_TAKES = { screech: 5, hiss: 6, branch: 6, call: 6, clicks: 8, knock_trunk: 4, knock_plank: 4, knock_metal: 4 } as const;
+export const CREATURE_TAKES = { screech: 5, hiss: 6, branch: 6, call: 4, clicks: 8, knock_trunk: 4 } as const;
 export type CreatureSound = keyof typeof CREATURE_TAKES;
 
 export class ForestAudio {
@@ -273,8 +273,8 @@ export class ForestAudio {
     return true;
   }
 
-  /** It raps on what is beside it: a trunk outdoors, or the wall of whatever the player is hiding in. */
-  knock(position: Point, material: 'trunk' | 'plank' | 'metal' = 'trunk'): boolean { return this.sample(`knock_${material}`, position, .85, 7); }
+  /** It raps on the trunk beside it. */
+  knock(position: Point): boolean { return this.sample('knock_trunk', position, .85, 7); }
 
   /** The roar: the grab at full strength right at the face, quieter when a hunt begins at range. */
   screech(position: Point, intensity = 1): void { this.sample('screech', position, .35 + .65 * intensity, 10); }

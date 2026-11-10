@@ -128,7 +128,7 @@ export function createGame(container:HTMLElement) {
     // A teleport is not a velocity.
     ...(Math.hypot(player.x-lastFoot.x,player.z-lastFoot.z)>dt*12?{vx:0,vz:0}:{vx:(player.x-lastFoot.x)/Math.max(dt,.001),vz:(player.z-lastFoot.z)/Math.max(dt,.001)}),
     sprinting:hurry&&!crouch,crouching:crouch,flashlightOn:flashlight.active,inWater,onLadder:climbing,
-    indoors:world2?.indoors(player)??false,shelter:world2?.shelter(player),untouchable:flying||!!grab,blackout:!!grab&&grabTimeline(grab.t).black>=1,
+    indoors:world2?.indoors(player)??false,untouchable:flying||!!grab,blackout:!!grab&&grabTimeline(grab.t).black>=1,
   });
   let hours=16,cycleSpeed=1,flying=false;
   let started=false,disposed=false,raf=0,last=performance.now(),frameAverage=16.67;
@@ -243,15 +243,15 @@ export function createGame(container:HTMLElement) {
   function filterTextures(){scene.traverse(o=>{if(!(o instanceof THREE.Mesh))return;for(const material of Array.isArray(o.material)?o.material:[o.material])for(const value of Object.values(material))if(value instanceof THREE.Texture&&!value.isRenderTargetTexture&&value.image?.width>0&&value.image?.complete!==false&&filtered.get(value)!==Math.min(anisotropy,settings.anisotropy)){const af=Math.min(anisotropy,settings.anisotropy);filtered.set(value,af);value.anisotropy=af;value.needsUpdate=true;}});}
   const diagnostic={ready:true,position:player,elapsed:0,darkness:0,fps:60,drawCalls:0,triangles:0,active:false,
     flashlightStatus(){return flashlight.inspect();},
-    /** Dev: play one creature sound 4 m in front of the player. Names: screech, grab, hiss, stalk (clicks), knock, knock-plank, knock-metal, branch, breath, call, reveal. */
+    /** Dev: play one creature sound 4 m in front of the player. Names: screech, grab, hiss, stalk (clicks), knock, branch, breath, call, reveal. */
     hear(name:string){
       void audio.start();void audio.resume();
       camera.getWorldDirection(forward);const at=player.clone().addScaledVector(forward,4);at.y+=1.5;
       if(name==='screech')audio.screech(at,.6);else if(name==='grab')audio.screech(at,1);else if(name==='hiss')audio.hiss(at);
       else if(name==='stalk')audio.stalkCue(at);else if(name==='reveal')audio.creatureReveal(at);
-      else if(name==='knock'||name==='knock-plank'||name==='knock-metal')audio.knock(at,name==='knock'?'trunk':name==='knock-plank'?'plank':'metal');
+      else if(name==='knock')audio.knock(at);
       else if(name==='branch'||name==='breath'||name==='call')audio.cue(name,at);
-      else return 'unknown: screech, grab, hiss, stalk, knock, knock-plank, knock-metal, branch, breath, call, reveal';
+      else return 'unknown: screech, grab, hiss, stalk, knock, branch, breath, call, reveal';
       return 'playing '+name;
     },
     creatureModelStatus(){return encounters.modelStatus();},

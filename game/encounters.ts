@@ -14,8 +14,6 @@ import {createCreatureBrain,createRandom,type BrainEvent,type BrainOutput,type N
 export type CreatureSenses=Omit<PlayerPercept,'x'|'y'|'z'>&{
   /** The screen is black (the player is being taken): nothing can pop in or out of view. */
   blackout?:boolean;
-  /** What the building the player is inside is made of, if any: where and on what the creature knocks. */
-  shelter?:'plank'|'metal';
 };
 export type CreatureMode='natural'|'hunt'|'idle'|'walk'|'run'|'tree';
 
@@ -221,10 +219,10 @@ export function createEncounters(
   // Unseen it may not close inside FAR_HOLD: the body has to be placed out of view first.
   const NEAR=80,FAR=105,FAR_HOLD=50,SIGHT_LIMIT=90,LOOK_EVERY=.2,BEAM_RANGE=26,BEAM_ANGLE=15*Math.PI/180,REVEAL_GAP=180;
   // From the middle of its body, how far it can bend and reach down, for a player it has run over.
-  const BODY_REACH=1.2,CALL_GAP=60,FLINCH_BRAKE=11;
+  const BODY_REACH=1.2,CALL_GAP=180,PRESENCE_GAP=30,FLINCH_BRAKE=11;
   const seed=options.seed??7741,brain=createCreatureBrain({random:createRandom(seed),places:options.places}),hostRandom=createRandom(seed*31+7);
   let placed=false,materializeIn=0,lookIn=0,lineOfSight=false,beamOnIt=false,reach=Infinity,strikePending=false,grabbing=false,strikePose=0,blackout=false;
-  let lastReveal=-Infinity,lastCall=-Infinity,nextBranch=70,nextClicks=25,nextKnock=60,shelter:'plank'|'metal'|undefined,stuck=0,detourUntil=0,detourSide=1,lastOutput:BrainOutput|undefined;
+  let lastReveal=-Infinity,lastCall=-Infinity,nextBranch=150,nextClicks=40,nextKnock=240,lastPresence=-Infinity,nearSince=-1,stillFor=0,lastSpot={x:0,z:0},stuck=0,detourUntil=0,detourSide=1,lastOutput:BrainOutput|undefined;
   const percept:PlayerPercept={x:0,y:0,z:0,vx:0,vz:0,sprinting:false,crouching:false,flashlightOn:false,inWater:false,onLadder:false,indoors:false,untouchable:false};
   const eye=new THREE.Vector3(),chest=new THREE.Vector3();
   let treeCrawl:ReturnType<typeof createTreeCrawl>|undefined;
@@ -510,19 +508,21 @@ export function createEncounters(
       if(protectedNow()){outsideReady=false;offscreen.reset();}
       if(dismissRequested){if(outsideReady&&hideBody(elapsed,'dismiss')){placeFar(player,150,220);dismissRequested=false;brain.forget();}}
       else if(distance>FAR&&out.behaviour!=='hunt'&&outsideReady)hideBody(elapsed,'recede');
-      // Letting itself be heard. Only while the player is not looking at it: a knock or a click from something in
-      // plain view is just an animal making a noise.
-      if(root.visible&&!directSight&&!grabbing&&out.behaviour!=='hunt'&&out.behaviour!=='strike'){
-        const hiding=percept.indoors;
-        if(elapsed>nextClicks&&distance<(hiding?45:28)){
-          // Clicking from where its head is; more of it when the player has shut themselves in somewhere.
+      // Letting itself be heard. Sparingly, and each for a reason; never while the player is looking at it (a noise
+      // from something in plain view is just an animal making a noise), and never two within half a minute.
+      stillFor=Math.hypot(percept.vx,percept.vz)<.4?stillFor+dt:0;
+      const closeBy=distance<(percept.indoors?45:28);
+      nearSince=closeBy?(nearSince<0?elapsed:nearSince):-1;
+      if(root.visible&&!directSight&&!grabbing&&out.behaviour!=='hunt'&&out.behaviour!=='strike'&&elapsed-lastPresence>PRESENCE_GAP){
+        if(closeBy&&elapsed-nearSince>8&&elapsed>nextClicks){
+          // Clicks: it has been close for a while and the player has not found it. From where its head is. A player
+          // shut indoors hears it a little more often: it is outside, and wants them to know.
           cuePosition.copy(root.position);cuePosition.y+=1.2;
-          if(audio.stalkCue(cuePosition))nextClicks=elapsed+(hiding?12:22)+hostRandom()*(hiding?14:26);
-        }else if(elapsed>nextKnock&&distance>8&&distance<42){
-          // A rap on the trunk beside it, or, with the player indoors, on the wall between them.
-          if(shelter){const reach=Math.min(3.5,distance*.5)/Math.max(distance,.001);cuePosition.set(player.x+(root.position.x-player.x)*reach,player.y+1.3,player.z+(root.position.z-player.z)*reach);}
-          else{cuePosition.copy(root.position);cuePosition.y+=1.6;}
-          if(audio.knock(cuePosition,shelter??'trunk'))nextKnock=elapsed+(hiding?28:45)+hostRandom()*(hiding?40:60);
+          if(audio.stalkCue(cuePosition)){lastPresence=elapsed;nextClicks=elapsed+(percept.indoors?50:80)+hostRandom()*(percept.indoors?50:90);}
+        }else if(elapsed>nextKnock&&stillFor>5&&distance>10&&distance<38&&!percept.indoors){
+          // A knock on the trunk beside it: the answer to a player who has stopped to listen. Rare.
+          cuePosition.copy(root.position);cuePosition.y+=1.6;
+          if(audio.knock(cuePosition)){lastPresence=elapsed;nextKnock=elapsed+240+hostRandom()*240;}
         }
       }
       // The old spawn sound now marks the first close approach in a while.
@@ -541,7 +541,10 @@ export function createEncounters(
       }
     }
     // Branches crack where it really is, now and then, while it is out of sight.
-    if(!directSight&&elapsed>nextBranch&&distance>25&&distance<90){nextBranch=elapsed+70+hostRandom()*80;cuePosition.copy(root.position);cuePosition.y+=1;audio.cue('branch',cuePosition);}
+    // A branch breaks where it really is, but only when it has actually covered ground out of sight since the last one.
+    if(!directSight&&elapsed>nextBranch&&distance>25&&distance<90&&elapsed-lastPresence>PRESENCE_GAP&&Math.hypot(root.position.x-lastSpot.x,root.position.z-lastSpot.z)>18){
+      nextBranch=elapsed+150+hostRandom()*150;lastPresence=elapsed;lastSpot.x=root.position.x;lastSpot.z=root.position.z;cuePosition.copy(root.position);cuePosition.y+=1;audio.cue('branch',cuePosition);
+    }
   }
   return {
     spawn(player:THREE.Vector3,forward:THREE.Vector3,mode:CreatureMode='natural'){
@@ -565,7 +568,7 @@ export function createEncounters(
       return true;
     },
     /** Game over: a new night. */
-    restart(origin:THREE.Vector3,elapsed:number){const moved=this.relocate(origin,elapsed);brain.reset();lastReveal=-Infinity;nextBranch=elapsed+70;return moved;},
+    restart(origin:THREE.Vector3,elapsed:number){const moved=this.relocate(origin,elapsed);brain.reset();lastReveal=-Infinity;nextBranch=elapsed+150;nextClicks=elapsed+40;nextKnock=elapsed+240;return moved;},
     visibilityStatus(){return{presence:root.visible?'body':'unseen',visible:root.visible,mode:adminMode,treePhase:treeCrawl?(treeCrawl.landing>0?'landing':treeCrawl.descending?'descending':'perched'):null,modelReady:sculpt.ready,inView:root.visible&&protectedNow(),offscreenSeconds:offscreen.outsideSeconds,pendingSpawn:!!pendingSpawn,pendingDismiss:dismissRequested,directSight,grabbing,position:root.position.toArray(),senses:{lineOfSight,beamOnIt,reach},awareness:awareness.inspect(),brain:brain.inspect(),transitions:transitions.map(t=>({...t,position:[...t.position]}))};},
     solidColliders():SolidCollider[]{
       // Mid-grab the limbs stop shoving the player about; the camera belongs to the grab.
@@ -591,7 +594,7 @@ export function createEncounters(
     update(dt:number,elapsed:number,player:THREE.Vector3,forward:THREE.Vector3,darkness:number,hours=16,senses?:CreatureSenses){
       currentDarkness=darkness;blackout=!!senses?.blackout;
       percept.x=player.x;percept.y=player.y;percept.z=player.z;
-      if(senses){percept.vx=senses.vx;percept.vz=senses.vz;percept.sprinting=senses.sprinting;percept.crouching=senses.crouching;percept.flashlightOn=senses.flashlightOn;percept.inWater=senses.inWater;percept.onLadder=senses.onLadder;percept.indoors=senses.indoors;shelter=senses.shelter;percept.untouchable=!!senses.untouchable;}
+      if(senses){percept.vx=senses.vx;percept.vz=senses.vz;percept.sprinting=senses.sprinting;percept.crouching=senses.crouching;percept.flashlightOn=senses.flashlightOn;percept.inWater=senses.inWater;percept.onLadder=senses.onLadder;percept.indoors=senses.indoors;percept.untouchable=!!senses.untouchable;}
       tick(dt,elapsed,player,forward,hours);listener.root.visible=root.visible;
     },
     dispose(){scene.remove(root);sculpt.dispose();},
