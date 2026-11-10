@@ -5,6 +5,8 @@ export type SolidCollider = ({kind:'capsule'; ax:number; az:number; bx:number; b
     surfaceHeight?:(x:number,z:number)=>number|undefined;
     /** Optional exact bark contact supplied by a streamed vegetation batch. */
     barkContact?:(angle:number,y:number)=>{x:number;y:number;z:number}|undefined;
+    /** A tree's lowest bough, world y: below it the bole is bare, above it the crown hides whatever is on the trunk. */
+    crownBase?:number;
     /** Optional center-line height for articulated/diagonal capsules. */
     heightAt?:(x:number,z:number)=>number|undefined};
 export type CharacterPosition = {x:number;y:number;z:number};

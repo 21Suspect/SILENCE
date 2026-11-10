@@ -45,6 +45,22 @@ export function indoorsAt(x: number, z: number) {
   }
   return false;
 }
+/**
+ * The way out of the roofed building around a point: where its door is and which way is out (a unit vector), or
+ * undefined outside. The creature waits in view of it for a player who has shut themselves in.
+ */
+export function doorAt(x: number, z: number) {
+  for (const p of roofed) {
+    const f = p.footprint!, c = Math.cos(p.yaw), s = Math.sin(p.yaw), dx = x - p.x, dz = z - p.z;
+    const lx = dx * c - dz * s, lz = dx * s + dz * c;
+    if (Math.abs(lx - f.cx) >= f.hx * INSIDE || Math.abs(lz - f.cz) >= f.hz * INSIDE) continue;
+    const [ex, ez] = p.entrance ?? [f.cx, f.cz + f.hz + 1];
+    const [doorX, doorZ] = placeLocal(p, ex, ez), [midX, midZ] = placeLocal(p, f.cx, f.cz);
+    const out = Math.hypot(doorX - midX, doorZ - midZ) || 1;
+    return { id: p.id, x: doorX, z: doorZ, outX: (doorX - midX) / out, outZ: (doorZ - midZ) / out };
+  }
+  return undefined;
+}
 /** Where a caught player wakes: on the ground just out from the cabin door, facing it. */
 export function cabinWakePoint() {
   const cabin = POI_PLACEMENTS.find(p => p.id === 'cabin');

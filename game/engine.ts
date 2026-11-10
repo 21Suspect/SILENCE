@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { WORLD_V2, WORLD_SEED } from './world-flags';
-import { createWorldV2 } from './world-v2';
+import { createWorldV2, doorAt } from './world-v2';
 import { channelOffset } from './world-noise';
 import {readSettings,type Action} from './settings';
 import { createTerrain, heightAt, exclusion, riverX, roadZ, pathX } from './terrain';
@@ -87,7 +87,7 @@ export function createGame(container:HTMLElement) {
   };
   // It patrols the places the player needs: the rebuilt world's landmarks, or the classic destinations.
   const creaturePlaces=WORLD_V2?POI_PLACEMENTS.filter(p=>['cabin','hut','generator','mast','lookout','logstack','camp','chapel','mine'].includes(p.asset)).map(p=>({x:p.x,z:p.z})):WORLD_DESTINATIONS.map(d=>({x:d.x,z:d.z}));
-  const encounters=createEncounters(scene,heightAt,audio,collisions,readEncounterView,riverSurfaceAt,{places:creaturePlaces,seed:WORLD_SEED||7741});
+  const encounters=createEncounters(scene,heightAt,audio,collisions,readEncounterView,riverSurfaceAt,{places:creaturePlaces,seed:WORLD_SEED||7741,doorAt:world2?doorAt:undefined});
   const unsubscribeNoise=noise.subscribe(e=>{if(e.x!==undefined&&e.z!==undefined)encounters.hear({loudness:e.loudness,source:e.source,x:e.x,z:e.z} satisfies CreatureNoise);});
   const creature=scene.getObjectByName('something-between-the-trees')!;
   const velocity=new THREE.Vector3();
@@ -267,6 +267,10 @@ export function createGame(container:HTMLElement) {
       collisions.replace('creature',encounters.solidColliders());
       return {brain:encounters.visibilityStatus().brain,presence:encounters.visibilityStatus().presence,position:creature.position.toArray(),grab:grab?{...grab}:undefined};
     },
+    /** The scripted opening: phase ('quiet', 'glimpse', 'interlude', 'tree', 'breathing', 'free'), clock, the encounter running. */
+    opening(){return encounters.openingStatus();},
+    /** Jump the opening to a phase now, e.g. 'glimpse' or 'tree' to see an encounter without waiting for it. */
+    openingJump(phase:'quiet'|'glimpse'|'interlude'|'tree'|'breathing'|'free'){encounters.jumpOpening(phase);return encounters.openingStatus();},
     /** The pause menu's creature spawns: 'natural', 'hunt', 'tree', 'idle', 'walk' or 'run'. */
     creatureSpawn(mode:CreatureMode='natural'){camera.getWorldDirection(forward);encounters.spawn(player,forward,mode);},
     creatureHunt(){this.creatureSpawn('hunt');},
@@ -318,7 +322,9 @@ export function createGame(container:HTMLElement) {
     collisionProbe(x:number,z:number){return collisions.nearby(x,z,5);},
     move(dx:number,dz:number){const p=moveCharacter(player,dx,dz,1.69,heightAt,collisions);player.set(p.x,p.y,p.z);return player.toArray();},
     teleport,
-    look(y:number,p:number){yaw=y;pitch=p;}
+    look(y:number,p:number){yaw=y;pitch=p;},
+    /** Run one whole engine frame now (sky, forest and colliders, drawing): a hidden tab may not run frames at all. */
+    snap(){last=performance.now()-16;animate(performance.now());return camera.position.toArray();},
   };
   if(import.meta.env.DEV)(window as unknown as {__SILENCE__:typeof diagnostic}).__SILENCE__=diagnostic;
 

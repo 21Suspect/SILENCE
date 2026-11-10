@@ -25,9 +25,12 @@ export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,wo
   let solids:SolidCollider[]=[],blockers:SolidCollider[]=[],supports:SolidCollider[]=[],layers:SolidCollider[]=[],cacheX=Infinity,cacheZ=Infinity,cacheAge=1;
   let route:{x:number;z:number}[]=[],goal={x:0,z:0},lastHeading={x:0,z:0},replanIn=0,replans=0,lastBlocked=false,routeRadius=radius;
   let travelSpeed=0,heading=0,headingReady=false,angularVelocity=0,lastDesiredSpeed=0,referenceY:number|undefined;
+  // Footholds that could not be found, by where they were asked for, for a moment: a foot with nowhere to go is asked
+  // about every frame, and each failed search tries nearly a hundred places against every obstacle near.
+  let clock=0;const failed=new Map<string,number>();
   const baseSurfaceAt=(x:number,z:number)=>Math.max(heightAt(x,z),waterSurfaceAt?.(x,z)??-Infinity);
   function refresh(x:number,z:number,dt=0,force=false){
-    cacheAge+=dt;if(!force&&cacheAge<.3&&Math.hypot(x-cacheX,z-cacheZ)<2)return;
+    clock+=dt;cacheAge+=dt;if(!force&&cacheAge<.3&&Math.hypot(x-cacheX,z-cacheZ)<2)return;
     cacheX=x;cacheZ=z;cacheAge=0;solids=world.nearby(x,z,27).filter(c=>!ignored(c));layers=solids.filter(c=>c.tag==='bridge deck'||c.tag==='bridge timber');const layered=new Set(layers);supports=solids.filter(c=>!layered.has(c)&&creatureCanClimb(c,heightAt));const climbable=new Set(supports);blockers=solids.filter(c=>!climbable.has(c)&&!layered.has(c));
   }
   function clear(x:number,z:number,r=radius){
@@ -67,16 +70,26 @@ export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,wo
     return ceiling;
   }
   function findFoot(x:number,z:number,rootX:number,rootZ:number,fromX?:number,fromZ?:number){
+    const key=`${Math.round(x*5)},${Math.round(z*5)},${Math.round(rootX*5)},${Math.round(rootZ*5)},${fromX===undefined?'':Math.round(fromX*5)},${fromZ===undefined?'':Math.round(fromZ*5)},${referenceY===undefined?'':Math.round(referenceY*5)}`;
+    if((failed.get(key)??-Infinity)>clock)return fromX!==undefined&&fromZ!==undefined?{x:fromX,y:supportAt(fromX,fromZ)+.035,z:fromZ}:{x,y:supportAt(x,z)+.035,z};
+    const found=searchFoot(x,z,rootX,rootZ,fromX,fromZ);
+    if(found.failed){if(failed.size>512)failed.clear();failed.set(key,clock+.3);}
+    return found.foot;
+  }
+  function searchFoot(x:number,z:number,rootX:number,rootZ:number,fromX?:number,fromZ?:number):{foot:Point;failed?:boolean}{
+    const ok=(p:Point)=>({foot:p});
     const reachable=(tx:number,tz:number)=>clear(tx,tz,.22)&&(referenceY===undefined||supportAt(tx,tz)>=referenceY-1.35)&&segmentClear(rootX,rootZ,tx,tz,.20)&&(fromX===undefined||fromZ===undefined||segmentClear(fromX,fromZ,tx,tz,.18));
-    if(reachable(x,z))return {x,y:supportAt(x,z)+.035,z};
+    if(reachable(x,z))return ok({x,y:supportAt(x,z)+.035,z});
     // Fold a foot toward the body before reaching around the tree; the target
     // stays fixed after lift-off, so there is no last-moment sliding correction.
     for(let ring=1;ring<=8;ring++)for(let i=0;i<12;i++){
       const angle=Math.atan2(rootZ-z,rootX-x)+(i%2?-1:1)*Math.ceil(i/2)*Math.PI/6,r=ring*.16;
       const tx=x+Math.cos(angle)*r,tz=z+Math.sin(angle)*r;
-      if(reachable(tx,tz))return{x:tx,y:supportAt(tx,tz)+.035,z:tz};
+      if(reachable(tx,tz))return ok({x:tx,y:supportAt(tx,tz)+.035,z:tz});
     }
-    if(fromX!==undefined&&fromZ!==undefined){
+    // A foot left far behind (the body outran it, or it is still against bark) gets no toe route: that search is for
+    // a step round one trunk, and over a long stride it would weigh every obstacle on the way, every frame.
+    if(fromX!==undefined&&fromZ!==undefined&&Math.hypot(x-fromX,z-fromZ)<5.5){
       // Route a toe around a trunk when a turn put the desired foothold on the
       // other side. A short intermediate step is preferable to dragging a leg.
       let best:{x:number;z:number}|undefined,bestScore=Infinity;
@@ -91,10 +104,10 @@ export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,wo
           if(Math.hypot(tx-fromX,tz-fromZ)>.12&&score<bestScore){best={x:tx,z:tz};bestScore=score;}
         }
       }
-      if(best)return{x:best.x,y:supportAt(best.x,best.z)+.035,z:best.z};
-      return{x:fromX,y:supportAt(fromX,fromZ)+.035,z:fromZ};
+      if(best)return ok({x:best.x,y:supportAt(best.x,best.z)+.035,z:best.z});
     }
-    return{x,y:supportAt(x,z)+.035,z};
+    if(fromX!==undefined&&fromZ!==undefined)return{foot:{x:fromX,y:supportAt(fromX,fromZ)+.035,z:fromZ},failed:true};
+    return{foot:{x,y:supportAt(x,z)+.035,z},failed:true};
   }
   function roundRoute(start:{x:number;z:number},nodes:{x:number;z:number}[],clearance:number){
     const result:{x:number;z:number}[]=[];
@@ -233,6 +246,8 @@ export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,wo
     get stanceWidth(){return routeRadius<1.1?.40:routeRadius<1.6?.57:routeRadius<radius?.88:1;},
     get shoulderWidth(){return routeRadius<1.1?.65:routeRadius<1.6?.82:1;},
     get squeezing(){return routeRadius<1.6;},
+    /** The last move ran into something and stopped dead. */
+    get blocked(){return lastBlocked;},
     canEscape(x:number,z:number,hx:number,hz:number){referenceY=undefined;refresh(x,z,0,true);plan(x,z,hx,hz);const end=route[route.length-1];const ok=!!end&&Math.hypot(end.x-x,end.z-z)>7;route=[];replanIn=0;return ok;},
     replan(){route=[];replanIn=0;},
     reset(initialSpeed=0){route=[];cacheAge=1;replanIn=0;routeRadius=radius;travelSpeed=initialSpeed;angularVelocity=0;headingReady=false;referenceY=undefined;},

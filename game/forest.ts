@@ -511,7 +511,7 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
       const distance2 = (tree.x - player.x) ** 2 + (tree.z - player.z) ** 2;
       if(updateColliders&&distance2<=TREE_COLLISION_RANGE**2){
         const radius=.44*tree.width+.08;colliders.push({x:tree.x,z:tree.z,radius});
-        solidColliders.push({kind:'capsule',ax:tree.x,az:tree.z,bx:tree.x,bz:tree.z,radius,minY:tree.y-.15,maxY:tree.y+31*tree.height,tag:'tree',barkContact:barkContactFor(tree)});
+        solidColliders.push({kind:'capsule',ax:tree.x,az:tree.z,bx:tree.x,bz:tree.z,radius,minY:tree.y-.15,maxY:tree.y+31*tree.height,tag:'tree',barkContact:barkContactFor(tree),crownBase:tree.y+branchSpec(tree.kind,0).height*tree.height});
       }
       if (!rendering||distance2>(TREE_RANGE+FOREST_BUFFER)**2) continue;
       dummy.position.set(tree.x, tree.y, tree.z); dummy.rotation.set(0, tree.yaw, 0); dummy.scale.set(tree.width, tree.height, tree.width);

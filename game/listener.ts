@@ -29,11 +29,16 @@ export function createListener(scene: THREE.Scene, heightAt: (x: number, z: numb
   const elbow = new THREE.Vector3(), wrist = new THREE.Vector3(), pole = new THREE.Vector3(), a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
   const gaze = { yaw: 0, pitch: 0 }, armLift: Record<'L' | 'R', number> = { L: 0, R: 0 };
   let jaw = 0, lookWeight = 1, headRoll = 0, neckLift = 0, armReach = 0, width = 1, solidsAge = 9, strike = 0;
+  // Rearing (the roar before a bluff charge) and recoiling (from the torch), each 0-1 as asked, eased here.
+  let rear = 0, rearing = 0, recoil = 0, recoiling = 0;
   let solids: SolidCollider[] = [], climbing: Trunk | undefined, groundBlend = 1;
   const trunks: { x: number; z: number; r: number }[] = [];
 
   const groundSurface: SpiderSurface = (target, out, from) => {
-    const foot = navigation.findFoot(target.x, target.z, anchor.x, anchor.z, from?.x, from?.z);
+    // A foot still against bark (just down from a trunk) has no clear path from where it is: every route out of it
+    // would be refused, every frame. It steps from where it stands to wherever is clear.
+    const free = from && navigation.footClearance(from.x, from.z) > .2;
+    const foot = navigation.findFoot(target.x, target.z, anchor.x, anchor.z, free ? from.x : undefined, free ? from.z : undefined);
     out.point.set(foot.x, foot.y, foot.z);
     const e = .35;
     out.normal.set(heightAt(foot.x - e, foot.z) - heightAt(foot.x + e, foot.z), 2 * e, heightAt(foot.x, foot.z - e) - heightAt(foot.x, foot.z + e)).normalize();
@@ -148,7 +153,7 @@ export function createListener(scene: THREE.Scene, heightAt: (x: number, z: numb
   return {
     root,
     get ready() { return rig.ready; },
-    reset() { gait.reset(); solidsAge = 9; width = 1; },
+    reset() { gait.reset(); solidsAge = 9; width = 1; rear = rearing = recoil = recoiling = 0; },
     head() { return root.getObjectByName('head'); },
     /** On the ground, wherever the encounter logic has put it. */
     walk(dt: number, time: number, position: THREE.Vector3, yaw: number, lookAt: THREE.Vector3, darkness: number) {
@@ -157,12 +162,20 @@ export function createListener(scene: THREE.Scene, heightAt: (x: number, z: numb
       width = damp(width, navigation.stanceWidth, 2.2, Math.max(dt, 1 / 240));
       command.surface = groundSurface; command.rest = undefined; command.hug = 0; command.swingPath = undefined; command.reachSpeed = undefined;
       command.width = width; command.length = 1; command.ride = lerp(1.9, 1.56, sstep(gait.speed, 1.5, 7)) * S;
+      const safe = Math.max(dt, 1 / 240);
+      rearing = damp(rearing, rear, rear > rearing ? 7 : 4, safe); recoiling = damp(recoiling, recoil, recoil > recoiling ? 9 : 4, safe);
+      // Rearing: the thorax lifts, the head goes up and the hands come forward. Recoiling: low and coiled, head drawn in.
+      command.ride += (rearing * .28 - recoiling * .12) * S; command.crouch = recoiling * .22 * S; command.tension = Math.max(rearing, recoiling);
       // The grab: both hands come forward and the jaw drops for the screech.
-      lookWeight = 1; neckLift = 0; armReach = strike; headRoll = 0; jaw = Math.max(.05 + sstep(gait.speed, 3, 9) * .22, strike * .45);
+      lookWeight = 1; neckLift = rearing * .55 - recoiling * .2; armReach = Math.max(strike, rearing * .7); headRoll = 0;
+      jaw = Math.max(.05 + sstep(gait.speed, 3, 9) * .22, strike * .45, rearing * .5, recoiling * .3);
       step(dt, time, lookAt, darkness);
     },
     /** 0 at rest, 1 mid-grab. Read by walk(). */
     setStrike(amount: number) { strike = clamp(amount, 0, 1); },
+    /** Read by walk(): 0-1 how far it rears up to roar, and how far it shrinks back from the torch. Eased in walk(). */
+    setRear(amount: number) { rear = clamp(amount, 0, 1); },
+    setRecoil(amount: number) { recoil = clamp(amount, 0, 1); },
     /** Head-down on a trunk. Landing blends it back to the ground. */
     onTree(dt: number, time: number, trunk: Trunk, position: THREE.Vector3, rotation: THREE.Quaternion, inset: number, landed: number, watching: number, lookAt: THREE.Vector3, darkness: number) {
       climbing = trunk; groundBlend = landed;
@@ -170,7 +183,7 @@ export function createListener(scene: THREE.Scene, heightAt: (x: number, z: numb
       anchor.copy(position).addScaledVector(up, inset * (1 - landed));
       command.surface = trunkSurface; command.rest = dismountRest; command.hug = 1 - landed; command.reachSpeed = 5;
       command.swingPath = landed < .6 ? aroundTrunk : undefined;
-      command.width = lerp(.6, 1, landed); command.length = lerp(1.08, 1, landed); command.ride = lerp(1.02, 1.9 * S, landed);
+      command.width = lerp(.6, 1, landed); command.length = lerp(1.08, 1, landed); command.ride = lerp(1.02, 1.9 * S, landed); command.crouch = 0; command.tension = 0;
       lookWeight = 1; neckLift = .75 * (1 - landed); armReach = sstep(watching, 1, 3) * (1 - landed);
       headRoll = sstep(watching, 2.4, 3.2) * (.65 + Math.sin((watching - 2.4) * .3) * .35) * (1 - landed);
       jaw = sstep(watching, 5, 8) * .3 * (1 - landed);

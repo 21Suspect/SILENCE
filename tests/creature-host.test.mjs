@@ -20,8 +20,8 @@ const { createEncounters } = await import('../game/encounters.ts');
 const quietly = async f => { const e = console.error, w = console.warn; console.error = console.warn = () => {}; try { return await f(); } finally { console.error = e; console.warn = w; } };
 const senses = (o = {}) => ({ vx: 0, vz: 0, sprinting: false, crouching: false, flashlightOn: false, inWater: false, onLadder: false, indoors: false, ...o });
 
-/** Open flat ground, a player at the origin and a camera the test points. */
-async function stage({ seed = 3, places, solids = [] } = {}) {
+/** Open flat ground, a player at the origin and a camera the test points. Without `opening` the scripted opening is skipped. */
+async function stage({ seed = 3, places, solids = [], opening = false, doorAt, trace } = {}) {
   const scene = new THREE.Scene(), sounds = [];
   const audio = new Proxy({}, { get: (_, kind) => (...args) => { sounds.push(kind); return kind === 'creatureReveal' || kind === 'stalkCue'; } });
   const player = new THREE.Vector3(), forward = new THREE.Vector3(0, 0, -1);
@@ -34,7 +34,7 @@ async function stage({ seed = 3, places, solids = [] } = {}) {
   aim(new THREE.Vector3(0, 0, -1));
   const encounters = await quietly(async () => {
     const world = { nearby: (x, z, r = .45) => solids.filter(c => Math.hypot(c.ax - x, c.az - z) < r + c.radius + 1) };
-    const e = createEncounters(scene, () => 0, audio, world, () => view, undefined, { seed, places });
+    const e = createEncounters(scene, () => 0, audio, world, () => view, undefined, { seed, places, opening, doorAt, trace });
     for (let i = 0; i < 100 && !e.modelStatus().ready; i++) await new Promise(r => setTimeout(r, 50));
     return e;
   });
@@ -45,7 +45,7 @@ async function stage({ seed = 3, places, solids = [] } = {}) {
   /** Look straight away from the creature, so nothing it does can be on screen. */
   const lookAway = () => aim(player.clone().sub(creature()));
   const lookAt = () => aim(creature().sub(player));
-  return { encounters, player, view, aim, frame, creature, lookAway, lookAt, sounds, get elapsed() { return elapsed; } };
+  return { encounters, player, view, aim, frame, creature, lookAway, lookAt, sounds, world: { solids }, get elapsed() { return elapsed; } };
 }
 
 test('persistent: far and unseen it travels with no body, and gains one only out of view', async () => {
@@ -53,11 +53,17 @@ test('persistent: far and unseen it travels with no body, and gains one only out
   let status = s.frame({ hours: 17, darkness: .1 });
   assert.equal(status.presence, 'unseen');
   assert.ok(s.creature().length() >= 150, `starts far away (${s.creature().length().toFixed(0)} m)`);
-  // Watching the place it comes from: it waits out at the edge rather than appear in view.
+  // Watching the place it comes from: it never appears there. Unseen it holds at the edge, or comes in from the side,
+  // out of view, and walks into view from there.
   let closest = Infinity;
-  for (let i = 0; i < 30 * 120; i++) { s.lookAt(); status = s.frame({ hours: 17, darkness: .1 }); closest = Math.min(closest, s.creature().length()); assert.equal(status.presence, 'unseen', 'never gets a body while watched'); }
-  assert.ok(closest >= 50 - 1e-6, `held at the edge (${closest.toFixed(1)} m)`);
+  for (let i = 0; i < 30 * 120 && status.presence === 'unseen'; i++) { s.lookAt(); status = s.frame({ hours: 17, darkness: .1 }); if (status.presence === 'unseen') closest = Math.min(closest, s.creature().length()); }
+  assert.ok(closest >= 50 - 1e-6, `unseen, held at the edge (${closest.toFixed(1)} m)`);
   assert.ok(closest < 110, 'but it did come');
+  if (status.presence === 'body') {
+    const side = status.transitions.find(t => t.kind === 'arrive-side');
+    assert.ok(side && !side.inView, 'it came in from the side, out of view');
+    return;
+  }
   // Look away and it arrives.
   for (let i = 0; i < 30 * 5 && status.presence === 'unseen'; i++) { s.lookAway(); status = s.frame({ hours: 17, darkness: .1 }); }
   assert.equal(status.presence, 'body');
@@ -122,7 +128,7 @@ test('it hears the noise stream from where it really is', async () => {
   assert.equal(s.frame({ hours: 17, darkness: .1 }).brain.lead?.source, 'radio', 'the torch switch at the player is far out of earshot');
 });
 
-test('the tree ambush still works from the developer menu, and the brain takes over once it is down', async () => {
+test('the tree ambush from the developer menu: stare, a fast drop, a roar and a bluff charge that stops short, then the brain has it', async () => {
   const trunk = { kind: 'capsule', ax: 0, az: -18, bx: 0, bz: -18, radius: .6, minY: 0, maxY: 32, tag: 'tree' };
   const s = await stage({ solids: [trunk] });
   s.frame({ hours: 21, darkness: .6 });
@@ -132,17 +138,28 @@ test('the tree ambush still works from the developer menu, and the brain takes o
   for (let i = 0; i < 30 * 2; i++) status = s.frame({ hours: 21, darkness: .6 });
   assert.equal(status.treePhase, 'perched');
   assert.ok(status.transitions.some(t => t.kind === 'tree-spawn' && !t.inView));
-  // Turn round and look up at it: once recognised it climbs down, lands, and slips away under the brain.
-  const up = new THREE.Vector3(), seen = [];
-  for (let i = 0; i < 30 * 40 && status.treePhase !== null; i++) {
+  assert.ok(!s.sounds.includes('creatureReveal'), 'the reveal waits for the sighting');
+  // Turn round and look up at it: recognised, it stares, drops, lands, rears and charges, then slips away under the brain.
+  const up = new THREE.Vector3(), phases = [], stages = [];
+  let closest = Infinity, revealAt = -1, landedAt = -1;
+  for (let i = 0; i < 30 * 40 && !(status.opening.script === undefined && status.brain.behaviour === 'withdraw'); i++) {
     s.encounters.headPosition(up); s.view.position.set(0, 1.69, 0);
     s.view.forward.copy(up).sub(s.view.position).normalize(); s.view.right.crossVectors(s.view.forward, THREE.Object3D.DEFAULT_UP).normalize(); s.view.up.crossVectors(s.view.right, s.view.forward).normalize();
     status = s.frame({ hours: 21, darkness: .6 });
-    if (status.treePhase && seen[seen.length - 1] !== status.treePhase) seen.push(status.treePhase);
+    if (revealAt < 0 && s.sounds.includes('creatureReveal')) revealAt = i;
+    if (status.treePhase && phases[phases.length - 1] !== status.treePhase) phases.push(status.treePhase);
+    const stage = status.opening.script?.stage;
+    if (stage && stages[stages.length - 1] !== stage) stages.push(stage);
+    if (landedAt < 0 && stage === 'rearing') landedAt = i;
+    if (landedAt >= 0) closest = Math.min(closest, s.creature().length());
   }
-  assert.deepEqual(seen, ['perched', 'descending', 'landing']);
+  assert.deepEqual(phases, ['perched', 'descending', 'landing']);
+  assert.deepEqual(stages, ['perched', 'staring', 'descending', 'rearing', 'charging', 'stopped']);
+  assert.ok(revealAt >= 0, 'the reveal played when it was seen');
+  assert.ok(closest > 7, `the bluff stops short (${closest.toFixed(1)} m)`);
   assert.equal(status.presence, 'body');
   assert.equal(status.brain.behaviour, 'withdraw');
+  assert.ok(s.sounds.includes('screech'), 'it roared');
 });
 
 test('developer idle, walk and run spawns still place it out of view and leave the brain out of it until dismissed', async () => {
@@ -164,4 +181,75 @@ test('developer idle, walk and run spawns still place it out of view and leave t
     assert.equal(status.presence, 'unseen', `${mode} dismissed`);
     assert.equal(status.mode, 'natural');
   }
+});
+
+/** A ring of trunks round the player, as a forest is: something to stand beside and something to climb. */
+const grove = () => {
+  const solids = [];
+  for (let ring = 1; ring <= 4; ring++) for (let i = 0; i < 6 + ring * 4; i++) {
+    const a = i / (6 + ring * 4) * Math.PI * 2 + ring, d = ring * 9 + 4;
+    solids.push({ kind: 'capsule', ax: Math.sin(a) * d, az: Math.cos(a) * d, bx: Math.sin(a) * d, bz: Math.cos(a) * d, radius: .62, minY: 0, maxY: 30, tag: 'tree' });
+  }
+  return solids;
+};
+
+test('the glimpse: placed out of view ahead and to one side, the reveal at the sighting, a held gaze, then gone out of view', async () => {
+  const s = await stage({ opening: true, solids: grove() });
+  s.frame({ hours: 17, darkness: 0 });
+  s.encounters.jumpOpening('glimpse');
+  // Looking along the way they are going: it cannot be placed in view, so it waits for a glance away.
+  const ahead = new THREE.Vector3(0, 0, -1);
+  let status;
+  for (let i = 0; i < 30 * 3; i++) { s.aim(ahead); status = s.frame({ hours: 17, darkness: 0 }); }
+  if (status.presence === 'unseen') { s.aim(new THREE.Vector3(0, 0, 1)); for (let i = 0; i < 30 * 2 && s.encounters.visibilityStatus().presence === 'unseen'; i++) s.frame({ hours: 17, darkness: 0 }); }
+  status = s.encounters.visibilityStatus();
+  assert.equal(status.presence, 'body');
+  const placed = status.transitions.find(t => t.kind === 'glimpse');
+  assert.ok(placed && !placed.inView, 'placed out of view');
+  const d = s.creature().length();
+  assert.ok(d >= 18 && d <= 42, `${d.toFixed(1)} m away`);
+  assert.ok(!s.sounds.includes('creatureReveal'), 'no reveal at the placement');
+  // Turn to it: seen, the reveal plays, it holds the gaze, then walks off and is taken away once out of view.
+  const stages = [];
+  for (let i = 0; i < 30 * 8; i++) { s.lookAt(); status = s.frame({ hours: 17, darkness: 0 }); const st = status.opening.script?.stage; if (st && stages.at(-1) !== st) stages.push(st); }
+  assert.ok(s.sounds.includes('creatureReveal'), 'the reveal played at the sighting');
+  assert.deepEqual(stages.slice(0, 3), ['waiting', 'holding', 'leaving']);
+  assert.equal(status.presence, 'body', 'still there while watched');
+  for (let i = 0; i < 30 * 6 && status.opening.phase === 'glimpse'; i++) { s.lookAway(); status = s.frame({ hours: 17, darkness: 0 }); }
+  assert.equal(status.opening.phase, 'interlude');
+  assert.equal(status.presence, 'unseen');
+  assert.ok(status.transitions.filter(t => t.kind === 'glimpse-gone').every(t => !t.inView));
+});
+
+test('during the opening it cannot hunt or grab, even at midnight with the torch on beside it', async () => {
+  const s = await stage({ opening: true, solids: grove() });
+  s.frame({ hours: 23.5, darkness: 1, flashlightOn: true });
+  s.encounters.jumpOpening('glimpse');
+  let status, behaviours = new Set(), closest = Infinity;
+  for (let i = 0; i < 30 * 60; i++) {
+    // Walk at it, looking at it.
+    const c = s.creature(); if (s.encounters.visibilityStatus().presence === 'body') { const to = c.clone().sub(s.player).setY(0); if (to.length() > 3) s.player.addScaledVector(to.normalize(), 1.8 / 30); s.lookAt(); } else s.lookAway();
+    status = s.frame({ hours: 23.5, darkness: 1, flashlightOn: true, vz: -1.8 });
+    behaviours.add(status.brain.behaviour);
+    if (status.presence === 'body') closest = Math.min(closest, s.creature().distanceTo(s.player));
+    assert.equal(s.encounters.takeStrike(), false, 'no grab');
+  }
+  assert.ok(!behaviours.has('hunt') && !behaviours.has('strike'), [...behaviours].join(', '));
+  assert.ok(closest > 9, `it kept its distance (${closest.toFixed(1)} m)`);
+});
+
+test('no long dead air: neither seen nor heard for 150 s, it is steered in and makes one sound; never two within 30 s', async () => {
+  const events = [];
+  const s = await stage({ trace: e => events.push(e) });
+  // Early evening (it will not hunt), standing still, looking away from wherever it is.
+  for (let i = 0; i < 30 * 240; i++) { s.lookAway(); s.frame({ hours: 17, darkness: 0 }); }
+  const sounds = events.filter(e => e.type === 'sound'), presence = sounds.filter(e => e.presence);
+  assert.ok(sounds.length >= 1, 'it made itself heard');
+  const first = sounds[0].t, deadAir = events.find(e => e.type === 'dead-air');
+  assert.ok(first < 150 + 45, `first sound at ${first.toFixed(0)} s`);
+  // Past the limit, the sound came through the dead-air rule (or another reason fired in the same moment).
+  if (first > 151) assert.ok(deadAir && deadAir.t <= first, `and that was the dead-air rule (${sounds[0].kind} at ${first.toFixed(1)} s)`);
+  for (let i = 1; i < presence.length; i++) assert.ok(presence[i].t - presence[i - 1].t >= 30 - 1e-6, `${presence[i - 1].kind} then ${presence[i].kind} ${(presence[i].t - presence[i - 1].t).toFixed(1)} s apart`);
+  // Every placement and removal was out of view.
+  assert.ok(events.filter(e => e.type === 'transition' && e.action !== 'strike').every(e => !e.inView));
 });

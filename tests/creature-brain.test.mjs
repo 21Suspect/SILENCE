@@ -257,26 +257,104 @@ test('no strike while the player is out of play (flying, already caught)', () =>
   assert.ok(!r.behaviours.includes('hunt') && !r.behaviours.includes('strike'));
 });
 
-test('the torch makes it flinch, less each time, until it no longer works', () => {
-  const w = world({ hours: 23.5, darkness: 1, at: { x: 0, z: 18, yaw: Math.PI } });
-  w.player = { x: 0, z: 0, flashlightOn: true };
-  const flinches = [];
-  let stoppedWhileFlinching = true;
-  for (let t = 0; t < 40; t += .05) {
-    const out = w.step({ los: true, beam: true, move: false, reach: 10 });
-    for (const e of out.events) if (e.type === 'flinch') flinches.push(e.seconds);
-    if (out.flinching && out.intent.speed !== 0) stoppedWhileFlinching = false;
+/** Hunting at full tilt toward a player 22 m off, then pinned by the beam: what the stun does to its pace, frame by frame. */
+function pinned(w, { beamFor = Infinity, seconds = 8 } = {}) {
+  const frames = [];
+  for (let t = 0; t < seconds; t += .05) {
+    const beam = t < beamFor;
+    const out = w.step({ los: true, beam, move: false, reach: 10 });
+    frames.push({ t, beam, speed: out.intent.speed, phase: out.stun.phase, recoil: out.stun.recoil, backstep: out.stun.backstep, flinching: out.flinching, events: out.events });
   }
-  assert.ok(flinches.length >= 3, `${flinches.length} flinches`);
-  for (let i = 1; i < flinches.length; i++) assert.ok(flinches[i] < flinches[i - 1], 'each one shorter');
-  assert.ok(Math.abs(flinches[0] - T.flinchSeconds) < 1e-9);
-  assert.ok(stoppedWhileFlinching, 'it hesitates: no movement while flinching');
-  const spent = w.brain.inspect().flinch.effect;
-  assert.ok(spent <= T.flinchFloor, 'used up');
-  w.run(30, { los: true, beam: true, move: false, reach: 10 });
-  assert.equal(w.brain.inspect().flinch.active, false, 'spent: the beam no longer stops it');
-  w.run(120, { los: false, move: false, reach: 10 });
-  assert.ok(w.brain.inspect().flinch.effect > spent + .3, 'it recovers over minutes');
+  return frames;
+}
+/** The frames of each phase of the first stun, in order. */
+function firstStun(frames) {
+  const runs = [];
+  for (const f of frames) { if (runs.at(-1)?.phase !== f.phase) runs.push({ phase: f.phase, frames: [] }); runs.at(-1).frames.push(f); }
+  const at = runs.findIndex(r => r.phase === 'slowing');
+  return { sequence: runs.map(r => r.phase), slowing: runs[at].frames, held: runs[at + 1].frames, starting: runs[at + 2].frames, after: runs[at + 3]?.frames ?? [] };
+}
+function charging(seed = 1) {
+  const w = world({ seed, hours: 23.5, darkness: 1, at: { x: 0, z: 22, yaw: Math.PI } });
+  w.player = { x: 0, z: 0, flashlightOn: true };
+  w.brain.provoke(w.player);
+  // A moment to get going: it charges at full pace.
+  for (let i = 0; i < 40; i++) w.step({ los: true, move: false, reach: 10 });
+  assert.equal(w.brain.behaviour, 'hunt');
+  return w;
+}
+
+test('the torch stun: an eased slow to a halt, a held stand with a step back, an eased restart from a walk', () => {
+  const w = charging(), before = w.step({ los: true, move: false, reach: 10 }).intent.speed;
+  assert.ok(before >= T.huntApproach, `charging at ${before} m/s`);
+  const frames = pinned(w, { seconds: 5.4 });
+  const flinch = frames.find(f => f.events.some(e => e.type === 'flinch'));
+  assert.ok(flinch && Math.abs(flinch.t - T.stunPin) < .11, 'it takes after the beam holds on it for stunPin');
+  const { sequence, slowing, held, starting } = firstStun(frames);
+  assert.deepEqual(sequence.slice(0, 5), ['none', 'slowing', 'held', 'starting', 'none']);
+  // Slowing: no hard brake. It sheds its pace over about stunSlow, never faster than an eased curve allows.
+  assert.ok(Math.abs(slowing.length * .05 - T.stunSlow) < .11, `slows for ${(slowing.length * .05).toFixed(2)} s`);
+  for (let i = 1; i < slowing.length; i++) {
+    assert.ok(slowing[i].speed <= slowing[i - 1].speed + 1e-9, 'never speeds up while slowing');
+    assert.ok(slowing[i - 1].speed - slowing[i].speed < before * .2, 'no step down bigger than a fifth of its pace in one frame');
+  }
+  assert.ok(slowing[0].speed > before * .9, 'the first frame of the stun is still near full pace');
+  assert.ok(slowing[Math.floor(slowing.length / 2)].speed > before * .25, 'half way it is still moving');
+  // Held: stopped, recoiled, a short step back early on.
+  assert.ok(Math.abs(held.length * .05 - T.stunHeld[0]) < .11, `held ${(held.length * .05).toFixed(2)} s`);
+  assert.ok(held.every(f => f.speed === 0 && f.recoil === 1 && f.flinching));
+  assert.ok(held.some(f => f.backstep > .3) && held.at(-1).backstep === 0, 'it steps back, then stands');
+  // Starting: from a walk, building up over stunStart; never an instant full-speed restart.
+  assert.ok(Math.abs(starting.length * .05 - T.stunStart) < .11, `gets going over ${(starting.length * .05).toFixed(2)} s`);
+  assert.ok(starting[0].speed <= T.stunStartSpeed + .05, `restarts at a walk (${starting[0].speed.toFixed(2)} m/s)`);
+  for (let i = 1; i < starting.length; i++) assert.ok(starting[i].speed >= starting[i - 1].speed - 1e-9, 'builds up');
+  assert.ok(starting.at(-1).speed > before * .85, 'back near full pace at the end');
+  assert.ok(!starting.some(f => f.flinching), 'it can strike again once it is moving');
+});
+
+test('the torch stun: held 2.5, 1.8, 1.2, then 0.7 s for good (never immune); full strength again after 90 s out of the beam', () => {
+  const w = charging(), helds = [];
+  for (let use = 0; use < 6; use++) {
+    // The beam stays on: each stun takes again stunPin after the last one has got going.
+    const frames = pinned(w, { seconds: T.stunPin + T.stunSlow + T.stunHeld[Math.min(use, 3)] + T.stunStart + .1 });
+    assert.ok(frames.flatMap(f => f.events).some(e => e.type === 'flinch'), `stun ${use + 1} took`);
+    helds.push(firstStun(frames).held.length * .05);
+  }
+  const expected = [2.5, 1.8, 1.2, .7, .7, .7];
+  assert.ok(helds.every((h, i) => Math.abs(h - expected[i]) < .11), `held ${helds.map(h => h.toFixed(2)).join(', ')} s`);
+  // Out of the beam, its nerve comes back a step at a time.
+  for (let t = 0; t < 60; t += .05) w.step({ los: false, beam: false, move: false, reach: 10 });
+  assert.ok(w.brain.inspect().flinch.nextHeld < T.stunHeld[0], 'not yet after a minute');
+  // (The last stun is still getting going for a second or so: about 90 s from its end.)
+  for (let t = 0; t < 33; t += .05) w.step({ los: false, beam: false, move: false, reach: 10 });
+  assert.equal(w.brain.inspect().flinch.nextHeld, T.stunHeld[0], 'full strength after about 90 s');
+});
+
+test('the torch stun: the beam must stay on it; off its face during the held phase, it is released 0.6 s later', () => {
+  const w = charging();
+  // On long enough to take and slow it, then off half a second into the held phase.
+  const off = T.stunPin + T.stunSlow + .5, frames = pinned(w, { beamFor: off, seconds: 6 });
+  const { held } = firstStun(frames), last = held.at(-1);
+  assert.ok(Math.abs(last.t + .05 - (off + T.stunRelease)) < .11, `released at ${(last.t + .05).toFixed(2)} s, beam off at ${off.toFixed(2)} s`);
+  assert.ok(held.length * .05 < T.stunHeld[0] - .5, 'well short of the full hold');
+});
+
+test('hunting can be withheld by the host, and once allowed it is rare at first and certain later', () => {
+  const sight = (permit, after) => {
+    const w = world({ hours: 23.5, darkness: 1, at: { x: 0, z: 22, yaw: Math.PI } });
+    w.player = { x: 0, z: 0, flashlightOn: true };
+    if (permit === 'held') w.brain.holdHunting();
+    if (permit === 'ramp') { w.brain.holdHunting(); w.brain.permitHunting(); }
+    w.run(after, { los: false, move: false });
+    const r = w.run(5, { los: true, move: false });
+    return { hunted: r.behaviours.includes('hunt'), drive: w.brain.inspect().huntDrive, at: r.events.findIndex(e => e.type === 'hunt-started') };
+  };
+  assert.equal(sight('held', 0).hunted, false, 'withheld: it only watches, at midnight');
+  const first = sight('ramp', 0), early = sight('ramp', T.huntPermitDelay + T.huntPermitRamp * .2), late = sight('ramp', T.huntPermitDelay + T.huntPermitRamp + 5), always = sight('default', 0);
+  assert.equal(first.hunted, false, 'none at all for huntPermitDelay');
+  assert.ok(early.drive > 0 && early.drive < .3, `then rare (drive ${early.drive.toFixed(2)})`);
+  assert.ok(late.drive > .99 && always.drive > .99);
+  assert.ok(late.hunted && always.hunted, 'certain later');
 });
 
 test('no strike while flinching, even within reach', () => {
@@ -286,6 +364,7 @@ test('no strike while flinching, even within reach', () => {
   let out = w.step({ los: true, beam: true, move: false, reach: 5 });
   for (let i = 0; i < 10; i++) out = w.step({ los: true, beam: true, move: false, reach: 5 });
   assert.equal(out.flinching, true);
+  assert.equal(out.stun.phase, 'slowing');
   out = w.step({ los: true, beam: false, move: false, reach: 1 });
   assert.notEqual(out.behaviour, 'strike');
 });

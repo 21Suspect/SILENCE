@@ -154,3 +154,36 @@ Was: an instant stop for 3.2 s, then 2.0, 1.2, 0.8 s, then immune; over four min
 ### Proof before the owner plays
 - A headless player bot that plays whole nights against the real encounter code under several play styles, logs
   everything, and a report that checks the guarantees above over many seeds; used to tune before hand-over.
+
+### As built (2026-11-10)
+Built as above, with these differences and additions, each found by the playtest bot or in the browser:
+
+- **Seen.** "Seen" is the game's own sighting test: the creature on screen for 0.18 s with no trunk or wall in the
+  way (`creature-sighting.ts`). For the scripted encounters it counts out to 48 m. It does not know about foliage.
+- **The tree perch is 7-9 m up a pine's bare bole**, not the old 14-20 m: up there it was inside the crowns, invisible,
+  while the sighting test still called it seen. Only trunks whose lowest bough is high enough qualify (tree colliders
+  now carry `crownBase`). It drops straight down the side facing the player at 4 m/s.
+- **The bluff charge** runs only if it lands at least 10 m from the player and is cut short so that the dead stop
+  leaves it no nearer than 7.5 m. A player indoors gets the rear and the roar without the charge.
+- **"Ahead" for a player standing still** is where they have been facing for the last few seconds, not where they are
+  glancing: otherwise anything "ahead" would always be in view and could never be placed.
+- **Guarantee.** 40 s before a deadline an unseen encounter stops waiting and walks into the middle of the view
+  (placed again first if it was left far behind). Hidden behind cover when an escalation comes, it steps out to a spot
+  with a clear line instead. 60 s past a deadline the director moves on regardless, so nothing can block the opening.
+- **The tree is looked for 14-23 m off, within 26-49 degrees of the line of travel** (narrowing with each
+  escalation); with no usable trunk for 8-14 s it crosses the path instead.
+- **Quiet between encounters:** at least 40 s after the glimpse has gone, and never before 3:45.
+- **Leaving:** it walks off for at least 3 s before it can be taken away (out of view, as always); watched all the way,
+  the opening moves on after 35 s and the body goes whenever it is next out of view; it turns aside when it makes no
+  headway (a ravine, a wall of trunks).
+- **No replay** after a death, and also after a game over (the new night is free roam from the start).
+- **Free roam:** placed 80-120 m off; no hunting for 90 s, then the drive ramps to full over 180 s. The reveal
+  recording marks the first sighting in a while (was: the first close approach). The lost-player call now waits out
+  the presence gap too. Close and in front of the player with no body, it comes in from the side, out of view, at the
+  same distance (it used to wait as a bodiless point that could neither be seen nor placed).
+- **Dead air:** after 150 s with no sighting and no sound it is given the player's rough position and makes one
+  sound from where it is: clicks when close and unseen, a branch within 18-70 m, its call if still far after 30 s.
+- **Stun:** as specified, plus: it cannot be pinned again while it is getting going; a beam that flickers off and back
+  within 0.6 s keeps it held; strength comes back a step every 30 s out of the beam (full after 90 s); and early in
+  the night (low hunting drive) a held hunt may be broken off when it gets going again (chance 0.7 x (1 - drive)).
+  It recoils (crouched, head turned from the light) and steps back without turning; the listener rears for the roar.

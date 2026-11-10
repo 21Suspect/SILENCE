@@ -35,7 +35,8 @@ export type BrainInput = {
   dt: number;
   /** Local solar time, 0-24, and how dark it is, 0-1. */
   hours: number; darkness: number;
-  creature: { x: number; z: number; yaw: number };
+  /** Where it is, which way it faces, and (if the host knows) how fast its body is really moving, m/s. */
+  creature: { x: number; z: number; yaw: number; speed?: number };
   player: PlayerPercept;
   /** Measured by the host: nothing solid between its eyes and the player's body. */
   lineOfSight: boolean;
@@ -63,7 +64,20 @@ export type BrainEvent =
   | { type: 'hunt-started' }
   | { type: 'strike' }
   | { type: 'lost-player' }
-  | { type: 'flinch'; seconds: number };
+  /** The torch has pinned it: it begins to slow to a halt and will be held for `seconds` if the beam stays on it. */
+  | { type: 'flinch'; seconds: number }
+  /** The stun moves on: held (it has stopped), starting (it is getting going again, `seconds` it was held), over. */
+  | { type: 'stun'; phase: 'held' | 'starting' | 'over'; seconds?: number };
+
+/** The torch stun: slowing to a halt, held, then getting going again. */
+export type StunPhase = 'none' | 'slowing' | 'held' | 'starting';
+export type StunState = {
+  phase: StunPhase;
+  /** 0-1: how far it has shrunk from the light (crouched, coiled, head turned away). */
+  recoil: number;
+  /** m/s it steps backward, without turning, early in the held phase. */
+  backstep: number;
+};
 
 export type BrainOutput = {
   behaviour: string;
@@ -71,7 +85,9 @@ export type BrainOutput = {
   /** Where its head should look, or undefined to look along its path. */
   gaze?: Point;
   events: BrainEvent[];
+  /** Slowing or held by the torch: it cannot strike. */
   flinching: boolean;
+  stun: StunState;
   sees: boolean;
   boldness: number;
 };
@@ -111,6 +127,12 @@ export const CREATURE_TUNING = {
   boldNight: .85, boldElapsed: .15, boldElapsedFrom: 90, boldElapsedTo: 600,
   /** Boldness where hunting starts to be possible, and where it is a certainty. */
   huntBoldnessMin: .5, huntBoldnessFull: .8,
+  /**
+   * The host can withhold hunting (the scripted opening). Once it is allowed again there is none for huntPermitDelay
+   * seconds; then the drive rises from huntPermitFloor to its full strength over huntPermitRamp: rare at first, certain
+   * later.
+   */
+  huntPermitDelay: 90, huntPermitFloor: 0, huntPermitRamp: 180,
   /** Seconds of continuous sight before it commits to a hunt, when bold and when timid. */
   huntSight: 1.2, huntSightTimid: 3,
   /** After a death it is calm for a while (boldness scaled down); after losing a chase, briefly. */
@@ -122,9 +144,9 @@ export const CREATURE_TUNING = {
   roamSpeed: 1.3, roamFarSpeed: 3.2, roamFar: 110,
   investigateSpeed: 1.5, investigateUrgent: 2.8, investigateArrive: 4, investigateGiveUp: 40, searchSeconds: 4.5,
   /** Shadowing distance when timid and when bold (closer at night). */
-  shadowFar: 30, shadowNear: 16, shadowMin: 10, shadowMaxSpeed: 3.2,
-  /** Shadowing distance multipliers in full daylight and full dark. */
-  shadowDaylight: 1.4, shadowDark: .75,
+  shadowFar: 28, shadowNear: 16, shadowMin: 10, shadowMaxSpeed: 3.2,
+  /** Shadowing distance multipliers in full daylight and full dark: about 28 m by day, so it is there to be seen. */
+  shadowDaylight: 1, shadowDark: .75,
   /** Roam waypoints near the player's area keep at least this far off when timid, this far when bold. */
   roamOffTimid: 55, roamOffBold: 30,
   huntApproach: 3.8, huntCharge: 6.5, huntChargeDistance: 24,
@@ -137,15 +159,28 @@ export const CREATURE_TUNING = {
   // --- The grab: metres from its head to the player's chest.
   grabReach: 2.2,
 
-  // --- Torch flinch.
-  /** Seconds of hesitation at full effect; each use multiplies the effect by flinchDecay. */
-  flinchSeconds: 3.2, flinchDecay: .62,
-  /** Below this effect the beam no longer stops it. It recovers flinchRecovery per second. */
-  flinchFloor: .22, flinchRecovery: .004,
-  /** Seconds the beam must hold on it, then seconds it ignores the beam after a flinch. */
-  flinchPin: .35, flinchRefractory: 2.5,
-  /** For this long after a flinch a timid creature prefers to withdraw. */
-  flinchShy: 6,
+  // --- Torch stun, in three phases: it slows to a halt, it is held, it gets going again. Never a hard stop.
+  /** Seconds the beam must hold on its face before it takes. */
+  stunPin: .35,
+  /** Seconds it takes to slow from whatever it was doing to a standstill. */
+  stunSlow: .8,
+  /** Seconds it is held, first use onward. It stops shrinking at the last: never immune. */
+  stunHeld: [2.5, 1.8, 1.2, .7],
+  /** The beam must stay on it: off its face during the held phase, it is released this much later. */
+  stunRelease: .6,
+  /** Seconds from a walk back up to full pace, and the walk it restarts at. */
+  stunStart: 1.5, stunStartSpeed: 1.3,
+  /** Seconds out of the beam for full strength again (a step of strength back every third of it). */
+  stunRecharge: 90,
+  /** The step back: seconds and top speed, early in the held phase. */
+  stunBack: .7, stunBackSpeed: .8,
+  /** For this long after a stun a timid creature prefers to withdraw. */
+  stunShy: 6,
+  /**
+   * A hunt the torch has held may be broken off when it gets going again: the chance is this times how far it is
+   * from its full hunting drive. Early in the night the light can save you; deep in it, it only buys a moment.
+   */
+  stunBreakOff: .7,
 
   // --- Being watched: seconds the player can stare before a timid / bold creature melts back.
   watchTolerance: 1.6, watchToleranceBold: 3.5,
@@ -238,6 +273,8 @@ export type BrainContext = {
   watched: number;
   flinching: boolean; sinceFlinch: number;
   dismissed: boolean;
+  /** The torch broke its nerve: it gives up this hunt and withdraws. */
+  shaken: boolean;
   /** The side (+1/-1) it shadows from; Withdraw flips it so it comes back from the other side. */
   flank: number;
   current: string; inCurrent: number;
@@ -405,10 +442,10 @@ export const withdraw: Behaviour = {
   score(c) {
     const t = c.tuning, s = c.stateOf('withdraw'), running = c.current === 'withdraw';
     if (running && s.done) return 0;
-    if (c.dismissed) return 1.5;
+    if (c.dismissed || c.shaken) return 1.5;
     if (running) return .8;
     let score = 0;
-    if (c.sinceFlinch < t.flinchShy) score = Math.max(score, .8 * (1 - .6 * c.boldness));
+    if (c.sinceFlinch < t.stunShy) score = Math.max(score, .8 * (1 - .6 * c.boldness));
     if (c.current !== 'hunt' && c.watched > watchTolerance(c)) score = Math.max(score, .75);
     if (c.current !== 'hunt' && c.lastSeen && c.lastSeenAge < 3 && dist(c.self, c.lastSeen) < t.shadowMin) score = Math.max(score, .72);
     return score;
@@ -450,8 +487,10 @@ export function createCreatureBrain(options: CreatureBrainOptions) {
 
   let now = 0, current = behaviours[0].id, enteredAt = 0, decideIn = 0, states: Record<string, Record<string, any>> = {};
   let exposure = 0, sees = false, sightTime = 0, watched = 0, lastSeen: Sighting | undefined, lead: Lead | undefined, leadIds = 0;
-  let flinchEffect = 1, flinchUntil = -Infinity, flinchEnded = -Infinity, refractoryUntil = -Infinity, beamTime = 0;
-  let calmUntil = -Infinity, calmScale = 1, provokedUntil = -Infinity, dismissed = false, flank = 1;
+  // The stun: its phase and how long it has been in it, how long the held phase lasts this time, when a beam that has
+  // left its face lets it go, how many uses have worn it down, and the pace it was slowing from.
+  let stunPhase: StunPhase = 'none', stunT = 0, stunHeldFor = 0, stunRelease = Infinity, stunSpent = 0, stunFrom = 0, outOfBeam = 0, beamTime = 0, flinchEnded = -Infinity;
+  let calmUntil = -Infinity, calmScale = 1, provokedUntil = -Infinity, dismissed = false, shaken = false, flank = 1, huntAllowed = true, huntAllowedAt = -Infinity;
   let scores: Record<string, number> = {}, last: BrainOutput | undefined, lastInput: BrainInput | undefined, boldness = 0, huntDrive = 0, creature = { x: 0, z: 0, yaw: 0 };
 
   const stateOf = (id: string) => (states[id] ??= {});
@@ -499,20 +538,61 @@ export function createCreatureBrain(options: CreatureBrainOptions) {
     watched = input.playerLooking && !p.untouchable ? watched + dt : Math.max(0, watched - dt * 2);
   }
 
-  function flinch(input: BrainInput, events: BrainEvent[]) {
-    // It gets used to the light while it is in it; out of it, the dread of the beam slowly comes back.
-    if (!input.beamOnIt) flinchEffect = Math.min(1, flinchEffect + tuning.flinchRecovery * input.dt);
-    if (now < flinchUntil) return;
-    if (input.beamOnIt && now >= refractoryUntil && !input.player.untouchable && current !== 'strike') {
-      beamTime += input.dt;
-      if (beamTime >= tuning.flinchPin && flinchEffect > tuning.flinchFloor) {
-        const seconds = tuning.flinchSeconds * flinchEffect;
-        flinchUntil = flinchEnded = now + seconds; refractoryUntil = flinchUntil + tuning.flinchRefractory;
-        flinchEffect *= tuning.flinchDecay; beamTime = 0;
-        events.push({ type: 'flinch', seconds });
+  const stunning = () => stunPhase === 'slowing' || stunPhase === 'held';
+  /**
+   * The torch. Pinned for stunPin, it slows to a halt over stunSlow, is held (shorter each use, never less than the
+   * last entry), and gets going again over stunStart. The beam must stay on it while it is held. Out of the beam
+   * it gets its nerve back, a step at a time.
+   */
+  function stun(input: BrainInput, events: BrainEvent[]) {
+    const dt = input.dt, held = tuning.stunHeld;
+    if (stunPhase === 'none') {
+      if (input.beamOnIt) outOfBeam = 0;
+      else if (stunSpent > 0 && (outOfBeam += dt) >= tuning.stunRecharge / Math.max(1, held.length - 1)) { stunSpent--; outOfBeam = 0; }
+      if (input.beamOnIt && !input.player.untouchable && current !== 'strike') {
+        beamTime += dt;
+        if (beamTime >= tuning.stunPin) {
+          stunHeldFor = held[Math.min(stunSpent, held.length - 1)];
+          stunSpent = Math.min(stunSpent + 1, held.length - 1);
+          stunPhase = 'slowing'; stunT = 0; beamTime = 0; stunRelease = Infinity; stunFrom = input.creature.speed ?? last?.intent.speed ?? 0;
+          events.push({ type: 'flinch', seconds: stunHeldFor });
+        }
+      } else beamTime = 0;
+      return;
+    }
+    stunT += dt;
+    if (stunPhase === 'slowing') {
+      if (stunT >= tuning.stunSlow) { stunPhase = 'held'; stunT = 0; events.push({ type: 'stun', phase: 'held', seconds: stunHeldFor }); }
+    } else if (stunPhase === 'held') {
+      // A flicker of the beam is forgiven; off its face for stunRelease, it is free.
+      if (input.beamOnIt) stunRelease = Infinity; else if (stunRelease === Infinity) stunRelease = stunT + tuning.stunRelease;
+      if (stunT >= Math.min(stunHeldFor, stunRelease)) {
+        events.push({ type: 'stun', phase: 'starting', seconds: stunT });
+        stunPhase = 'starting'; stunT = 0; flinchEnded = now;
+        if (current === 'hunt' && now >= provokedUntil && random() < tuning.stunBreakOff * (1 - huntDrive)) { shaken = true; decideIn = 0; }
       }
-    } else beamTime = 0;
+    } else if (stunT >= tuning.stunStart) { stunPhase = 'none'; stunT = 0; beamTime = 0; outOfBeam = 0; events.push({ type: 'stun', phase: 'over' }); }
   }
+  const easeInOut = (u: number) => { const t = clamp(u, 0, 1); return t * t * (3 - 2 * t); };
+  /** What the stun does to the behaviour's intent: an eased stop, a held stand, an eased restart from a walk. */
+  function stunned(intent: Intent): { intent: Intent; stun: StunState } {
+    const t = tuning;
+    if (stunPhase === 'slowing') {
+      const u = stunT / t.stunSlow;
+      return { intent: { ...intent, speed: stunFrom * (1 - easeInOut(u)) }, stun: { phase: 'slowing', recoil: easeInOut(u), backstep: 0 } };
+    }
+    if (stunPhase === 'held') {
+      const backstep = stunT < t.stunBack ? t.stunBackSpeed * Math.sin(Math.PI * stunT / t.stunBack) : 0;
+      return { intent: { ...intent, speed: 0 }, stun: { phase: 'held', recoil: 1, backstep } };
+    }
+    if (stunPhase === 'starting') {
+      const u = stunT / t.stunStart, cap = lerp(t.stunStartSpeed, Math.max(t.stunStartSpeed, intent.speed), easeInOut(u));
+      return { intent: { ...intent, speed: Math.min(intent.speed, cap) }, stun: { phase: 'starting', recoil: 1 - easeInOut(u * 2), backstep: 0 } };
+    }
+    return { intent, stun: { phase: 'none', recoil: 0, backstep: 0 } };
+  }
+  /** How much of its hunting drive the host allows: none while withheld, then rising from huntPermitFloor. */
+  const huntPermit = () => !huntAllowed || now - huntAllowedAt < tuning.huntPermitDelay ? 0 : lerp(tuning.huntPermitFloor, 1, smoothstep(now - huntAllowedAt - tuning.huntPermitDelay, 0, tuning.huntPermitRamp));
 
   function context(input: BrainInput, events: BrainEvent[], id: string): BrainContext {
     return {
@@ -520,11 +600,11 @@ export function createCreatureBrain(options: CreatureBrainOptions) {
       sees, sightTime, lastSeen, lastSeenAge: lastSeen ? now - lastSeen.at : Infinity,
       lead, leadAge: lead ? now - lead.at : Infinity,
       boldness, huntDrive, watched,
-      flinching: now < flinchUntil, sinceFlinch: now < flinchUntil ? 0 : now - flinchEnded,
-      dismissed, flank, current, inCurrent: now - enteredAt,
+      flinching: stunning(), sinceFlinch: stunning() ? 0 : now - flinchEnded,
+      dismissed, shaken, flank, current, inCurrent: now - enteredAt,
       distanceToPlayer: dist(input.creature, input.player), places,
       state: stateOf(id), stateOf,
-      setFlank: side => { flank = side; }, clearDismissed: () => { dismissed = false; },
+      setFlank: side => { flank = side; }, clearDismissed: () => { dismissed = false; shaken = false; },
       emit: e => events.push(e),
     };
   }
@@ -567,31 +647,35 @@ export function createCreatureBrain(options: CreatureBrainOptions) {
       const dt = Math.max(0, Math.min(input.dt, .25)), events: BrainEvent[] = [];
       input = dt === input.dt ? input : { ...input, dt };
       now += dt; creature = { ...input.creature }; lastInput = input;
-      const calm = now < calmUntil ? calmScale : 1;
-      boldness = now < provokedUntil ? 1 : baseBoldness(input.hours, now, tuning) * calm;
-      huntDrive = smoothstep(boldness, tuning.huntBoldnessMin, tuning.huntBoldnessFull);
+      const calm = now < calmUntil ? calmScale : 1, provoked = now < provokedUntil;
+      boldness = provoked ? 1 : baseBoldness(input.hours, now, tuning) * calm;
+      huntDrive = provoked ? 1 : smoothstep(boldness, tuning.huntBoldnessMin, tuning.huntBoldnessFull) * huntPermit();
       listen(input, events);
       look(input, events);
-      flinch(input, events);
+      stun(input, events);
       decideIn -= dt;
       // A grab cannot wait for the next decision tick.
       const reachable = current === 'hunt' && input.reach < tuning.grabReach;
       if (decideIn <= 0 || reachable) { decideIn = tuning.decisionInterval; decide(input, events); }
       const ctx = context(input, events, current), action = byId.get(current)!.act(ctx);
-      const flinching = now < flinchUntil;
-      let intent = action.intent, gaze = action.gaze;
+      const flinching = stunning(), shaped = stunned(action.intent);
+      const intent = shaped.intent;
+      let gaze = action.gaze;
       if (flinching) {
-        // Pinned by the beam: it stops and turns its face aside from the light.
-        intent = { ...intent, speed: 0 };
+        // Pinned by the beam: its face turns aside from the light.
         const p = input.player, ax = input.creature.x - p.x, az = input.creature.z - p.z, l = Math.hypot(ax, az) || 1;
         gaze = { x: input.creature.x + (-az / l) * 6 * flank + ax / l * 3, y: p.y + 4, z: input.creature.z + (ax / l) * 6 * flank + az / l * 3 };
       }
-      last = { behaviour: current, intent, gaze, events, flinching, sees, boldness };
+      last = { behaviour: current, intent, gaze, events, flinching, stun: shaped.stun, sees, boldness };
       return last;
     },
+    /** No hunting (the host's scripted opening owns the creature) until permitHunting. */
+    holdHunting() { huntAllowed = false; },
+    /** Hunting allowed again: rare at first, its full drive after huntPermitRamp (or at once, with ramp false). */
+    permitHunting(ramp = true) { huntAllowed = true; huntAllowedAt = ramp ? now : -Infinity; },
     /** The player was taken and woke elsewhere: forget them and stay calm for a while. */
     struck() {
-      forget(); beamTime = 0;
+      forget(); beamTime = 0; stunPhase = 'none'; stunT = 0;
       calmUntil = now + tuning.calmAfterDeath; calmScale = tuning.calmScale; provokedUntil = -Infinity; dismissed = false;
       current = 'roam'; enteredAt = now; states = {}; decideIn = 0;
     },
@@ -625,16 +709,17 @@ export function createCreatureBrain(options: CreatureBrainOptions) {
     reset() {
       now = 0; current = behaviours[0].id; enteredAt = 0; decideIn = 0; states = {}; heard.length = 0;
       exposure = 0; sees = false; sightTime = 0; watched = 0; lastSeen = undefined; lead = undefined;
-      flinchEffect = 1; flinchUntil = flinchEnded = refractoryUntil = -Infinity; beamTime = 0;
-      calmUntil = provokedUntil = -Infinity; calmScale = 1; dismissed = false; flank = 1; scores = {}; last = undefined;
+      stunPhase = 'none'; stunT = stunHeldFor = stunSpent = stunFrom = outOfBeam = beamTime = 0; stunRelease = Infinity; flinchEnded = -Infinity;
+      calmUntil = provokedUntil = -Infinity; calmScale = 1; dismissed = shaken = false; flank = 1; scores = {}; last = undefined;
+      huntAllowed = true; huntAllowedAt = -Infinity;
     },
     inspect() {
       return {
-        clock: now, behaviour: current, inBehaviour: now - enteredAt, scores: { ...scores }, boldness, huntDrive,
+        clock: now, behaviour: current, inBehaviour: now - enteredAt, scores: { ...scores }, boldness, huntDrive, huntPermit: huntPermit(),
         sees, exposure, sightTime, watched, creature: { ...creature },
         lastSeen: lastSeen && { ...lastSeen, age: now - lastSeen.at }, lead: lead && { ...lead, age: now - lead.at },
-        flinch: { effect: flinchEffect, active: now < flinchUntil, refractory: Math.max(0, refractoryUntil - now) },
-        calm: Math.max(0, calmUntil - now), provoked: Math.max(0, provokedUntil - now), dismissed, flank,
+        flinch: { active: stunning(), phase: stunPhase, inPhase: stunT, held: stunHeldFor, spent: stunSpent, nextHeld: tuning.stunHeld[Math.min(stunSpent, tuning.stunHeld.length - 1)], outOfBeam },
+        calm: Math.max(0, calmUntil - now), provoked: Math.max(0, provokedUntil - now), dismissed, shaken, flank,
         intent: last?.intent,
       };
     },
