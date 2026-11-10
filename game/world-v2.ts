@@ -98,7 +98,7 @@ export function createWorldV2(o: WorldV2Options) {
   if (bench) o.flashlight.setSeat(bench); else console.warn('SILENCE: cabin has no "bench" hook; the flashlight stays at its old seat.');
   const unregisterTorch = interaction.register({
     id: 'flashlight', position: new THREE.Vector3().fromArray(o.flashlight.inspect().pickupPosition), label: 'Left click to pick up',
-    enabled: () => !o.flashlight.owned, activate: () => { o.flashlight.pickUp(); },
+    enabled: () => o.flashlight.available && !o.flashlight.owned, activate: () => { o.flashlight.pickUp(); },
   });
 
   const objectives = createObjectivesRuntime({ scene: o.scene, camera: o.camera, heightAt: o.heightAt, pois, interaction });

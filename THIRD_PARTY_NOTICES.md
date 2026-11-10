@@ -6,8 +6,9 @@ Third-party content retains its own license; the MIT license does not replace it
 
 - Poly Haven scanned textures and botanical assets: CC0-1.0. Source URLs and attribution
   are recorded in `public/textures/texture-attribution.json`,
-  `public/plantassets/attribution.json`, and
-  `public/plantassets/forest-variety/attribution.json`.
+  `public/plantassets/attribution.json`,
+  `public/plantassets/forest-variety/attribution.json`,
+  and `public/torch/attribution.json`.
 - Original creature and sky provenance: `public/creature/attribution.json` and
   `public/sky/attribution.json`.
 - Vendored software notices: `vendor/shadcn-tailwind-4.13.0.LICENSE.md` and

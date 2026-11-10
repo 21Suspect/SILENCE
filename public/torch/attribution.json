@@ -1,0 +1,32 @@
+{
+  "asset": "Small Plastic Torch",
+  "source": "https://polyhaven.com/a/small_plastic_torch",
+  "author": "Abiyyu Panggalih (Abiyyu_xyz)",
+  "license": "CC0-1.0",
+  "license_url": "https://polyhaven.com/license",
+  "model": "small-plastic-torch.glb",
+  "resolution": "1K",
+  "adaptation": "Original glTF geometry and material maps bundled as GLB with WebP texture encoding. SILENCE positions the model and controls the glass opacity and lens glow.",
+  "original_files": {
+    "small_plastic_torch_1k.gltf": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/small_plastic_torch/small_plastic_torch_1k.gltf",
+      "md5": "daef079394852ee603f6395f3578f4ea"
+    },
+    "textures/small_plastic_torch_nor_gl_1k.jpg": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/small_plastic_torch/small_plastic_torch_nor_gl_1k.jpg",
+      "md5": "ae2fd3c62c1e98dbcd5b4cfc95cd51a1"
+    },
+    "textures/small_plastic_torch_diff_1k.jpg": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/small_plastic_torch/small_plastic_torch_diff_1k.jpg",
+      "md5": "c41d52ff6796382a48048fd5612177f8"
+    },
+    "textures/small_plastic_torch_arm_1k.jpg": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/small_plastic_torch/small_plastic_torch_arm_1k.jpg",
+      "md5": "daa9b609db788dfa9830f30777f76bc8"
+    },
+    "small_plastic_torch.bin": {
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/4k/small_plastic_torch/small_plastic_torch.bin",
+      "md5": "13c4f8cdae7249cc9e292fc49237d15b"
+    }
+  }
+}
