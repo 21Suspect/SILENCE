@@ -19,6 +19,12 @@ type Point = { x: number; y: number; z: number };
 export const CREATURE_TAKES = { screech: 5, hiss: 6, branch: 6, call: 4, clicks: 8, knock_trunk: 4 } as const;
 export type CreatureSound = keyof typeof CREATURE_TAKES;
 
+/** Field recordings in public/audio/ambience (see scripts/assets/audio/ambience.py). `owls` is not a bed: it is heard now and then, far off. */
+const AMBIENCE = { day: ['day_1', 'day_2'], night: ['night_1', 'night_2'], wind: ['wind'] } as const;
+type AmbienceGroup = keyof typeof AMBIENCE;
+type AmbienceVoice = { name: string; source: AudioBufferSourceNode; gain: GainNode };
+const smoothstep = (x: number, a: number, b: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+
 export class ForestAudio {
   private context: AudioContext | null = null;
   private master: GainNode | null = null;
@@ -35,11 +41,16 @@ export class ForestAudio {
   private travelled = 0;
   private lastStep = -10;
   private age = 0;
-  private birdAt = 8 + Math.random() * 8;
-  private creakAt = 22 + Math.random() * 22;
   private lastStalkCue = -Infinity;
   private revealBuffer: AudioBuffer | null = null;
   private samples = new Map<CreatureSound, AudioBuffer[]>();
+  private beds = new Map<string, AudioBuffer>();
+  private buses: Record<AmbienceGroup, GainNode> | null = null;
+  private voices: Partial<Record<AmbienceGroup, AmbienceVoice>> = {};
+  private swapAt: Record<AmbienceGroup, number> = { day: 0, night: 0, wind: 0 };
+  private owlAt = 90 + Math.random() * 120;
+  private hushTarget = 0;
+  private hushLevel = 0;
   private lastTake = new Map<CreatureSound, number>();
   private revealSource: AudioBufferSourceNode | null = null;
   private position: Point = { x: 0, y: 0, z: 0 };
@@ -74,7 +85,13 @@ export class ForestAudio {
     const white = this.noise.getChannelData(0);
     for (let i = 0; i < length; i++) white[i] = Math.random() * 2 - 1;
 
-    for(let i=0;i<4;i++)this.loop(0,i%2?1450:190,i%2?'bandpass':'lowpass',i,.69+i*.09);
+    // The forest itself: real recordings on three buses. Nothing plays until its file has decoded.
+    this.buses = { day: context.createGain(), night: context.createGain(), wind: context.createGain() };
+    for (const bus of Object.values(this.buses)) { bus.gain.value = 0; bus.connect(master); }
+    for (const name of [...AMBIENCE.day, ...AMBIENCE.night, ...AMBIENCE.wind, 'owls']) {
+      void fetch(`/audio/ambience/${name}.mp3`).then(r => { if (!r.ok) throw new Error(`${name} unavailable`); return r.arrayBuffer(); }).then(bytes => context.decodeAudioData(bytes))
+        .then(buffer => { if (!this.disposed) this.beds.set(name, buffer); }).catch(error => console.warn('SILENCE: ambience could not load.', error));
+    }
     const water = this.loop(0, 1200, 'lowpass', 0, 1.13, true);
 
     this.riverGain = water;
@@ -308,20 +325,7 @@ export class ForestAudio {
     listener.upX.value = 0;
     listener.upY.value = 1;
     listener.upZ.value = 0;
-    const gust = 0.63 + Math.sin(this.age * 0.071) * 0.18 + Math.sin(this.age * 0.19 + 2.2) * 0.12;
-    for(const emitter of this.field){
-      const distance=Math.hypot(info.position.x-emitter.point.x,info.position.z-emitter.point.z);
-      if(distance>65)emitter.relocating=true;
-      const target=emitter.relocating?0:(emitter.kind%2?.021:.105)*gust*(emitter.kind%2?1-info.darkness*.4:1);
-      emitter.level+=(target-emitter.level)*(1-Math.exp(-dt/1.5));
-      if(!emitter.initialized||(emitter.relocating&&emitter.level<.0002)){
-        const a=emitter.kind*Math.PI/2+.35;
-        emitter.point={x:info.position.x+Math.cos(a)*30,y:info.position.y+8+emitter.kind*2,z:info.position.z+Math.sin(a)*30};
-        emitter.initialized=true;emitter.relocating=false;
-        emitter.panner.positionX.value=emitter.point.x;emitter.panner.positionY.value=emitter.point.y;emitter.panner.positionZ.value=emitter.point.z;
-      }
-      emitter.gain.gain.setTargetAtTime(emitter.level,now,.08);
-    }
+    this.ambience(dt, info, now);
     if(this.revealPanner&&this.revealPoint){const p=this.revealPoint;this.revealPanner.positionX.setTargetAtTime(p.x,now,.04);this.revealPanner.positionY.setTargetAtTime(p.y,now,.04);this.revealPanner.positionZ.setTargetAtTime(p.z,now,.04);}
     const breath=this.breathing.update(dt,info.sprinting&&info.speed>.65);
     if(breath.breathe)this.playerBreath(breath.level);
@@ -349,29 +353,52 @@ export class ForestAudio {
         this.footstep(info.surface, info.speed);
       }
     } else this.travelled = Math.min(this.travelled, 0.55);
+  }
 
-    if (this.age > this.birdAt) {
-      this.birdAt = this.age + 16 + Math.random() * 38 + info.darkness * 75;
-      if (Math.random() > info.darkness * 0.9) {
-        const a = Math.random() * Math.PI * 2;
-        const distance = 24 + Math.random() * 40;
-        const point = { x: info.position.x + Math.sin(a) * distance, y: info.position.y + 9, z: info.position.z + Math.cos(a) * distance };
-        if (Math.random() < 0.38) {
-          for (let i = 0; i < 2; i++) {
-            this.noiseHit({ duration: 0.3, frequency: 1200, type: 'bandpass', level: 0.08, attack: 0.04, position: point, delay: i * 0.58 });
-            this.tone({ frequency: 590, endFrequency: 390, duration: 0.25, level: 0.025, position: point, delay: i * 0.58, type: 'triangle', attack: 0.04 });
-          }
-        } else {
-          for (let i = 0; i < 3; i++) this.tone({ frequency: 1700 + Math.random() * 700, endFrequency: 2300 + Math.random() * 500, duration: 0.13 + Math.random() * 0.09, level: 0.024, delay: i * 0.23, position: point, attack: 0.022 });
-        }
-      }
+  /** The creature is near: the birds stop. Call every frame it is close, with 0..1; it lets go by itself. */
+  hush(level: number): void { this.hushTarget = Math.max(this.hushTarget, Math.min(1, Math.max(0, level))); }
+
+  /**
+   * Day and night beds cross over with the light, wind rises and falls in gusts, and no bed is ever heard the same
+   * way twice: each starts somewhere at random in its recording and, every minute or two, hands over to the other
+   * recording of its kind (again from a random point) through a slow cross-fade.
+   */
+  private ambience(dt: number, info: ForestAudioFrame, now: number): void {
+    const buses = this.buses, context = this.context;
+    if (!buses || !context) return;
+    for (const group of Object.keys(AMBIENCE) as AmbienceGroup[]) {
+      const current = this.voices[group], loaded = AMBIENCE[group].filter(name => this.beds.has(name));
+      if (!loaded.length || (current && this.age < this.swapAt[group])) continue;
+      const others = loaded.filter(name => name !== current?.name), name = (others.length ? others : loaded)[Math.floor(Math.random() * (others.length || loaded.length))];
+      if (current && name === current.name && group !== 'wind') { this.swapAt[group] = this.age + 30; continue; }   // its partner has not decoded yet
+      const buffer = this.beds.get(name)!, source = context.createBufferSource(), gain = context.createGain(), fade = current ? 14 : 4;
+      source.buffer = buffer; source.loop = true;
+      gain.gain.setValueAtTime(0, now); gain.gain.linearRampToValueAtTime(1, now + fade);
+      source.connect(gain).connect(buses[group]); this.track(source, [gain]);
+      source.start(now, Math.random() * buffer.duration);
+      if (current) { current.gain.gain.cancelScheduledValues(now); current.gain.gain.setValueAtTime(current.gain.gain.value, now); current.gain.gain.linearRampToValueAtTime(0, now + fade); current.source.stop(now + fade + .1); }
+      this.voices[group] = { name, source, gain };
+      this.swapAt[group] = this.age + 75 + Math.random() * 90;
     }
-    if (this.age > this.creakAt) {
-      this.creakAt = this.age + 30 + Math.random() * 55;
-      const angle = Math.random() * Math.PI * 2;
-      const point = { x: info.position.x + Math.sin(angle) * 23, y: info.position.y + 5, z: info.position.z + Math.cos(angle) * 23 };
-      this.noiseHit({ duration: 1.5, level: 0.025, frequency: 430, type: 'bandpass', attack: 0.4, position: point });
-      this.tone({ frequency: 120 + Math.random() * 90, endFrequency: 88, duration: 1.7, level: 0.018, attack: 0.55, position: point });
+    this.hushLevel += (this.hushTarget - this.hushLevel) * (1 - Math.exp(-dt / (this.hushTarget > this.hushLevel ? 1.2 : 6)));
+    this.hushTarget *= Math.exp(-dt / 3);
+    const night = smoothstep(info.darkness, .35, .78), quiet = 1 - this.hushLevel;
+    const gust = .55 + Math.sin(this.age * .071) * .2 + Math.sin(this.age * .19 + 2.2) * .13 + Math.sin(this.age * .023 + 1) * .12;
+    buses.day.gain.setTargetAtTime((1 - night) * .85 * (1 - this.hushLevel * .9), now, .6);
+    buses.night.gain.setTargetAtTime(night * .8 * (.35 + .65 * quiet), now, .6);
+    buses.wind.gain.setTargetAtTime(.5 * gust * (.75 + .25 * night), now, .8);
+    // An owl, far off, on some nights: a stretch of the recording from a random point, then gone.
+    if (this.age > this.owlAt) {
+      this.owlAt = this.age + 200 + Math.random() * 260;
+      const buffer = this.beds.get('owls');
+      if (buffer && night > .8 && this.hushLevel < .2 && this.master) {
+        const source = context.createBufferSource(), gain = context.createGain(), pan = context.createPanner(), length = 9 + Math.random() * 6, a = Math.random() * Math.PI * 2, d = 70 + Math.random() * 40;
+        source.buffer = buffer; pan.panningModel = 'HRTF'; pan.rolloffFactor = 0;
+        pan.positionX.value = info.position.x + Math.sin(a) * d; pan.positionY.value = info.position.y + 14; pan.positionZ.value = info.position.z + Math.cos(a) * d;
+        gain.gain.setValueAtTime(0, now); gain.gain.linearRampToValueAtTime(.35, now + 1.5); gain.gain.setValueAtTime(.35, now + length - 2); gain.gain.linearRampToValueAtTime(0, now + length);
+        source.connect(gain).connect(pan).connect(this.master); this.track(source, [gain, pan]);
+        source.start(now, Math.random() * Math.max(0, buffer.duration - length), length);
+      }
     }
   }
 
@@ -384,6 +411,6 @@ export class ForestAudio {
     if (this.context) void this.context.close();
     this.context = null;
     this.noise = null;
-    this.riverPanner = null;this.revealPanner=null;this.revealPoint=null;this.field=[];
+    this.riverPanner = null;this.revealPanner=null;this.revealPoint=null;this.field=[];this.buses=null;this.voices={};this.beds.clear();
   }
 }

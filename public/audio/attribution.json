@@ -8,5 +8,10 @@
     "source": "Generated for SILENCE by scripts/assets/audio/creature_sounds.py (procedural synthesis).",
     "license": "Same terms as the game's own code and assets.",
     "note": "call_3 and call_4 are slowed excerpts of 'scary sound.mp3' and carry that file's terms."
+  },
+  "ambience/*.mp3": {
+    "source": "Field recordings by Joseph Sardin, bigsoundbank.com: Forest #4 (2749), Forest #2 (1348), Countryside at night #1 (0110), Forest at night after rain (0555), Forest: wind in the trees (0904), Tawny owls (0429). Trimmed, levelled and looped by scripts/assets/audio/ambience.py.",
+    "license": "CC0 1.0 (public domain)",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/"
   }
 }

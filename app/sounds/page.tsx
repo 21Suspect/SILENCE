@@ -13,6 +13,11 @@ const GROUPS: [title: string, when: string, sounds: [file: string, label: string
   ["Knocks on a tree trunk", "rare: when you have stopped to listen and are not looking at it", takes("knock_trunk", ["two, then one late", "two, slow", "three, a long wait, one more", "once"])],
   ["Branch", "it moving in the trees, out of sight", takes("branch", ["dry stick", "dry stick", "dry stick", "green limb tearing", "green limb tearing", "heavy break dropping through brush"])],
   ["Distant call", "when it has lost you", takes("call", ["moan", "moan", "from the recording, slowed", "from the recording, slowed"])],
+  ["Forest ambience (real recordings, CC0)", "in the game these cross-fade with the light, start at random points and swap every minute or two", [
+    ["ambience/day_1", "Day · forest with birds and wind"], ["ambience/day_2", "Day · second forest"],
+    ["ambience/night_1", "Night · countryside at night"], ["ambience/night_2", "Night · forest after rain"],
+    ["ambience/wind", "Wind in the trees (always on, rising and falling)"], ["ambience/owls", "Owls · far off, now and then at night"],
+  ]],
   ["Already in the game", "", [["scary sound", "Reveal recording"]]],
 ];
 

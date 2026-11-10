@@ -508,6 +508,8 @@ export function createEncounters(
       if(protectedNow()){outsideReady=false;offscreen.reset();}
       if(dismissRequested){if(outsideReady&&hideBody(elapsed,'dismiss')){placeFar(player,150,220);dismissRequested=false;brain.forget();}}
       else if(distance>FAR&&out.behaviour!=='hunt'&&outsideReady)hideBody(elapsed,'recede');
+      // The birds stop when it is close, whether or not the player has noticed it.
+      if(root.visible)audio.hush(1-(distance-12)/28);
       // Letting itself be heard. Sparingly, and each for a reason; never while the player is looking at it (a noise
       // from something in plain view is just an animal making a noise), and never two within half a minute.
       stillFor=Math.hypot(percept.vx,percept.vz)<.4?stillFor+dt:0;

@@ -19,3 +19,10 @@ confirmed permission to redistribute it with this project on November 10, 2026.
 It is third-party audio and is not relicensed under the project's MIT license.
 No separate license grant for reuse outside this project has been supplied.
 Reference images and local hosting/account configuration are not included.
+
+## Forest ambience recordings
+
+The files in `public/audio/ambience/` are field recordings by Joseph Sardin from
+[bigsoundbank.com](https://bigsoundbank.com) (sounds 2749, 1348, 0110, 0555, 0904 and 0429), released under
+CC0 1.0 (public domain). They were trimmed, levelled and looped for the game by
+`scripts/assets/audio/ambience.py`. Details are in `public/audio/attribution.json`.
