@@ -355,7 +355,7 @@ def cans():
                 th = start + u * span
                 t = t0 + (t1 - t0) * v + .02 * math.sin(u * 19)
                 return p0 + axis * (t * h) + (e1 * math.cos(th) + e2 * math.sin(th)) * (r + .0012)
-            m.surface("canvas_orange", label, 12, 2, (.3, .2), wear=lambda u, v: .55)
+            m.surface("paper_label", label, 12, 2, (.3, .2), wear=lambda u, v: .55)
     m.radius = .7
     return m
 

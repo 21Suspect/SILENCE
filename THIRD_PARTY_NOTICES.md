@@ -8,7 +8,8 @@ Third-party content retains its own license; the MIT license does not replace it
   are recorded in `public/textures/texture-attribution.json`,
   `public/plantassets/attribution.json`,
   `public/plantassets/forest-variety/attribution.json`,
-  and `public/torch/attribution.json`.
+  `public/torch/attribution.json`, and `assets/world-v2/scans/attribution.json`.
+  Fourteen prop atlases include baked derivatives of the additional scans.
 - Original creature and sky provenance: `public/creature/attribution.json` and
   `public/sky/attribution.json`.
 - Vendored software notices: `vendor/shadcn-tailwind-4.13.0.LICENSE.md` and

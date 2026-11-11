@@ -15,6 +15,7 @@ import numpy as np
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
 SOURCE = os.path.join(ROOT, "assets/world-v2")
+SCANS = os.path.join(SOURCE, "scans")
 OUT = os.path.join(ROOT, "public/world")
 TEX = os.path.join(ROOT, "public/textures")
 started = time.time()
@@ -542,19 +543,25 @@ class G:
         n.inputs[2].default_value = hi
         return n.outputs[0]
 
-    def noise(self, vector, scale, detail=5.0, rough=0.55, distortion=0.0):
+    def noise(self, vector, scale, detail=5.0, rough=0.55, distortion=0.0, channel="Fac"):
         n = self.node("ShaderNodeTexNoise")
         self.link(vector, n.inputs["Vector"])
         n.inputs["Scale"].default_value = scale
         n.inputs["Detail"].default_value = detail
         n.inputs["Roughness"].default_value = rough
         n.inputs["Distortion"].default_value = distortion
-        return n.outputs["Fac"]
+        return n.outputs[channel]
 
     def stretch(self, vector, sx, sy, sz):
         n = self.node("ShaderNodeVectorMath", operation="MULTIPLY")
         self.link(vector, n.inputs[0])
         n.inputs[1].default_value = (sx, sy, sz)
+        return n.outputs[0]
+
+    def offset(self, vector, offset):
+        n = self.node("ShaderNodeVectorMath", operation="ADD")
+        self.link(vector, n.inputs[0])
+        self._in(n.inputs[1], offset)
         return n.outputs[0]
 
     def ao(self, distance, inside=False, samples=8):
@@ -572,17 +579,48 @@ class G:
         return n.outputs["Normal"]
 
 
+def scan_channels(g, directory, stem, uv, position=None):
+    """Sample matched colour, OpenGL normal and roughness maps in the bake UVs."""
+    if position is not None:
+        # Large slabs and the deck need more than a single repeated photograph.
+        # Share both coordinates and the blend across the three material maps.
+        warp = g.noise(position, .22, 2, channel="Color")
+        uv = g.offset(uv, g.stretch(warp, .76, .76, 0))
+        alternate = g.offset(g.stretch(uv, .81, 1.13, 1), (.31, .67, 0))
+        blend = g.ramp(g.noise(position, .48, 3), .35, .65)
+
+    def sample(channel, srgb=False):
+        path = os.path.join(directory, f"{stem}-{channel}.jpg")
+        image = _image(path, srgb)
+        primary = g.node("ShaderNodeTexImage", image=image)
+        g.link(uv, primary.inputs["Vector"])
+        if position is None:
+            return primary.outputs["Color"]
+        secondary = g.node("ShaderNodeTexImage", image=image)
+        g.link(alternate, secondary.inputs["Vector"])
+        return g.mix(blend, primary.outputs["Color"], secondary.outputs["Color"])
+
+    return sample("diff", True), sample("normal"), sample("rough")
+
+
+def scan_normal(g, colour, strength):
+    node = g.node("ShaderNodeNormalMap", uv_map="tile")
+    g.link(colour, node.inputs["Color"])
+    g._in(node.inputs["Strength"], strength)
+    return node.outputs["Normal"]
+
+
 RECIPES = {
     # Scanned timber, weathered towards silver-grey.
     "wood": dict(tex="wood", tint=(1.0, 0.95, 0.86), desat=0.55, vary=0.45, uv=1.0, moss=0.55, streak=0.5, edge=(0.46, 0.43, 0.37)),
     "wood_dark": dict(tex="wood", tint=(0.55, 0.49, 0.42), desat=0.3, vary=0.4, uv=1.0, moss=0.4, streak=0.6, edge=(0.3, 0.27, 0.23)),
     "wood_fresh": dict(tex="wood", tint=(0.9, 0.78, 0.62), desat=0.0, vary=0.3, uv=1.0, moss=0.2, streak=0.3, edge=(0.6, 0.52, 0.4)),
     "logwood": dict(tex="wood", tint=(0.92, 0.84, 0.72), desat=0.45, vary=0.5, uv=1.0, moss=.7, streak=0.5, edge=(0.42, 0.38, 0.31)),
-    "galv": dict(proc="metal", age=.3, paint=(.36, .37, .36), metal=.2, rough=.55, bump=.05),
+    "galv": dict(proc="metal", age=.3, paint=(.36, .37, .36), metal=.2, rough=.55, bump=.05, rust_scan=True),
     "bark": dict(tex="bark", tint=(0.72, 0.68, 0.62), desat=0.1, vary=0.35, uv=1.0, moss=.45, streak=0.2, edge=None),
     "stone": dict(tex="rock", tint=(0.8, 0.8, 0.76), desat=0.3, vary=0.5, uv=0.8, moss=1.0, streak=0.3, edge=(0.42, 0.42, 0.4)),
-    "tin": dict(proc="metal", age=0.5, seam=.04, edgew=.1, paint=(0.3, 0.32, 0.32), metal=0.15, rough=0.72, bump=0.12),
-    "tin_red": dict(proc="metal", age=0.5, paint=(0.2, 0.05, 0.035), metal=0.0, rough=0.62, bump=0.12),
+    "tin": dict(proc="metal", age=0.5, seam=.04, edgew=.1, paint=(0.3, 0.32, 0.32), metal=0.15, rough=0.72, bump=0.12, rust_scan=True),
+    "tin_red": dict(proc="metal", age=0.5, paint=(0.2, 0.05, 0.035), metal=0.0, rough=0.62, bump=0.12, rust_scan=True),
     "steel": dict(proc="metal", age=0.34, paint=(0.075, 0.085, 0.07), metal=0.1, rough=0.55, bump=0.05),
     "steel_bare": dict(proc="metal", age=0.52, paint=(0.24, 0.24, 0.225), metal=0.25, rough=0.5, bump=0.04),
     "olive": dict(proc="metal", age=0.34, paint=(0.1, 0.12, 0.05), metal=0.0, rough=0.55, bump=0.03),
@@ -603,6 +641,7 @@ RECIPES = {
     "canvas_orange": dict(proc="cloth", colour=(0.2, 0.1, 0.05)),
     "wood_clean": dict(tex="wood", tint=(1.0, 0.95, 0.86), desat=0.5, vary=0.55, uv=1.0, moss=0.12, streak=0.25, edge=(0.46, 0.43, 0.37)),
     "tarp": dict(proc="cloth", colour=(0.05, 0.11, 0.19)),
+    "paper_label": dict(proc="flat", colour=(.18, .10, .05), rough=.9, grime=True),
     "rubber": dict(proc="flat", colour=(0.016, 0.016, 0.016), rough=0.88),
     "tyre": dict(proc="tyre"),
     "glass": dict(proc="flat", colour=(0.012, 0.016, 0.016), rough=0.12, grime=True),
@@ -613,7 +652,7 @@ RECIPES = {
     "ceramic": dict(proc="flat", colour=(0.62, 0.58, 0.48), rough=0.32, grime=True),
     "brass": dict(proc="flat", colour=(0.42, 0.3, 0.12), rough=0.42, metal=0.45, grime=True),
     "char": dict(proc="char"),
-    "soot_iron": dict(proc="metal", age=.3, paint=(.065, .057, .045), metal=.35, rough=.67),
+    "soot_iron": dict(proc="metal", age=.3, paint=(.065, .057, .045), metal=.35, rough=.67, rust_scan=True),
     "ash": dict(proc="ash"),
     "endgrain": dict(proc="endgrain"),
 }
@@ -735,11 +774,20 @@ def build_material(name):
         paint = g.mix(run, paint, (.16, .09, .05), "MULTIPLY")
         chip = g.math("MULTIPLY", g.ramp(g.math("ADD", g.math("MULTIPLY", hard_edge, .8), g.math("MULTIPLY", fine, .5)), .72, .8), min(1.0, .35 + age))
         paint = g.mix(chip, paint, (.1, .085, .075))
+        if r.get("rust_scan"):
+            uv = g.stretch(uvn.outputs[0], .24, .24, 1)
+            rust, detail, scan_rough = scan_channels(g, SCANS, "rust", uv)
+            rust = g.mix(1.0, rust, (.82, .93, 1.05), "MULTIPLY")
+            patina = g.mixf(g.ramp(rust, .035, .24), .78, 1.16)
+            paint = g.mix(1.0, paint, _grey(g, patina), "MULTIPLY")
+            normal_out = scan_normal(g, detail, g.mixf(rustmask, .24, .78))
         base = g.mix(rustmask, paint, rust)
         rough = g.mixf(rustmask, r["rough"], .88)
+        if r.get("rust_scan"):
+            rough = g.mixf(.4, rough, scan_rough)
         metal_out = g.mixf(rustmask, r["metal"], 0.0)
         pits = g.noise(pos, 110, 4, .7)
-        normal_out = g.bump(g.math("ADD", g.math("MULTIPLY", rustmask, .55), g.math("MULTIPLY", pits, g.math("MULTIPLY", rustmask, .45))), .9, .005)
+        normal_out = g.bump(g.math("ADD", g.math("MULTIPLY", rustmask, .55), g.math("MULTIPLY", pits, g.math("MULTIPLY", rustmask, .45))), .9, .005, normal_out)
     elif proc == "asphalt":
         # A unique metre-space pavement bake: no small rock photograph tiled
         # into a grid over the entire deck. Aggregate, wear and damp areas
@@ -762,11 +810,10 @@ def build_material(name):
         relief = g.math("SUBTRACT", g.math("ADD", grit, g.math("MULTIPLY", chips, .35)), g.math("MULTIPLY", fissure, .8))
         normal_out = g.bump(relief, .45, .003)
     elif proc == "concrete":
-        fine = g.noise(pos, 80, 5, .7)
-        base = g.mix(g.ramp(g.noise(pos, 3, 5, .55), .3, .7), (.2, .195, .175), (.27, .262, .235))
-        base = g.mix(g.math("MULTIPLY", g.ramp(fine, .58, .74), .2), base, (.1, .1, .095))
-        rough = .94
-        h_ = fine
+        uv = g.stretch(uvn.outputs[0], 1 / 6, 1 / 6, 1)
+        base, detail, rough = scan_channels(g, SCANS, "concrete", uv, pos)
+        base = g.mix(1.0, base, (1.85, 1.82, 1.72), "MULTIPLY")
+        normal_out = scan_normal(g, detail, .82)
         if r.get("blocks"):
             # Coursing comes from world position, so every wall bonds the same way.
             sep = g.node("ShaderNodeSeparateXYZ")
@@ -789,28 +836,27 @@ def build_material(name):
             brick.inputs["Brick Width"].default_value = .4
             brick.inputs["Row Height"].default_value = .2
             mortar = brick.outputs["Fac"]
-            per_block = g.ramp(brick.outputs["Color"], .0, 1.0)
             base = g.mix(g.math("MULTIPLY", mortar, .9), base, (.075, .072, .062))
-            h_ = g.math("SUBTRACT", g.math("MULTIPLY", fine, .5), g.math("MULTIPLY", mortar, 2.2))
+            normal_out = g.bump(g.math("MULTIPLY", mortar, -1), .65, .007, normal_out)
         # Rain stains hang from wherever water runs off; splash darkens the foot of the wall.
         stain = g.ramp(g.noise(g.stretch(pos, 26, 26, .55), 1.0, 5, .55), .5, .74)
         wear_attr = seed_green(g, seed)
         base = g.mix(g.math("MULTIPLY", stain, g.math("ADD", .25, g.math("MULTIPLY", wear_attr, .6))), base, (.16, .15, .13), "MULTIPLY")
-        tide = g.ramp(g.math("ADD", z, g.math("ADD", g.math("MULTIPLY", g.math("SUBTRACT", g.noise(pos, .9, 4, .55), .5), 1.5), g.math("MULTIPLY", g.math("SUBTRACT", g.noise(pos, 6, 4, .6), .5), .35))), .75, .1)
-        base = g.mix(g.math("MULTIPLY", tide, .7), base, (.1, .105, .07), "MULTIPLY")
-        normal_out = g.bump(h_, .6, .008)
+        tide = g.ramp(g.math("ADD", z, g.math("MULTIPLY", g.math("SUBTRACT", g.noise(pos, 5, 4, .55), .5), .5)), .85, .3)
+        base = g.mix(g.math("MULTIPLY", tide, .55), base, (.1, .105, .07), "MULTIPLY")
+        rough = g.mixf(g.math("MULTIPLY", tide, .38), rough, .66)
     elif proc == "cloth":
-        # Multiscale woven fibres, dirt, faded patches. Avoid undersampled wave
-        # bands: these alias into the conspicuous corrugations on a baked atlas.
-        fibres = g.noise(uvn.outputs[0], 85, 2, .55)
-        flecks = g.noise(pos, 72, 3, .65)
+        # Keep the dyed canvas colour while taking the weave from real cotton.
+        uv = g.stretch(uvn.outputs[0], 5 / 3, 5 / 3, 1)
+        cotton, detail, scan_rough = scan_channels(g, SCANS, "canvas", uv)
         fade = g.noise(pos, 2.2, 5, .65)
         damp = g.noise(pos, 10, 5, .65)
-        base = g.mix(g.ramp(fade, .25, .75), tuple(c * .5 for c in r["colour"]), tuple(c * 1.65 for c in r["colour"]))
+        base = g.mix(g.ramp(fade, .25, .75), tuple(c * .55 for c in r["colour"]), tuple(c * 1.25 for c in r["colour"]))
         base = g.mix(g.math("MULTIPLY", g.ramp(damp, .48, .72), .65), base, (.075, .065, .042))
-        base = g.mix(g.math("MULTIPLY", fibres, .2), base, (.3, .27, .19))
-        rough = g.mixf(fade, .78, .98)
-        normal_out = g.bump(g.math("ADD", fibres, g.math("MULTIPLY", flecks, .45)), .35, .0007)
+        weave = g.mixf(g.ramp(cotton, .025, .10), .68, 1.2)
+        base = g.mix(1.0, base, _grey(g, weave), "MULTIPLY")
+        rough = g.mixf(.6, g.mixf(fade, .78, .98), scan_rough)
+        normal_out = scan_normal(g, detail, .48)
     elif proc == "char":
         grain = g.noise(g.stretch(pos, 35, 35, 9), 1, 5, .7)
         cracks = g.ramp(grain, .48, .58)

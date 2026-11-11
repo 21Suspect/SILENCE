@@ -1,0 +1,97 @@
+{
+  "provider": "Poly Haven",
+  "license": "CC0-1.0",
+  "license_url": "https://polyhaven.com/license",
+  "assets": [
+    {
+      "asset": "concrete_floor_worn_001",
+      "source": "https://polyhaven.com/a/concrete_floor_worn_001",
+      "author": "Dimitrios Savva and Rico Cilliers",
+      "physical_span_m": 3,
+      "usage": "Cast concrete and relay blockwork",
+      "maps": {
+        "diff": {
+          "file": "concrete-diff.jpg",
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/concrete_floor_worn_001/concrete_floor_worn_001_diff_1k.jpg",
+          "md5": "e35597cca586150b1ab2aa9a331a39c5",
+          "resolution": "1k",
+          "color_space": "srgb"
+        },
+        "normal": {
+          "file": "concrete-normal.jpg",
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/concrete_floor_worn_001/concrete_floor_worn_001_nor_gl_1k.jpg",
+          "md5": "9de6626758f8793b71182b892c110827",
+          "resolution": "1k",
+          "color_space": "linear"
+        },
+        "rough": {
+          "file": "concrete-rough.jpg",
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/concrete_floor_worn_001/concrete_floor_worn_001_rough_1k.jpg",
+          "md5": "b158eae73029ac6a849481274a0e1b35",
+          "resolution": "1k",
+          "color_space": "linear"
+        }
+      }
+    },
+    {
+      "asset": "rust_coarse_01",
+      "source": "https://polyhaven.com/a/rust_coarse_01",
+      "author": "Dimitrios Savva and Rico Cilliers",
+      "physical_span_m": 2.2,
+      "usage": "Exposed corrosion and pitting on rails, sheet metal and ironwork",
+      "maps": {
+        "diff": {
+          "file": "rust-diff.jpg",
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rust_coarse_01/rust_coarse_01_diff_1k.jpg",
+          "md5": "c2d2facc7184f216d15a8f9957d3aa4c",
+          "resolution": "1k",
+          "color_space": "srgb"
+        },
+        "normal": {
+          "file": "rust-normal.jpg",
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rust_coarse_01/rust_coarse_01_nor_gl_1k.jpg",
+          "md5": "77f701cbbf5042f6531e7a5af3a4d171",
+          "resolution": "1k",
+          "color_space": "linear"
+        },
+        "rough": {
+          "file": "rust-rough.jpg",
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rust_coarse_01/rust_coarse_01_rough_1k.jpg",
+          "md5": "5c06aa68ed5f0d597ef92198050c0c6a",
+          "resolution": "1k",
+          "color_space": "linear"
+        }
+      }
+    },
+    {
+      "asset": "book_pattern",
+      "source": "https://polyhaven.com/a/book_pattern",
+      "author": "Rob Tuytel",
+      "physical_span_m": 0.3,
+      "usage": "Recolored woven cotton for tents, canvas and tarps",
+      "maps": {
+        "diff": {
+          "file": "canvas-diff.jpg",
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/book_pattern/book_pattern_col1_1k.jpg",
+          "md5": "4f9551b538201ee44ba2f4d5c9492110",
+          "resolution": "1k",
+          "color_space": "srgb"
+        },
+        "normal": {
+          "file": "canvas-normal.jpg",
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/book_pattern/book_pattern_nor_gl_1k.jpg",
+          "md5": "4a7ebf8047690aa26fbd3f451a82fd81",
+          "resolution": "1k",
+          "color_space": "linear"
+        },
+        "rough": {
+          "file": "canvas-rough.jpg",
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/book_pattern/book_pattern_rough_1k.jpg",
+          "md5": "e73a3decc3fc793db0dbe9671fa434f3",
+          "resolution": "1k",
+          "color_space": "linear"
+        }
+      }
+    }
+  ]
+}
