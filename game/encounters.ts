@@ -1,11 +1,11 @@
 import * as THREE from 'three';
 import {createTreeCrawl} from './tree-crawl';
 import type { ForestAudio } from './audio';
-import {createFoot,swingFoot,advanceFoot,solveLeg,type FootState} from './creature-gait';
 import {WORLD_RADIUS} from './world';
 import type {SolidCollider,createCollisionWorld} from './collision';
 import {createCreatureNavigation} from './creature-navigation';
 import {createListener} from './listener';
+import {SPIDER_SCALE} from './spider-rig';
 import {creatureInView,createOffscreenLatch,CREATURE_VIEW_RADIUS,type EncounterView} from './encounter-visibility';
 import {inDirectView,sightlineClear,createEncounterAwareness} from './creature-sighting';
 import {createCreatureBrain,createRandom,type BrainEvent,type Intent,type NoiseEvent,type PlayerPercept,type Point,type Vec2} from './creature-brain';
@@ -43,163 +43,27 @@ export function createEncounters(
   scene.add(root);
   const body = new THREE.Group();
   root.add(body);
-  const navigation=createCreatureNavigation(heightAt,collisionWorld,waterSurfaceAt);
-  // What the player sees is the Listener. The six invisible limbs below are only the encounter logic's sense of reach.
+  const navigation=createCreatureNavigation(heightAt,collisionWorld,waterSurfaceAt,SPIDER_SCALE/1.15);
+  // The visible eight-legged rig supplies locomotion, visibility bounds and collision.
   const listener=createListener(scene,heightAt,navigation,collisionWorld);
-  const sculpt={get ready(){return listener.ready;},secondary(_t:number,_r:number,_d:number,_m:unknown){},setLeg(_l:string,_b:THREE.Vector3,_s:THREE.Vector3,_j:THREE.Vector3,_f:THREE.Vector3,_t2:THREE.Vector3){},inspect(){const box=new THREE.Box3();listener.root.updateMatrixWorld(true);listener.root.traverse(o=>{if((o as THREE.Bone).isBone)box.expandByPoint(o.getWorldPosition(new THREE.Vector3()));});return {ready:listener.ready,model:'listener',visible:listener.root.visible,parentVisible:listener.root.parent?.visible,root:listener.root.position.toArray(),bones:[box.min.toArray(),box.max.toArray()]};},dispose(){listener.dispose();}};
+  const sculpt={get ready(){return listener.ready;},inspect(){const box=new THREE.Box3();listener.root.updateMatrixWorld(true);listener.root.traverse(o=>{if((o as THREE.Bone).isBone)box.expandByPoint(o.getWorldPosition(new THREE.Vector3()));});return {ready:listener.ready,model:'listener',visible:listener.root.visible,parentVisible:listener.root.parent?.visible,root:listener.root.position.toArray(),bones:[box.min.toArray(),box.max.toArray()]};},dispose(){listener.dispose();}};
   let currentDarkness=0,treeCollider:(SolidCollider&{kind:'capsule'})|undefined,perchTime=0,stareBoost=0;
-  type Limb={base:THREE.Vector3;shoulder:THREE.Vector3;rest:THREE.Vector3;side:number;index:number;label:string;foot:FootState;reachError:number;reachDistance:number;legClearance:number;shoulderWorld:THREE.Vector3;jointWorld:THREE.Vector3};
-  const limbs:Limb[]=[];
-  for(const side of [-1,1])for(let i=0;i<3;i++){
-    const base=new THREE.Vector3(side*.25,1.88,.38-i*.52);
-    const shoulder=new THREE.Vector3(side*(.85+i*.1),2.43+(i===1?.38:0),.8-i*.85);
-    const rest=new THREE.Vector3(side*(2.22+i*.16),.035,(i===0?2.02:i===1?.05:-1.90));
-    limbs.push({base,shoulder,rest,side,index:i,label:(side<0?'L':'R')+i,foot:createFoot(rest,(i+(side>0?1:0))%2),reachError:0,reachDistance:0,legClearance:Infinity,shoulderWorld:new THREE.Vector3(),jointWorld:new THREE.Vector3()});
-  }
-  const velocity=new THREE.Vector3(),previousPosition=new THREE.Vector3(),desired=new THREE.Vector3(),localFoot=new THREE.Vector3(),joint=new THREE.Vector3(),shoulderPoint=new THREE.Vector3();
-  const toe=new THREE.Vector3(),pole=new THREE.Vector3(),candidateJoint=new THREE.Vector3(),candidateWorld=new THREE.Vector3(),movementDirection=new THREE.Vector3(),previewDirection=new THREE.Vector3();
-  const attentionTarget=new THREE.Vector3(),localAttention=new THREE.Vector3();
-  const colliderA=new THREE.Vector3(),colliderB=new THREE.Vector3();
-  const stepErrors=new Float32Array(6),stepErrors2=new Float32Array(6),LIFT_SWEEP_SAMPLES=10;
-  const motion={speed:0,turnRate:0,lookTarget:localAttention};
-  let gaitGroup=0,gaitReady=false,visualTest=false,nextLift=0,lastMoveSpeed=0,bodyLift=0,bodyCrouch=0,shoulderWidth=1,moveEase=1;
-  /** How fast, per second, the soft allowance on the body's movement (legs, bark) may fall: 1 to .35 takes about a fifth of a second. */
-  const MOVE_EASE_FALL=3;
-  const waveOrder=[2,4,0,5,1,3];let waveIndex=0;
+  // The crawl controller uses six guide contacts to steer its trunk path. The visible
+  // eight-legged rig owns all ground locomotion, contacts, and limb collision.
+  const crawlRest=[-1,1].flatMap(side=>Array.from({length:3},(_,i)=>new THREE.Vector3(side*(2.22+i*.16),.035,i===0?2.02:i===1?.05:-1.90)));
+  const movementDirection=new THREE.Vector3(),previewDirection=new THREE.Vector3(),attentionTarget=new THREE.Vector3();
+  let lastMoveSpeed=0,plannedMoveSpeed=0,visualTest=false;
   function resetFeet(){
     navigation.refresh(root.position.x,root.position.z,0,true);
-    body.position.set(0,0,0);body.rotation.set(0,0,0);bodyLift=bodyCrouch=0;moveEase=1;
-    root.updateMatrixWorld(true);
-    for(const limb of limbs){
-      desired.copy(limb.rest);root.localToWorld(desired);
-      const target=navigation.findFoot(desired.x,desired.z,root.position.x,root.position.z);
-      desired.set(target.x,target.y,target.z);limb.foot=createFoot(desired,limb.foot.group);
-    }
-    previousPosition.copy(root.position);velocity.set(0,0,0);motion.speed=motion.turnRate=0;gaitReady=true;gaitGroup=waveIndex=0;nextLift=0;
+    lastMoveSpeed=plannedMoveSpeed=0;
     listener.reset();
   }
-  function futureRest(limb:Limb,seconds:number,out:THREE.Vector3){
-    const omega=motion.turnRate,theta=omega*seconds,yaw=root.rotation.y+theta,co=Math.cos(yaw),si=Math.sin(yaw);
-    let dx=velocity.x*seconds,dz=velocity.z*seconds;
-    if(Math.abs(omega)>.015){const along=Math.sin(theta)/omega,across=(1-Math.cos(theta))/omega;dx=velocity.x*along+velocity.z*across;dz=velocity.z*along-velocity.x*across;}
-    const width=limb.rest.x*navigation.stanceWidth;
-    out.set(root.position.x+dx+width*co+limb.rest.z*si,0,root.position.z+dz-width*si+limb.rest.z*co);
-    return out;
-  }
-  function lift(limb:Limb,speed:number,running:number,delay=0){
-    const duration=(limb.index===0?.34:limb.index===1?.29:.27)-running*.14;
-    // Aim at the stance after landing, including angular motion. Inner feet
-    // shorten their steps while outer feet trace a longer arc through a turn.
-    futureRest(limb,duration*.65+.09,desired);
-    const target=navigation.findFoot(desired.x,desired.z,root.position.x,root.position.z,limb.foot.position.x,limb.foot.position.z);
-    desired.set(target.x,target.y,target.z);
-    let clearance=(limb.index===0?.23:.16)+running*.25;
-    const bow=(limb.index===0?.18:.10)+running*.055;
-    let bowX=Math.cos(root.rotation.y)*limb.side*bow,bowZ=-Math.sin(root.rotation.y)*limb.side*bow;
-    // The lifted tarsus hooks outward like a spider's foot, only if the full
-    // curved sweep has room. Near trunks it takes the narrow safe trajectory.
-    for(let i=1;i<LIFT_SWEEP_SAMPLES;i++){const t=i/LIFT_SWEEP_SAMPLES,s=t*t*t*(t*(t*6-15)+10),hook=Math.sin(Math.PI*t)**2,x=THREE.MathUtils.lerp(limb.foot.position.x,desired.x,s)+bowX*hook,z=THREE.MathUtils.lerp(limb.foot.position.z,desired.z,s)+bowZ*hook;if(navigation.footClearance(x,z)<.24){bowX=bowZ=0;break;}}
-    // Precompute a smooth arc above the complete swept footprint, including
-    // narrow logs between the start/end contact (not just the landing height).
-    for(let i=1;i<LIFT_SWEEP_SAMPLES;i++){
-      const t=i/LIFT_SWEEP_SAMPLES,s=t*t*t*(t*(t*6-15)+10),hook=Math.sin(Math.PI*t)**2,x=THREE.MathUtils.lerp(limb.foot.position.x,desired.x,s)+bowX*hook,z=THREE.MathUtils.lerp(limb.foot.position.z,desired.z,s)+bowZ*hook;
-      const linearY=THREE.MathUtils.lerp(limb.foot.position.y,desired.y,s);
-      clearance=Math.max(clearance,(navigation.supportAt(x,z)+.07-linearY)/Math.pow(Math.sin(Math.PI*t),.82));
-    }
-    swingFoot(limb.foot,desired,Math.min(clearance,2.3),duration,delay,bowX,bowZ);
-  }
   function animateCreature(dt:number,time:number){
-    if(!gaitReady)resetFeet();
-    navigation.refresh(root.position.x,root.position.z,dt);
-    shoulderWidth=THREE.MathUtils.damp(shoulderWidth,navigation.shoulderWidth,8,dt);
-    velocity.subVectors(root.position,previousPosition).divideScalar(Math.max(dt,.001));previousPosition.copy(root.position);
-    const speed=Math.hypot(velocity.x,velocity.z),running=THREE.MathUtils.smoothstep(speed,1.4,5.5);
-    let supportCount=0,swingCount=0;for(const limb of limbs){if(limb.foot.swinging)swingCount++;else supportCount++;}
-    const count=Math.max(1,supportCount);
-    let loadX=0,front=0,back=0,left=0,right=0;
-    for(const limb of limbs){localFoot.copy(limb.foot.position);root.worldToLocal(localFoot);if(!limb.foot.swinging)loadX+=localFoot.x/count;if(limb.index===0)front+=localFoot.y*.5;if(limb.index===2)back+=localFoot.y*.5;if(limb.side<0)left+=localFoot.y/3;else right+=localFoot.y/3;}
-    body.position.x=THREE.MathUtils.damp(body.position.x,THREE.MathUtils.clamp(loadX*.055,-.07,.07),5,dt);
-    let neededLift=0;
-    const rootCos=Math.cos(root.rotation.y),rootSin=Math.sin(root.rotation.y);
-    for(const limb of limbs){
-      const sx=root.position.x+limb.shoulder.x*shoulderWidth*rootCos+limb.shoulder.z*rootSin,sz=root.position.z-limb.shoulder.x*shoulderWidth*rootSin+limb.shoulder.z*rootCos;
-      for(const contact of limb.foot.swinging?[limb.foot.position,limb.foot.target]:[limb.foot.position]){
-        const horizontal=(contact.x-sx)**2+(contact.z-sz)**2;
-        if(horizontal<1.77**2)neededLift=Math.max(neededLift,contact.y+Math.sqrt(1.77**2-horizontal)-root.position.y-limb.shoulder.y+.035);
-      }
-    }
-    neededLift=THREE.MathUtils.clamp(neededLift,0,1.1);
-    bodyLift=Math.max(neededLift-.06,THREE.MathUtils.damp(bodyLift,neededLift,neededLift>bodyLift?14:6,dt));
-    const overhead=navigation.ceilingAt(root.position.x,root.position.z,3.1);
-    const crouchTarget=Number.isFinite(overhead)?THREE.MathUtils.clamp(root.position.y+4.35-overhead+.22,0,.58):0;
-    bodyCrouch=THREE.MathUtils.damp(bodyCrouch,crouchTarget,7,dt);
-    // The abdomen remains low and almost motionless while the long legs probe.
-    body.position.y=bodyLift-bodyCrouch-.055+Math.sin(time*1.45)*.010;
-    body.rotation.z=THREE.MathUtils.damp(body.rotation.z,THREE.MathUtils.clamp((right-left)*.1,-.12,.12)-loadX*.017,5,dt);
-    body.rotation.x=THREE.MathUtils.damp(body.rotation.x,THREE.MathUtils.clamp((back-front)*.1,-.14,.14)-.035-running*.045,5,dt);
-    root.updateMatrixWorld(true);localAttention.copy(attentionTarget);body.worldToLocal(localAttention);
-    motion.speed=speed;sculpt.secondary(time,running,dt,motion);root.updateMatrixWorld(true);nextLift-=dt;
-    for(let i=0;i<limbs.length;i++){const limb=limbs[i];futureRest(limb,.14+running*.06,desired);stepErrors[i]=Math.hypot(desired.x-limb.foot.position.x,desired.z-limb.foot.position.z);}
-    for(let i=0;i<limbs.length;i++){
-      const limb=limbs[i];if(limb.foot.swinging)continue;
-      desired.copy(limb.shoulder);desired.x*=shoulderWidth;body.localToWorld(desired);
-      if((desired.distanceTo(limb.foot.position)>3.95||limb.legClearance<.19)&&swingCount<4){lift(limb,speed,running);swingCount++;}
-    }
-    if(running>.45){
-      let largestError=0;for(let i=0;i<stepErrors.length;i++)largestError=Math.max(largestError,stepErrors[i]);
-      if(swingCount===0&&largestError>.28+running*.20){
-        let order=0;for(const limb of limbs)if(limb.foot.group===gaitGroup)lift(limb,speed,running,order++*.012);
-        gaitGroup=1-gaitGroup;
-      }
-    }else if(nextLift<=0&&swingCount<2){
-      let chosen=-1,largest=.22;
-      // A six-beat crawl retains four or five contacts; overextended feet take
-      // priority during turns, so the body never drags a leg behind it.
-      for(let i=0;i<6;i++){const index=waveOrder[(waveIndex+i)%6];if(!limbs[index].foot.swinging&&stepErrors[index]>largest){largest=stepErrors[index];chosen=index;}}
-      if(chosen>=0){lift(limbs[chosen],speed,running);waveIndex=(waveOrder.indexOf(chosen)+1)%6;nextLift=.10-running*.025;}
-    }
-    for(const limb of limbs){
-      advanceFoot(limb.foot,dt,.34-running*.19,.17+running*.28,navigation.supportAt);
-      if(limb.foot.swinging){
-        limb.shoulderWorld.copy(limb.shoulder);limb.shoulderWorld.x*=shoulderWidth;body.localToWorld(limb.shoulderWorld);
-        const horizontal=(limb.foot.position.x-limb.shoulderWorld.x)**2+(limb.foot.position.z-limb.shoulderWorld.z)**2;
-        if(horizontal<1.66**2){
-          const ceiling=limb.shoulderWorld.y-Math.sqrt(1.66**2-horizontal),floor=navigation.supportAt(limb.foot.position.x,limb.foot.position.z)+.035;
-          // The unequal leg bones cannot fold closer than 1.6 m. Flatten only
-          // the airborne arc when a high boulder brings the toe near the hip.
-          if(ceiling>=floor)limb.foot.position.y=Math.min(limb.foot.position.y,ceiling);
-        }
-      }
-      localFoot.copy(limb.foot.position);body.worldToLocal(localFoot);
-      shoulderPoint.copy(limb.shoulder);shoulderPoint.x*=shoulderWidth;shoulderPoint.y+=Math.sin(time*1.45+limb.index)*.012;
-      const folded=limb.foot.swinging?Math.sin(limb.foot.progress*Math.PI):0;
-      pole.set(limb.side*(navigation.squeezing?.8:3.12-folded*.18),4.55-bodyCrouch*1.8+folded*.30+(navigation.squeezing?.4:0),limb.rest.z*.52);
-      solveLeg(shoulderPoint,localFoot,pole,1.5,3.1,joint);
-      limb.shoulderWorld.copy(shoulderPoint);body.localToWorld(limb.shoulderWorld);
-      limb.jointWorld.copy(joint);body.localToWorld(limb.jointWorld);
-      let limbClearance=Math.min(navigation.limbClearance(limb.shoulderWorld,limb.jointWorld),navigation.limbClearance(limb.jointWorld,limb.foot.position));
-      // Rotate the knee's IK pole around its reachable arc if the broad elbow
-      // would scrape a trunk. Bone lengths and grounded tips stay unchanged.
-      if(limbClearance<.13){
-        for(let option=0;option<12;option++){
-          const angle=option*Math.PI/6;pole.set(limb.side*(.5+Math.cos(angle)*3.2),3.5+Math.sin(angle)*3,limb.rest.z*.7+Math.sin(angle+.8)*1.1);
-          solveLeg(shoulderPoint,localFoot,pole,1.5,3.1,candidateJoint);candidateWorld.copy(candidateJoint);body.localToWorld(candidateWorld);
-          const candidateClearance=Math.min(navigation.limbClearance(limb.shoulderWorld,candidateWorld),navigation.limbClearance(candidateWorld,limb.foot.position));
-          if(candidateClearance>limbClearance){limbClearance=candidateClearance;joint.copy(candidateJoint);limb.jointWorld.copy(candidateWorld);}
-          if(limbClearance>.18)break;
-        }
-      }
-      limb.legClearance=limbClearance;
-      // Toe orientation remains fixed in world space for the entire stance.
-      toe.copy(limb.foot.position);toe.x+=limb.side*.10;toe.y-=.018;toe.z+=.13;body.worldToLocal(toe);
-      sculpt.setLeg(limb.label,limb.base,shoulderPoint,joint,localFoot,toe);
-      limb.shoulderWorld.copy(shoulderPoint);body.localToWorld(limb.shoulderWorld);limb.jointWorld.copy(joint);body.localToWorld(limb.jointWorld);
-      limb.reachError=Math.abs(joint.distanceTo(localFoot)-3.1);limb.reachDistance=shoulderPoint.distanceTo(localFoot);
-    }
-    listener.walk(dt,time,root.position,root.rotation.y,attentionTarget,currentDarkness);
+    listener.walk(dt,time,root.position,root.rotation.y,attentionTarget,currentDarkness,plannedMoveSpeed);
   }
   function moveCreature(dt:number,speed:number,direction:THREE.Vector3,brake?:number){
     const moved=navigation.move(root.position,direction.x,direction.z,speed,dt,brake);
+    plannedMoveSpeed=moved.speed;
     const oldYaw=root.rotation.y,difference=Math.atan2(Math.sin(moved.yaw-oldYaw),Math.cos(moved.yaw-oldYaw));
     const turn=moved.speed>.001?THREE.MathUtils.clamp(difference*(1-Math.exp(-dt*9)),-dt*2.4,dt*2.4):0;
     // Translation and heading progress together through the rounded route. Only
@@ -210,28 +74,12 @@ export function createEncounters(
     // only a near-reversed heading now receives a meaningful ease-in.
     const alignment=.90+.10*Math.max(0,Math.cos(difference));
     const nx=THREE.MathUtils.lerp(root.position.x,moved.x,alignment),nz=THREE.MathUtils.lerp(root.position.z,moved.z,alignment),ny=THREE.MathUtils.damp(root.position.y,moved.y,9,dt);
-    let worstReach=0,minClearance=Infinity;
-    for(const limb of limbs){worstReach=Math.max(worstReach,limb.reachDistance);minClearance=Math.min(minClearance,limb.legClearance);}
-    // The legs and the trunks about it hold the body back, softly. It may be let go at once but never clamped at once: an
-    // abrupt drop of the allowance is a hard brake (a knee brushing bark at a charge took 6 m/s down to 1.5 in two frames).
-    const soft=Math.min(1,THREE.MathUtils.clamp((4.48-worstReach)/.38,.2,1),THREE.MathUtils.clamp((minClearance-.075)/.085,.35,1));
-    moveEase=soft<moveEase?Math.max(soft,moveEase-dt*MOVE_EASE_FALL):soft;
-    let fraction=moveEase;
-    // The hard limit: no foot may be pulled beyond 4.40 m from its hip (the leg is 4.6 m long). The step is judged by how far it
-    // adds to each hip-to-foot distance as the pose measures it now, not by this rough shoulder estimate on its own: the estimate
-    // sits a quarter of a metre above the measured distance, which tripped the limit a stride early and stopped the body dead.
-    const hipToFoot=(limb:Limb,f:number)=>{const yaw=oldYaw+turn*f,co=Math.cos(yaw),si=Math.sin(yaw),sx=THREE.MathUtils.lerp(root.position.x,nx,f)+limb.shoulder.x*shoulderWidth*co+limb.shoulder.z*si,sz=THREE.MathUtils.lerp(root.position.z,nz,f)-limb.shoulder.x*shoulderWidth*si+limb.shoulder.z*co,sy=THREE.MathUtils.lerp(root.position.y,ny,f)+limb.shoulder.y+body.position.y;return Math.hypot(sx-limb.foot.position.x,sy-limb.foot.position.y,sz-limb.foot.position.z);};
-    for(let i=0;i<limbs.length;i++)stepErrors2[i]=limbs[i].reachDistance-hipToFoot(limbs[i],0);
-    for(let iteration=0;iteration<7;iteration++){
-      let safe=true;
-      for(let i=0;i<limbs.length;i++)if(hipToFoot(limbs[i],fraction)+stepErrors2[i]>4.40)safe=false;
-      if(safe)break;fraction*=.4;
-    }
-    root.position.set(THREE.MathUtils.lerp(root.position.x,nx,fraction),THREE.MathUtils.lerp(root.position.y,ny,fraction),THREE.MathUtils.lerp(root.position.z,nz,fraction));
-    root.rotation.y=oldYaw+turn*fraction;
-    const rate=(root.rotation.y-oldYaw)/Math.max(dt,.001);motion.turnRate=THREE.MathUtils.damp(motion.turnRate,rate,10,dt);
-    lastMoveSpeed=moved.speed*alignment*fraction;motion.speed=lastMoveSpeed;
+    const fraction=listener.movementAllowance(nx-root.position.x,ny-root.position.y,nz-root.position.z,turn);
+    const oldX=root.position.x,oldZ=root.position.z;
+    root.position.x=THREE.MathUtils.lerp(root.position.x,nx,fraction);root.position.y=THREE.MathUtils.lerp(root.position.y,ny,fraction);root.position.z=THREE.MathUtils.lerp(root.position.z,nz,fraction);root.rotation.y=oldYaw+turn*fraction;
+    lastMoveSpeed=Math.hypot(root.position.x-oldX,root.position.z-oldZ)/Math.max(dt,.001);
   }
+
   // --- Persistence. Within NEAR it gets a body (placed out of view); beyond FAR, once off screen, it loses it again.
   // Unseen it may not close inside FAR_HOLD: the body has to be placed out of view first.
   const NEAR=80,FAR=105,FAR_HOLD=50,SIGHT_LIMIT=90,LOOK_EVERY=.2,BEAM_RANGE=26,BEAM_ANGLE=15*Math.PI/180,REVEAL_GAP=300;
@@ -275,7 +123,7 @@ export function createEncounters(
     headBone??=listener.head();
     if(headBone)headBone.getWorldPosition(sightPoints[0]);else body.localToWorld(sightPoints[0].set(0,1.45,.8));
     body.localToWorld(sightPoints[1].set(0,1.95,-.25));
-    sightPoints[2].copy(limbs[0].shoulderWorld);sightPoints[3].copy(limbs[3].shoulderWorld);
+    listener.shoulders(sightPoints[2],sightPoints[3]);
     // Check the actual camera every frame; cached occlusion never extends the
     // field of view, and the final recognition/reveal always rechecks LOS.
     // A scripted encounter stands further off than a stalking creature comes: it counts as seen out to 48 m.
@@ -308,7 +156,6 @@ export function createEncounters(
     if(blackout)return false;
     boundsCenter.copy(root.position);boundsCenter.y+=2;
     let radius=CREATURE_VIEW_RADIUS;
-    for(const limb of limbs){radius=Math.max(radius,boundsCenter.distanceTo(limb.foot.position)+.5,boundsCenter.distanceTo(limb.jointWorld)+.4);}
     radius=Math.max(radius,listener.reach(boundsCenter));
     return creatureInView(getView?.()??fallbackView,boundsCenter,radius);
   }
@@ -371,22 +218,7 @@ export function createEncounters(
     treeCrawl.update(dt);
     root.position.copy(treeCrawl.position);root.quaternion.copy(treeCrawl.rotation);
     const blend=treeCrawl.landingBlend;
-    body.position.set(0,(-.055+Math.sin(time*1.45)*.010)*blend,0);body.rotation.set(-.035*blend,0,0);
     root.updateMatrixWorld(true);
-    localAttention.copy(attentionTarget);body.worldToLocal(localAttention);
-    motion.speed=treeCrawl.descending?.7*(1-blend):0;sculpt.secondary(time,0,dt,motion);
-    for(let i=0;i<limbs.length;i++){
-      const l=limbs[i],f=treeCrawl.feet[i];l.foot.position.copy(f.position);l.foot.swinging=f.swing<1;
-      localFoot.copy(f.position);body.worldToLocal(localFoot);
-      shoulderPoint.copy(l.shoulder);shoulderPoint.y+=Math.sin(time*1.45+l.index)*.012*blend;
-      pole.set(l.side*THREE.MathUtils.lerp(3.1,3.12,blend),THREE.MathUtils.lerp(4.8,4.55,blend),l.rest.z*THREE.MathUtils.lerp(.6,.52,blend));
-      solveLeg(shoulderPoint,localFoot,pole,1.5,3.1,joint);
-      toe.copy(localFoot);toe.y-=.035;toe.z+=.10;
-      desired.copy(f.position);desired.x+=l.side*.10;desired.y-=.018;desired.z+=.13;body.worldToLocal(desired);toe.lerp(desired,blend);
-      sculpt.setLeg(l.label,l.base,shoulderPoint,joint,localFoot,toe);
-      l.shoulderWorld.copy(shoulderPoint);body.localToWorld(l.shoulderWorld);l.jointWorld.copy(joint);body.localToWorld(l.jointWorld);
-      l.reachError=Math.abs(joint.distanceTo(localFoot)-3.1);l.reachDistance=shoulderPoint.distanceTo(localFoot);
-    }
     perchTime=treeCrawl.descending?perchTime:perchTime+dt;
     if(treeCollider)listener.onTree(dt,time,treeCollider,treeCrawl.position,treeCrawl.rotation,.85,blend,Math.max(perchTime,stareBoost),attentionTarget,currentDarkness);
   }
@@ -423,14 +255,14 @@ export function createEncounters(
       const barkRadius=Math.max(.075,trunkRadius+rootFlare+.025);
       return new THREE.Vector3(c.ax+Math.cos(a)*barkRadius,y,c.az+Math.sin(a)*barkRadius);
     };
-    const candidate=createTreeCrawl({x:c.ax,z:c.az,ground:base,radius:c.radius,height:c.maxY-base},angle,limbs.map(l=>l.rest),contact,(x,z)=>navigation.supportAt(x,z),{...TREE_DROP,perch:perchOf(c)});
+    const candidate=createTreeCrawl({x:c.ax,z:c.az,ground:base,radius:c.radius,height:c.maxY-base},angle,crawlRest,contact,(x,z)=>navigation.supportAt(x,z),{...TREE_DROP,perch:perchOf(c)});
     if(inViewAt(candidate.position.x,candidate.position.y,candidate.position.z,6))return false;
     // The unseen creature keeps its place in the world if this tree does not work out.
     const held=root.position.clone(),heldYaw=root.rotation.y;
     treeCrawl=candidate;treeCollider=c;perchTime=0;stareBoost=0;listener.reset();animateTree(0,elapsed);
     if(protectedNow()){treeCrawl=undefined;root.position.copy(held);root.rotation.set(0,heldYaw,0);return false;}
     directSight=false;sightProbeIn=0;dismissRequested=false;outsideReady=false;offscreen.reset();navigation.reset();
-    bodyLift=bodyCrouch=lastMoveSpeed=0;shoulderWidth=1;motion.turnRate=0;grabbing=false;strikePending=false;
+    lastMoveSpeed=0;grabbing=false;strikePending=false;
     // The reveal waits for the moment it is seen.
     root.visible=true;adminMode='natural';awareness.reset();recordTransition('tree-spawn',elapsed,false,'place');return true;
   }
@@ -554,7 +386,7 @@ export function createEncounters(
     // Frozen: it wants to go and has not moved at all for a while. A foot left out of reach with no hold to be found (it was
     // seen to hang there for minutes, each frame searching again) pins the body; its feet are set down under it again. Unseen
     // that is at once, in view only after a long wait.
-    if(speed>.6&&lastMoveSpeed<.05){frozen+=dt;if(frozen>(outsideReady?FROZEN_AFTER:FROZEN_IN_VIEW)){frozen=0;trace(elapsed,{type:'restance',x:root.position.x,z:root.position.z});resetFeet();}}
+    if(speed>.6&&lastMoveSpeed<.05){frozen+=dt;if(frozen>(outsideReady?FROZEN_AFTER:FROZEN_IN_VIEW)){frozen=0;trace(elapsed,{type:'restance',x:root.position.x,z:root.position.z});navigation.replan();}}
     else frozen=Math.max(0,frozen-dt*2);
     if(elapsed<detourUntil){const a=detourSide*1.1,c=Math.cos(a),s=Math.sin(a),x=movementDirection.x;movementDirection.x=x*c+movementDirection.z*s;movementDirection.z=movementDirection.z*c-x*s;}
     moveCreature(dt,speed,movementDirection,brake);
@@ -751,17 +583,10 @@ export function createEncounters(
     else{audio.cue('branch',cuePosition);voiced(elapsed,'branch',cuePosition,true);}
     t.prompted=true;
   }
-  /** Down from the trunk onto its feet: all six contacts kept, the gait state rebuilt around them. */
+  /** Keep the visible rig's planted contacts while handing the crawl back to ground navigation. */
   function landFromTree(){
-    const departing=treeCrawl!;treeCrawl=undefined;const facing=new THREE.Vector3(0,0,1).applyQuaternion(root.quaternion);
-    root.rotation.set(0,Math.atan2(facing.x,facing.z),0);navigation.reset();
-    previousPosition.copy(root.position);velocity.set(0,0,0);bodyLift=bodyCrouch=lastMoveSpeed=0;
-    motion.speed=motion.turnRate=0;nextLift=0;gaitGroup=waveIndex=0;gaitReady=true;
-    for(let i=0;i<limbs.length;i++){
-      const l=limbs[i],f=departing.feet[i];l.foot=createFoot(f.position,l.foot.group);
-      if(f.swing<1){l.foot.from.copy(f.from);l.foot.target.copy(f.target);l.foot.progress=f.swing;l.foot.duration=f.duration;l.foot.lift=.30;l.foot.swinging=true;l.foot.smoothArc=true;}
-      l.legClearance=Infinity;
-    }
+    treeCrawl=undefined;const facing=new THREE.Vector3(0,0,1).applyQuaternion(root.quaternion);
+    root.rotation.set(0,Math.atan2(facing.x,facing.z),0);navigation.reset();lastMoveSpeed=0;
     retreatDirection.copy(facing).setY(0).normalize();
   }
   /** Turn the body toward the player, slowly, as it stands. Not toward a player under it: that would spin it on the spot. */
@@ -857,7 +682,7 @@ export function createEncounters(
         if(distance<14)t.fast=true;
         // Making no headway (a ravine, a wall of trunks): it turns aside and tries another way, each side in turn.
         if(inStage%3<dt){if(t.goal&&Math.hypot(root.position.x-t.goal.x,root.position.z-t.goal.z)<1.5){t.side=-t.side;const a=Math.atan2(t.exit.x,t.exit.z)+t.side*1.3;t.exit={x:Math.sin(a),z:Math.cos(a)};}t.goal={x:root.position.x,z:root.position.z};}
-        intent={target:{x:player.x+t.exit.x*60,z:player.z+t.exit.z*60},speed:t.fast?3.8:1.6,arrive:3};gaze=undefined;
+        intent={target:{x:player.x+t.exit.x*60,z:player.z+t.exit.z*60},speed:THREE.MathUtils.lerp(t.fast?3.2:1.6,t.fast?7.6:3.2,1-THREE.MathUtils.smoothstep(distance,8,32)),arrive:3};gaze=undefined;
         // It walks off into the fog for a few seconds at least before it is taken away (out of view, as always).
         if(inStage>3&&outsideReady&&!protectedNow()&&distance>28&&hideBody(elapsed,`${t.kind}-gone`)){
           if(t.dev){script=undefined;brain.relocated();return;}
@@ -876,8 +701,13 @@ export function createEncounters(
         break;
       case 'charging':
         // About a second and a half at full tilt, cut short so that the dead stop lands it no nearer than 7.5 m.
-        rear=.25;intent={target:{x:player.x,z:player.z},speed:6.5,arrive:.5};
-        if(inStage>=1.5||distance-lastMoveSpeed**2/(2*STOP_BRAKE)<=7.5)enterStage(t,'stopped',elapsed);
+        rear=.25;intent={target:{x:player.x,z:player.z},speed:13,arrive:.5};
+        {
+          const stoppingSpeed=Math.max(lastMoveSpeed,plannedMoveSpeed);
+          if(inStage>=1.5||distance-stoppingSpeed**2/(2*STOP_BRAKE)-stoppingSpeed*dt<=8){
+            enterStage(t,'stopped',elapsed);intent.speed=0;brake=STOP_BRAKE;
+          }
+        }
         break;
       case 'stopped':
         // Dead stop, a moment, then it withdraws.
@@ -913,7 +743,7 @@ export function createEncounters(
   function departure(player:THREE.Vector3,side:number,seconds:number):Intent{
     if(seconds-departCheck>3||seconds<departCheck){if(Math.hypot(root.position.x-departFrom.x,root.position.z-departFrom.z)<1.5)departSide=-departSide;departCheck=seconds;departFrom={x:root.position.x,z:root.position.z};}
     const away=exitFrom(player,side*departSide),d=Math.hypot(player.x-root.position.x,player.z-root.position.z);listener.setRear(0);listener.setRecoil(0);
-    return{target:{x:player.x+away.x*60,z:player.z+away.z*60},speed:d<14?3.8:1.8,arrive:3};
+    return{target:{x:player.x+away.x*60,z:player.z+away.z*60},speed:THREE.MathUtils.lerp(1.8,7.6,1-THREE.MathUtils.smoothstep(d,7,32)),arrive:3};
   }
   /** A body left over from an encounter with no script (it was watched all the way): it walks off and is taken away. */
   function depart(dt:number,elapsed:number,player:THREE.Vector3){
@@ -1091,9 +921,9 @@ export function createEncounters(
       return c;
     },
     modelStatus(){return sculpt.inspect();},
-    navigationStatus(){return{...navigation.inspect(),position:root.position.toArray(),yaw:root.rotation.y,speed:lastMoveSpeed,feet:limbs.map(l=>({label:l.label,swinging:l.foot.swinging,position:l.foot.position.toArray(),target:l.foot.target.toArray(),support:navigation.supportAt(l.foot.position.x,l.foot.position.z),clearance:navigation.footClearance(l.foot.position.x,l.foot.position.z),reachError:l.reachError,reachDistance:l.reachDistance,legClearance:l.legClearance,shoulder:l.shoulderWorld.toArray(),knee:l.jointWorld.toArray()}))};},
+    navigationStatus(){return{...navigation.inspect(),position:root.position.toArray(),yaw:root.rotation.y,speed:lastMoveSpeed,feet:listener.feet().map(foot=>({...foot,support:navigation.supportAt(foot.position[0],foot.position[2]),clearance:navigation.footClearance(foot.position[0],foot.position[2])}))};},
     preview(x:number,z:number,yaw=0){pendingSpawn=undefined;dismissRequested=false;outsideReady=false;offscreen.reset();const spawn=navigation.safeSpawn(x,z);if(!spawn)return;root.position.set(spawn.x,spawn.y,spawn.z);root.rotation.y=yaw;previewDirection.set(Math.sin(yaw),0,Math.cos(yaw));root.visible=true;listener.root.visible=true;visualTest=true;grabbing=false;strikePending=false;navigation.reset();resetFeet();},
-    previewStep(dt:number,time:number,speed:number){moveCreature(dt,speed,previewDirection);animateCreature(dt,time);return limbs.map(l=>({swinging:l.foot.swinging,position:l.foot.position.toArray(),reachError:l.reachError,reachDistance:l.reachDistance,legClearance:l.legClearance,shoulder:l.shoulderWorld.toArray(),knee:l.jointWorld.toArray()}));},
+    previewStep(dt:number,time:number,speed:number){moveCreature(dt,speed,previewDirection);animateCreature(dt,time);return listener.feet();},
     update(dt:number,elapsed:number,player:THREE.Vector3,forward:THREE.Vector3,darkness:number,hours=16,senses?:CreatureSenses){
       currentDarkness=darkness;blackout=!!senses?.blackout;
       percept.x=player.x;percept.y=player.y;percept.z=player.z;
@@ -1117,7 +947,7 @@ export function createEncounters(
       }
       if(visualTest){animateCreature(dt,elapsed);return;}
       if(adminMode!=='natural'){
-        moveCreature(dt,adminMode==='run'?5.5:adminMode==='walk'?.95:0,retreatDirection);
+        moveCreature(dt,adminMode==='run'?11.2:adminMode==='walk'?.95:0,retreatDirection);
         animateCreature(dt,elapsed);notice(dt);
         if(protectedNow()){outsideReady=false;offscreen.reset();}
         return;

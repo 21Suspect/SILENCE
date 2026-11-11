@@ -150,17 +150,17 @@ export const CREATURE_TUNING = {
   roamSpeed: 1.3, roamFarSpeed: 3.2, roamFar: 110,
   investigateSpeed: 1.5, investigateUrgent: 2.8, investigateArrive: 4, investigateGiveUp: 40, searchSeconds: 4.5,
   /** Shadowing distance when timid and when bold (closer at night). */
-  shadowFar: 28, shadowNear: 16, shadowMin: 10, shadowMaxSpeed: 3.2,
+  shadowFar: 28, shadowNear: 16, shadowMin: 10, shadowMaxSpeed: 6.4,
   /** Shadowing distance multipliers in full daylight and full dark: about 28 m by day, so it is there to be seen. */
   shadowDaylight: 1, shadowDark: .75,
   /** Roam waypoints near the player's area keep at least this far off when timid, this far when bold. */
   roamOffTimid: 55, roamOffBold: 30,
-  huntApproach: 3.8, huntCharge: 5.6, huntChargeDistance: 24,
+  huntApproach: 3.8, huntCharge: 11.2, huntChargeDistance: 24,
   /** It rears for this long when a hunt starts (and screeches) before it runs. */
   huntWindup: 1.5,
   /** Seconds of the player's velocity it leads them by. */
   huntLead: .45,
-  withdrawSpeed: 3.8, withdrawDistance: 42, withdrawSeconds: 12,
+  withdrawSpeed: 7.6, withdrawDistance: 42, withdrawSeconds: 12,
 
   // --- The grab: metres from its head to the player's chest.
   grabReach: 2.2,
@@ -375,7 +375,8 @@ export const investigate: Behaviour = {
     }
     if (c.now - s.since > t.investigateGiveUp) lead.investigated = true;
     const urgent = lead.kind === 'sight' || lead.salience > .6;
-    const speed = urgent ? lerp(t.investigateSpeed, t.investigateUrgent, c.boldness) : t.investigateSpeed;
+    const urgency = clamp(lead.salience, 0, 1) * (.4 + .6 * c.boldness);
+    const speed = lerp(t.investigateSpeed, t.investigateUrgent, Math.max(urgency, urgent ? c.boldness : 0));
     return { intent: { target: goal, speed, arrive: 1.5 }, gaze: { x: goal.x, y: lead.y, z: goal.z } };
   },
 };
@@ -427,7 +428,9 @@ export const hunt: Behaviour = {
     const t = c.tuning, near = playerEstimate(c) ?? { x: c.input.player.x, z: c.input.player.z };
     c.state.started ??= c.now;
     const d = dist(c.self, near), target = playerEstimate(c, Math.min(1.2, t.huntLead + d / t.huntCharge * .5)) ?? near;
-    const speed = c.now - c.state.started < t.huntWindup ? 0 : d > t.huntChargeDistance ? t.huntApproach : t.huntCharge;
+    const closing = 1 - smoothstep(d, t.huntChargeDistance * .25, t.huntChargeDistance * 1.6);
+    const urgency = Math.max(c.huntDrive, clamp(Math.hypot(c.input.player.vx, c.input.player.vz) / 3.35, 0, 1));
+    const speed = c.now - c.state.started < t.huntWindup ? 0 : lerp(t.huntApproach, t.huntCharge, closing * (.55 + .45 * urgency));
     return { intent: { target, speed, arrive: .5 }, gaze: near };
   },
 };
@@ -470,7 +473,8 @@ export const withdraw: Behaviour = {
     s.angle ??= (d < .01 ? c.self.yaw + Math.PI : Math.atan2(c.self.x - anchor.x, c.self.z - anchor.z)) + s.side * .6;
     const target = { x: anchor.x + Math.sin(s.angle) * t.withdrawDistance, z: anchor.z + Math.cos(s.angle) * t.withdrawDistance };
     if ((d > t.withdrawDistance - 6 && !c.input.playerLooking) || c.now > s.until) s.done = true;
-    return { intent: { target, speed: s.done ? 0 : t.withdrawSpeed, arrive: 3 }, gaze: anchor };
+    const pressure = 1 - smoothstep(d, 7, t.withdrawDistance);
+    return { intent: { target, speed: s.done ? 0 : lerp(t.roamSpeed * 1.4, t.withdrawSpeed, pressure), arrive: 3 }, gaze: anchor };
   },
 };
 

@@ -24,10 +24,10 @@ export function creatureCanClimb(c:SolidCollider,heightAt:(x:number,z:number)=>n
   const x=c.kind==='capsule'?(c.ax+c.bx)*.5:c.x,z=c.kind==='capsule'?(c.az+c.bz)*.5:c.z;
   return walkableTags.has(c.tag??'')&&c.maxY-heightAt(x,z)<2.5;
 }
-/** One spatial query serves body planning and all six feet. Navigation is only
+/** One spatial query serves body planning and the rig's contacts. Navigation is only
  * active during an encounter; static geometry is never rebuilt for the agent. */
-export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,world:Query={nearby:()=>[]},waterSurfaceAt?:(x:number,z:number)=>number|undefined){
-  const radius=2.6,hardRadius=.85;
+export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,world:Query={nearby:()=>[]},waterSurfaceAt?:(x:number,z:number)=>number|undefined,bodyScale=1){
+  const radius=2.6*bodyScale,hardRadius=.85*bodyScale;
   /** m/s squared: how fast a body that has lost its route eases down when nothing slower was asked for. */
   const COAST_BRAKE=9,COAST_BRAKE_MAX=45,COAST_LOOK=7,APPROACH_BRAKE=8,ROUTE_END_REPLAN=4;
   const MAX_ROUTE_ITERATIONS=900;
@@ -307,6 +307,9 @@ export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,wo
       const coasting=!route.length&&travelSpeed>.3;
       const curvaturePace=1/(1+sharpness*.22);
       let desiredSpeed=route.length?speed*Math.max(.68,curvaturePace):coasting&&speed<travelSpeed?speed:0;
+      // Fast bursts ease through tight turns before the support feet cross under
+      // the body. Straight, open ground retains the full requested pace.
+      desiredSpeed=Math.min(desiredSpeed,Math.max(4.5,9/Math.max(.001,Math.abs(angularVelocity))));
       // Running up to the end of a route that stops short of its goal, it eases down to arrive at a standstill: the end of the
       // route is where the planner could take it, and it is not a place to arrive at a run.
       const endPoint=route[route.length-1];

@@ -60,3 +60,15 @@ test('pickUp, toggle and owned are the split halves that game/interaction.ts use
   assert.equal(torch.toggle(), true);
   assert.equal(torch.interact(), true, 'and the old call still toggles it too');
 });
+
+test('a restarted night returns the scanned torch to its bench and clears its light', () => {
+  const { torch } = make(), seat = new THREE.Vector3(-18.4, .95, -41.2);
+  torch.setSeat(seat);
+  torch.devEquip();
+  assert.equal(torch.owned, true);
+  torch.reset();
+  assert.equal(torch.owned, false);
+  assert.equal(torch.inspect().on, false);
+  assert.deepEqual(torch.inspect().pickupPosition, seat.toArray());
+  assert.equal(torch.pickUp(), true);
+});

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { SolidCollider } from './collision';
 import { obstacleClearance, type createCreatureNavigation } from './creature-navigation';
 import { createSpiderGait, type Contact, type LimbClearance, type RestPose, type SpiderCommand, type SpiderSurface } from './spider-gait';
-import { createSpiderRig, SPIDER_SCALE as S, twoBone } from './spider-rig';
+import { createSpiderRig, SPIDER_SCALE as S, LEG_SEGMENTS, twoBone } from './spider-rig';
 import layout from './spider-rig.json';
 
 const clamp = THREE.MathUtils.clamp, sstep = THREE.MathUtils.smoothstep, lerp = THREE.MathUtils.lerp, damp = THREE.MathUtils.damp;
@@ -141,7 +141,7 @@ export function createListener(scene: THREE.Scene, heightAt: (x: number, z: numb
         rig.joint(`finger_${side}${f}_2`, curl * 1.1, 0, 0);
       }
     }
-    rig.eyes(3.2 * (1 + 13 * sstep(darkness, .12, .7)));
+    rig.eyes(2.1);
   }
   function step(dt: number, time: number, lookAt: THREE.Vector3, darkness: number) {
     const safe = Math.max(dt, 1 / 240);
@@ -153,14 +153,29 @@ export function createListener(scene: THREE.Scene, heightAt: (x: number, z: numb
   return {
     root,
     get ready() { return rig.ready; },
+    movementAllowance: gait.movementAllowance,
+    shoulders(left: THREE.Vector3, right: THREE.Vector3) {
+      body.localToWorld(left.copy(gait.legs[0].hip));
+      body.localToWorld(right.copy(gait.legs[4].hip));
+    },
+    feet() {
+      return gait.legs.map(leg => {
+        const points = [leg.hip, leg.joints.knee, leg.joints.ankle, leg.joints.tarsal].map(p => body.localToWorld(p.clone()));
+        points.push(leg.tip.clone());
+        return { label: leg.label, swinging: leg.swinging, position: leg.foot.toArray(), renderedPosition: leg.tip.toArray(), target: leg.to.toArray(),
+          reachDistance: points[0].distanceTo(points[4]), reachError: Math.max(...LEG_SEGMENTS.map((length, i) => Math.abs(points[i].distanceTo(points[i + 1]) - length * S))),
+          legClearance: leg.clear, shoulder: points[0].toArray(), knee: points[1].toArray() };
+      });
+    },
     reset() { gait.reset(); solidsAge = 9; width = 1; rear = rearing = recoil = recoiling = 0; },
     head() { return root.getObjectByName('head'); },
     /** On the ground, wherever the encounter logic has put it. */
-    walk(dt: number, time: number, position: THREE.Vector3, yaw: number, lookAt: THREE.Vector3, darkness: number) {
+    walk(dt: number, time: number, position: THREE.Vector3, yaw: number, lookAt: THREE.Vector3, darkness: number, pace = 0) {
       climbing = undefined; groundBlend = 1;
       anchor.copy(position); up.set(0, 1, 0); forward.set(Math.sin(yaw), 0, Math.cos(yaw));
       width = damp(width, navigation.stanceWidth, 2.2, Math.max(dt, 1 / 240));
       command.surface = groundSurface; command.rest = undefined; command.hug = 0; command.swingPath = undefined; command.reachSpeed = undefined;
+      command.pace = pace;
       command.width = width; command.length = 1; command.ride = lerp(1.9, 1.56, sstep(gait.speed, 1.5, 7)) * S;
       const safe = Math.max(dt, 1 / 240);
       rearing = damp(rearing, rear, rear > rearing ? 7 : 4, safe); recoiling = damp(recoiling, recoil, recoil > recoiling ? 9 : 4, safe);
@@ -182,6 +197,7 @@ export function createListener(scene: THREE.Scene, heightAt: (x: number, z: numb
       up.set(0, 1, 0).applyQuaternion(rotation); forward.set(0, 0, 1).applyQuaternion(rotation);
       anchor.copy(position).addScaledVector(up, inset * (1 - landed));
       command.surface = trunkSurface; command.rest = dismountRest; command.hug = 1 - landed; command.reachSpeed = 5;
+      command.pace = undefined;
       command.swingPath = landed < .6 ? aroundTrunk : undefined;
       command.width = lerp(.6, 1, landed); command.length = lerp(1.08, 1, landed); command.ride = lerp(1.02, 1.9 * S, landed); command.crouch = 0; command.tension = 0;
       lookWeight = 1; neckLift = .75 * (1 - landed); armReach = sstep(watching, 1, 3) * (1 - landed);
@@ -199,12 +215,12 @@ export function createListener(scene: THREE.Scene, heightAt: (x: number, z: numb
     },
     limbs(add: (from: THREE.Vector3, to: THREE.Vector3, radius: number, tag: string) => void) {
       body.localToWorld(a.set(0, .9, 0)); body.localToWorld(b.set(0, 1.6, 0));
-      add(a, b, .55, 'creature torso');
+      add(a, b, .55*S/1.15, 'creature torso');
       for (const leg of gait.legs) {
         body.localToWorld(a.copy(leg.hip)); body.localToWorld(b.copy(leg.joints.knee)); body.localToWorld(c.copy(leg.joints.ankle));
-        add(a, b, .14, 'creature upper limb');
-        add(b, c, .12, 'creature lower limb');
-        add(c, tmp.copy(leg.tip), .1, 'creature lower limb');
+        add(a, b, .14*S/1.15, 'creature upper limb');
+        add(b, c, .12*S/1.15, 'creature lower limb');
+        add(c, tmp.copy(leg.tip), .1*S/1.15, 'creature lower limb');
       }
     },
     dispose() { scene.remove(root); rig.dispose(); },

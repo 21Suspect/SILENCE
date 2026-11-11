@@ -467,11 +467,13 @@ export function createGame(container:HTMLElement) {
     // skin buffers, bone textures, and texture uploads to the first encounter.
     if(warmupDraws===0){forest.warmupTextures(renderer);if(perfOn('streamWarmup'))uploadSceneTextures();}
     const light=flashlight.light,wasVisible=creature.visible,beamWasVisible=light.visible;
+    const listener=scene.getObjectByName('The Listener'),listenerWasVisible=listener?.visible;
+    if(listener)listener.visible=true;
     creature.visible=true;light.visible=warmupDraws%2===1;
     const unlit=warmupDraws>=2?world2?.debug.streetLights.warm():undefined;
     renderer.shadowMap.needsUpdate=true;sun.shadow.needsUpdate=true;light.shadow.needsUpdate=light.visible;
     try{atmosphere.render(elapsed,darkness);}finally{
-      unlit?.();creature.visible=wasVisible;light.visible=beamWasVisible;shadowDirty=true;
+      unlit?.();creature.visible=wasVisible;if(listener)listener.visible=!!listenerWasVisible;light.visible=beamWasVisible;shadowDirty=true;
     }
     if(++warmupDraws===warmupTotal()){warmupFence=gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE,0);gl.flush();}
   }
@@ -484,6 +486,7 @@ export function createGame(container:HTMLElement) {
     const rawDelta=Math.min(frameDuration/1000,.1);last=now;
     if(benchmarking)return;
     if(document.hidden)return;
+    if(!loading&&admin.open){admin.update(now);return;}
     const dt=Math.min(rawDelta,.04);
     frameAverage=frameAverage*.98+rawDelta*1000*.02;
     // One complete, continuous day every 24 active minutes; test tools can accelerate it.

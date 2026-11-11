@@ -5,8 +5,8 @@ import layout from './spider-rig.json';
 export const SPIDER_MODEL_URL = '/creature/silence-creature-v2.glb';
 /** The sculpt is authored at full size. In-game it runs at this scale, so it
  * fits between trunks and can actually wrap its legs around one. */
-/** Whole-creature scale. 1.15 brings the head and face to the size of the original creature's (about 0.95 m tall); at the old 0.8 they were a third smaller. */
-export const SPIDER_SCALE = 1.15;
+/** Twenty percent smaller than the 1.15-scale sculpt, including its stance. */
+export const SPIDER_SCALE = .92;
 export const LEG_COUNT = layout.legs.length;
 export const LEG_SEGMENTS = layout.segments as [number, number, number, number];
 export const LEG_REACH = LEG_SEGMENTS[0] + LEG_SEGMENTS[1] + LEG_SEGMENTS[2] + LEG_SEGMENTS[3];
@@ -103,7 +103,7 @@ export function createSpiderRig(parent: THREE.Group) {
         o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false;
         const m = o.material as THREE.MeshStandardMaterial;
         if (m.name === 'Dead white eyes') {
-          eyeMaterial = m; m.color.set(0xffffff); m.emissive.set(0xffffff); m.emissiveIntensity = 3.2; m.roughness = .3;
+          eyeMaterial = m; m.color.set(0xd0ded4); m.emissive.set(0xc5ded6); m.emissiveIntensity = 2.1; m.roughness = .24;
           o.castShadow = false; o.receiveShadow = false;
         } else {
           m.vertexColors = false; m.envMapIntensity = .6; m.normalScale.set(1.15, 1.15);
