@@ -1,8 +1,9 @@
+import './helpers/register-ts-hooks.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {createCollisionWorld} from '../game/collision.ts';
-import {createCreatureNavigation,obstacleClearance} from '../game/creature-navigation.ts';
+const {createCreatureNavigation,obstacleClearance}=await import('../game/creature-navigation.ts');
 import {createFoot,swingFoot,advanceFoot} from '../game/creature-gait.ts';
 const tree=(x,z,r=.5)=>({kind:'capsule',ax:x,az:z,bx:x,bz:z,radius:r,minY:0,maxY:25,tag:'tree'});
 const flat=()=>0;

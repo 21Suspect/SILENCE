@@ -122,10 +122,12 @@ export const CREATURE_TUNING = {
   /** How long after losing sight it can still shadow from memory. */
   shadowMemory: 7,
   /** How long a hunt runs on toward where the player was heading after losing sight. */
-  huntPersist: 4,
+  huntPersist: 9,
 
   // --- Boldness: night does most of it, the length of the evening the rest.
   boldNight: .85, boldElapsed: .15, boldElapsedFrom: 90, boldElapsedTo: 600,
+  /** Free-roam playtime also builds courage, even after the sun comes up. */
+  pressureFrom: 120, pressureFull: 300, pressureBoldness: .88,
   /** Boldness where hunting starts to be possible, and where it is a certainty. */
   huntBoldnessMin: .5, huntBoldnessFull: .8,
   /**
@@ -133,31 +135,31 @@ export const CREATURE_TUNING = {
    * seconds; then the drive rises from huntPermitFloor to its full strength over huntPermitRamp: rare at first, certain
    * later.
    */
-  huntPermitDelay: 150, huntPermitFloor: 0, huntPermitRamp: 120,
+  huntPermitDelay: 20, huntPermitFloor: .25, huntPermitRamp: 55,
   /**
    * A hunt that has run this long without a grab is broken off (it loses the scent, or its nerve): it withdraws, and for
    * huntCooldown seconds after any hunt ends (lost, broken off, timed out) it will not take one up again.
    */
-  huntLimit: 15, huntCooldown: 50,
+  huntLimit: 35, huntCooldown: 25,
   /** Seconds of continuous sight before it commits to a hunt, when bold and when timid. */
-  huntSight: 1.2, huntSightTimid: 3,
+  huntSight: .7, huntSightTimid: 1.8,
   /** After a death it is calm for a while (boldness scaled down); after losing a chase, briefly. */
   calmAfterDeath: 130, calmScale: .25, calmAfterLoss: 25, calmLossScale: .7,
   /** Developer "hunt" spawn: boldness 1 for this long. */
   provokeSeconds: 90,
 
   // --- Movement.
-  roamSpeed: 1.3, roamFarSpeed: 3.2, roamFar: 110,
-  investigateSpeed: 1.5, investigateUrgent: 2.8, investigateArrive: 4, investigateGiveUp: 40, searchSeconds: 4.5,
+  roamSpeed: 1.8, roamFarSpeed: 4.5, roamFar: 110,
+  investigateSpeed: 2.2, investigateUrgent: 5, investigateArrive: 4, investigateGiveUp: 40, searchSeconds: 4.5,
   /** Shadowing distance when timid and when bold (closer at night). */
   shadowFar: 28, shadowNear: 16, shadowMin: 10, shadowMaxSpeed: 6.4,
   /** Shadowing distance multipliers in full daylight and full dark: about 28 m by day, so it is there to be seen. */
   shadowDaylight: 1, shadowDark: .75,
   /** Roam waypoints near the player's area keep at least this far off when timid, this far when bold. */
   roamOffTimid: 55, roamOffBold: 30,
-  huntApproach: 3.8, huntCharge: 11.2, huntChargeDistance: 24,
+  huntApproach: 6.5, huntCharge: 13.5, huntChargeDistance: 24,
   /** It rears for this long when a hunt starts (and screeches) before it runs. */
-  huntWindup: 1.5,
+  huntWindup: .85,
   /** Seconds of the player's velocity it leads them by. */
   huntLead: .45,
   withdrawSpeed: 7.6, withdrawDistance: 42, withdrawSeconds: 12,
@@ -175,9 +177,11 @@ export const CREATURE_TUNING = {
   /** The beam must stay on it: off its face during the held phase, it is released this much later. */
   stunRelease: .6,
   /** Seconds from a walk back up to full pace, and the walk it restarts at. */
-  stunStart: 1.5, stunStartSpeed: 1.3,
+  stunStart: .8, stunStartSpeed: 2.8,
   /** Seconds out of the beam for full strength again (a step of strength back every third of it). */
   stunRecharge: 90,
+  /** A short recovery window lets it advance before the beam can pin it again. */
+  stunGrace: 3,
   /** The step back: seconds and top speed, early in the held phase. */
   stunBack: .7, stunBackSpeed: .8,
   /** For this long after a stun a timid creature prefers to withdraw. */
@@ -188,7 +192,7 @@ export const CREATURE_TUNING = {
    */
   stunBreakOff: .7,
   /** How much of its hunting drive shields a hunt from being broken off by the torch: at full drive the chance is stunBreakOff x (1 - this). */
-  stunBreakDrive: .5,
+  stunBreakDrive: .85,
 
   // --- Being watched: seconds the player can stare before a timid / bold creature melts back.
   watchTolerance: 1.6, watchToleranceBold: 3.5,
@@ -457,8 +461,8 @@ export const withdraw: Behaviour = {
     if (running) return .8;
     let score = 0;
     if (c.sinceFlinch < t.stunShy) score = Math.max(score, .8 * (1 - .6 * c.boldness));
-    if (c.current !== 'hunt' && c.watched > watchTolerance(c)) score = Math.max(score, .75);
-    if (c.current !== 'hunt' && c.lastSeen && c.lastSeenAge < 3 && dist(c.self, c.lastSeen) < t.shadowMin) score = Math.max(score, .72);
+    if (c.current !== 'hunt' && c.huntDrive < .45 && c.watched > watchTolerance(c)) score = Math.max(score, .75);
+    if (c.current !== 'hunt' && c.huntDrive < .45 && c.lastSeen && c.lastSeenAge < 3 && dist(c.self, c.lastSeen) < t.shadowMin) score = Math.max(score, .72);
     return score;
   },
   enter(c) { const s = c.state, t = c.tuning; s.side = c.random() < .5 ? -1 : 1; s.until = c.now + t.withdrawSeconds * (.7 + c.random() * .5); s.done = false; },
@@ -546,7 +550,7 @@ export function createCreatureBrain(options: CreatureBrainOptions) {
       lastSeen = { x: p.x, y: p.y, z: p.z, vx: p.vx, vz: p.vz, at: now };
       if (!lead || lead.kind !== 'sight' || lead.investigated) lead = { id: ++leadIds, kind: 'sight', source: 'sight', x: p.x, y: p.y + 1.5, z: p.z, uncertainty: 1, salience: 1.2, at: now, investigated: false };
       else { lead.x = p.x; lead.y = p.y + 1.5; lead.z = p.z; lead.at = now; }
-    } else sightTime = 0;
+    } else sightTime = Math.max(0, sightTime - dt * .5);
     watched = input.playerLooking && !p.untouchable ? watched + dt : Math.max(0, watched - dt * 2);
   }
 
@@ -561,7 +565,7 @@ export function createCreatureBrain(options: CreatureBrainOptions) {
     if (stunPhase === 'none') {
       if (input.beamOnIt) outOfBeam = 0;
       else if (stunSpent > 0 && (outOfBeam += dt) >= tuning.stunRecharge / Math.max(1, held.length - 1)) { stunSpent--; outOfBeam = 0; }
-      if (input.beamOnIt && !input.player.untouchable && current !== 'strike') {
+      if (input.beamOnIt && !input.player.untouchable && current !== 'strike' && now - flinchEnded >= tuning.stunGrace) {
         beamTime += dt;
         if (beamTime >= tuning.stunPin) {
           stunHeldFor = held[Math.min(stunSpent, held.length - 1)];
@@ -661,7 +665,8 @@ export function createCreatureBrain(options: CreatureBrainOptions) {
       input = dt === input.dt ? input : { ...input, dt };
       now += dt; creature = { ...input.creature }; lastInput = input;
       const calm = now < calmUntil ? calmScale : 1, provoked = now < provokedUntil;
-      boldness = provoked ? 1 : baseBoldness(input.hours, now, tuning) * calm;
+      const pressure = tuning.pressureBoldness * smoothstep(now, tuning.pressureFrom, tuning.pressureFull);
+      boldness = provoked ? 1 : Math.max(baseBoldness(input.hours, now, tuning), pressure) * calm;
       huntDrive = provoked ? 1 : now < huntCooldownUntil ? 0 : smoothstep(boldness, tuning.huntBoldnessMin, tuning.huntBoldnessFull) * huntPermit();
       listen(input, events);
       look(input, events);

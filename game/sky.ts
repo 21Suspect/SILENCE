@@ -45,14 +45,15 @@ const cloudShader=`
   uniform sampler2D uCloudNoise;uniform float uCloudTime;uniform vec3 uCloudEye;
   float cloudNoise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return texture2D(uCloudNoise,(i+f+.5)/256.).r;}
   vec2 cloudField(vec3 ray){
-    vec2 p=(uCloudEye.xz+ray.xz*(max(120.,900.-uCloudEye.y)/max(ray.y,.055))+vec2(uCloudTime*4.2,uCloudTime*1.1))/180.;
+    if(ray.y<=.06)return vec2(0.);
+    vec2 p=(uCloudEye.xz+ray.xz*(max(120.,900.-uCloudEye.y)/max(ray.y,.008))+vec2(uCloudTime*4.2,uCloudTime*1.1))/180.;
     mat2 spin=mat2(.8,-.6,.6,.8);
     // Slowly evolving domain warp breaks up round value-noise islands; fine
     // octaves give the cloud edges torn, translucent wisps instead of blobs.
     p+=vec2(cloudNoise(p*.39+8.7),cloudNoise(p*.43+31.2))*.75;
     float broad=cloudNoise(p),detail=cloudNoise(spin*p*2.03+17.3);
     float field=broad*.51+detail*.25+cloudNoise(spin*p*4.17+vec2(31.7,uCloudTime*.003))*.13+cloudNoise(p*8.61+42.9)*.065+cloudNoise(spin*p*17.3+72.1)*.03+cloudNoise(p*35.1+98.4)*.015;
-    float density=pow(smoothstep(.47,.72,field),1.45)*smoothstep(.025,.12,ray.y);
+    float density=pow(smoothstep(.47,.72,field),1.45)*smoothstep(.06,.22,ray.y);
     return vec2(density,detail);
   }
   float cloudTransmission(float density){return exp(-density*4.7);}
@@ -97,7 +98,7 @@ export function createSky(renderer:THREE.WebGLRenderer,scene:THREE.Scene,sun:THR
         vec3 color=dayPalette[8];
         for(int i=0;i<8;i++){if(elevation>=float(i)&&elevation<float(i+1))color=mix(dayPalette[i],dayPalette[i+1],elevation-float(i));}
         if(ray.y<0.)color*=exp(ray.y*4.);
-        return displayRadiance(color);
+        return displayRadiance(mix(dayPalette[2],color,.48));
       }
       void main(){
         vec3 ray=normalize(vDirection);
@@ -120,12 +121,22 @@ export function createSky(renderer:THREE.WebGLRenderer,scene:THREE.Scene,sun:THR
         stars*=smoothstep(-.06,.1,ray.y);
         vec3 color=day*daylight+stars*nightAmount;
         color+=vec3(.001,.002,.004)*(1.-daylight);
-        float solar=smoothstep(cos(.00485),cos(.0043),dot(ray,sunDirection));
-        float solarHalo=pow(max(dot(ray,sunDirection),0.),650.)*.12;
-        color+=vec3(11.,8.6,5.9)*(solar+solarHalo)*smoothstep(-.015,.025,sunDirection.y);
+        float solar=smoothstep(cos(.0068),cos(.0062),dot(ray,sunDirection));
+        float solarHalo=pow(max(dot(ray,sunDirection),0.),2400.)*.012;
+        vec3 solarColor=displayRadiance(mix(vec3(1.,.12,.014),vec3(1.,.95,.84),smoothstep(.04,.48,sunDirection.y)))*1.2;
+        color+=solarColor*(solar+solarHalo)*smoothstep(-.015,.025,sunDirection.y);
         vec3 moonDirection=-sunDirection;
-        float lunar=smoothstep(cos(.0044),cos(.0040),dot(ray,moonDirection));
-        color+=vec3(.17,.20,.24)*lunar*nightAmount;
+        // Half-degree lunar disc, resolved with a pixel-wide antialiased limb.
+        float moonAngle=acos(clamp(dot(ray,moonDirection),-1.,1.));
+        float lunar=1.-smoothstep(.0045-fwidth(moonAngle),.0045+fwidth(moonAngle),moonAngle);
+        if(lunar>0. && nightAmount>.001){
+        vec3 moonRight=normalize(cross(vec3(0.,1.,0.),moonDirection));
+        vec3 moonUp=cross(moonDirection,moonRight);
+        vec2 moonUV=vec2(dot(ray,moonRight),dot(ray,moonUp))/.0045;
+        float maria=cloudNoise(moonUV*3.7+91.)*.6+cloudNoise(moonUV*9.+34.)*.4;
+        float moonShade=sqrt(max(0.,1.-dot(moonUV,moonUV)))*.55+.45;
+        color+=vec3(.65,.66,.62)*lunar*nightAmount*moonShade*(.55+.45*maria);
+        }
         vec2 cloud=cloudField(ray);float transmission=cloudTransmission(cloud.x);
         float rim=pow(max(dot(ray,sunDirection),0.),8.)*pow(1.-cloud.x,2.);
         // Optical thickness shades the underside while the thin fringes catch
@@ -170,7 +181,7 @@ export function createSky(renderer:THREE.WebGLRenderer,scene:THREE.Scene,sun:THR
   const starPoints=new THREE.Points(starGeometry,starMaterial);starPoints.name='Resolved stellar points';starPoints.frustumCulled=false;starPoints.renderOrder=-999;scene.add(starPoints);
   const fog=new THREE.Color(),skyAmbient=new THREE.Color(),groundAmbient=new THREE.Color();
   const noonFog=new THREE.Color(0x849caa),dawnFog=new THREE.Color(0x9b9f91),nightFog=new THREE.Color(0x101b28);
-  const warmSun=new THREE.Color(0xffbd80),highSun=new THREE.Color(0xfff2dc);
+  const warmSun=new THREE.Color(0xff753a),highSun=new THREE.Color(0xfff2dc);
   const brightSky=new THREE.Color(0xc2d9e5),darkSky=new THREE.Color(0x829bb4),brightGround=new THREE.Color(0x444b30),darkGround=new THREE.Color(0x52606b);
   return {
     update(hours:number,player:THREE.Vector3,time:number){

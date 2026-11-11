@@ -78,3 +78,9 @@ test('once free it stays free; the same seed replays the same opening', () => {
   for (let i = 0; i < 100; i++) assert.equal(d.tick({ dt: .1, indoors: false, seen: false, gone: false }).phase, 'free');
   assert.equal(d.jump('free').length, 0);
 });
+
+test('seen but obstructed creatures cannot keep attacks locked forever', () => {
+  const { d, events } = play({ seenAfter: 5, goneAfter: Infinity, seconds: 700 });
+  assert.equal(d.phase, 'free');
+  assert.equal(events.filter(e => e.type === 'gave-up').length, 2);
+});

@@ -93,8 +93,11 @@ export function moveCharacter(position:CharacterPosition,dx:number,dz:number,hei
         const centerY=c.heightAt?.(x,z),verticalRadius=c.kind==='capsule'?c.radius:Math.max(c.halfX,c.halfZ);
         if(centerY!==undefined&&(centerY-verticalRadius>oldY+height+.025||centerY+verticalRadius<oldY-.12))continue;
         const contact=solidContact(c,x,z,radius);if(contact.depth<=0)continue;
-        const top=c.surfaceHeight?.(x,z)??c.maxY;
-        if(top<=oldY+.28)continue;
+        const rock=['rock','river stone','boundary stone'].includes(c.tag??'');
+        const sampled=c.surfaceHeight?.(x,z),top=rock&&c.surfaceHeight?sampled:(sampled??c.maxY);
+        // The broad-phase envelope is not the surface of an irregular rock.
+        if(top===undefined && rock)continue;
+        if(top!==undefined&&top<=oldY+.28)continue;
         x+=contact.nx*(contact.depth+.001);z+=contact.nz*(contact.depth+.001);moved=true;
       }
       if(!moved)break;

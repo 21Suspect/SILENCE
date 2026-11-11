@@ -139,7 +139,7 @@ test('sustained sight at night starts a hunt; the same sight in early evening on
   assert.equal(r.out.behaviour, 'hunt');
   assert.ok(types(r.events).includes('spotted') || night.brain.inspect().sees);
   assert.ok(types(r.events).includes('hunt-started'));
-  r = night.run(2, { los: true });
+  r = night.run(.5, { los: true });
   assert.ok(r.out.intent.speed >= T.huntApproach, 'it runs at the player');
 
   const evening = world({ hours: 17, darkness: .15, at: { x: 0, z: 25, yaw: Math.PI } });
@@ -177,7 +177,7 @@ test('losing sight mid-hunt: it investigates the last known point, then gives up
   const lastKnown = { x: 0, z: 0 };
   // The player ducks behind cover and slips away out of sight and earshot.
   w.player = { x: -70, z: -60 };
-  r = w.run(6, { los: false });
+  r = w.run(T.huntPersist + 2, { los: false });
   const lost = r.events.find(e => e.type === 'lost-player');
   assert.ok(lost, 'it lost them');
   assert.equal(lost.from, 'hunt', 'a chase that got away (the host answers that with its call; a shadowing that fizzled out gets none)');
@@ -332,7 +332,8 @@ test('the torch stun: the slow to a halt is about 0.58 s on a smooth curve, from
 test('the torch stun: held 2.5, 1.8, 1.2, then 0.7 s for good (never immune); full strength again after 90 s out of the beam', () => {
   const w = charging(), helds = [];
   for (let use = 0; use < 6; use++) {
-    // The beam stays on: each stun takes again stunPin after the last one has got going.
+    // Let the recovery window finish; the next use still stuns, with diminishing duration.
+    if (use > 0) w.run(T.stunGrace, { los: true, beam: false, move: false, reach: 10 });
     const frames = pinned(w, { seconds: T.stunPin + T.stunSlow + T.stunHeld[Math.min(use, 3)] + T.stunStart + .1 });
     assert.ok(frames.flatMap(f => f.events).some(e => e.type === 'flinch'), `stun ${use + 1} took`);
     helds.push(firstStun(frames).held.length * .05);
@@ -371,7 +372,7 @@ test('a hunt that has gone on too long is given up, and no new one is taken up f
   assert.ok(!next || next.t - end.t >= T.huntCooldown - .5, `the next hunt began ${next && (next.t - end.t).toFixed(1)} s after (cooldown ${T.huntCooldown})`);
 });
 
-test('the torch breaks a hunt off more readily early in the night, and still often deep in it', () => {
+test('the torch breaks a hunt off more readily early in the night, but rarely interrupts a committed late-night hunt', () => {
   const broke = (hours, seed) => {
     const w = world({ seed, hours, darkness: 1, at: { x: 0, z: 22, yaw: Math.PI } });
     w.player = { x: 0, z: 0, flashlightOn: true };
@@ -384,7 +385,7 @@ test('the torch breaks a hunt off more readily early in the night, and still oft
   const rate = hours => { let n = 0, hunts = 0; for (let seed = 1; seed <= 60; seed++) { const r = broke(hours, seed); if (r !== undefined) { hunts++; if (r) n++; } } return { n, hunts }; };
   const deep = rate(23.5), early = rate(21.2);
   assert.ok(deep.hunts > 30 && early.hunts > 10, `hunts ${deep.hunts} deep, ${early.hunts} early`);
-  assert.ok(deep.n / deep.hunts > .2, `deep in the night the torch still breaks a hunt off ${deep.n}/${deep.hunts}`);
+  assert.ok(deep.n / deep.hunts > 0 && deep.n / deep.hunts < .2, `deep in the night the torch still breaks a hunt off ${deep.n}/${deep.hunts}`);
   assert.ok(early.n / early.hunts > deep.n / deep.hunts, `and early in it more readily (${early.n}/${early.hunts})`);
 });
 
@@ -401,7 +402,7 @@ test('hunting can be withheld by the host, and once allowed it is rare at first 
   assert.equal(sight('held', 0).hunted, false, 'withheld: it only watches, at midnight');
   const first = sight('ramp', 0), early = sight('ramp', T.huntPermitDelay + T.huntPermitRamp * .2), late = sight('ramp', T.huntPermitDelay + T.huntPermitRamp + 5), always = sight('default', 0);
   assert.equal(first.hunted, false, 'none at all for huntPermitDelay');
-  assert.ok(early.drive > 0 && early.drive < .3, `then rare (drive ${early.drive.toFixed(2)})`);
+  assert.ok(early.drive > 0 && early.drive < .6, `then rare (drive ${early.drive.toFixed(2)})`);
   assert.ok(late.drive > .99 && always.drive > .99);
   assert.ok(late.hunted && always.hunted, 'certain later');
 });
@@ -480,4 +481,33 @@ test('the grab: wrench, then black, the move happens only under full black, then
   }
   assert.ok(grabTimeline(GRAB.cardIn + 1).card === 1);
   assert.ok(grabTimeline(GRAB.done).done && grabTimeline(GRAB.done).black === 0);
+});
+
+test('after five minutes of free roam, daylight and staring cannot keep it passively stalking', () => {
+  for (const hours of [16, 19, 23, 7]) {
+    const w = world({ hours, darkness: .3, at: { x: 0, z: 28, yaw: Math.PI } });
+    w.brain.holdHunting(); w.brain.permitHunting();
+    w.run(300, { los: false, move: false, reach: Infinity });
+    w.player = { flashlightOn: true };
+    const result = w.run(15, { los: true, looking: true });
+    assert.ok(result.events.some(e => e.type === 'hunt-started'), `hunts at ${hours}:00`);
+    assert.ok(result.events.some(e => e.type === 'strike'), `reaches and attacks at ${hours}:00`);
+  }
+});
+
+test('a chase catches a sprinting player despite brief tree occlusions', () => {
+  const w = world({ at: { x: 0, z: 25, yaw: Math.PI } });
+  let hit = false;
+  for (let frame = 0; frame < 600; frame++) {
+    w.player = { x: 0, z: -frame * .05 * 3.35, vz: -3.35, sprinting: true, flashlightOn: true };
+    const out = w.step({ los: frame % 60 < 45 });
+    if (out.events.some(e => e.type === 'strike')) { hit = true; break; }
+  }
+  assert.ok(hit, 'briefly passing behind a trunk must not reset the chase');
+});
+
+test('a continuous beam buys time but allows movement between stuns', () => {
+  const w = charging();
+  const frames = pinned(w, { seconds: 15 });
+  assert.ok(frames.filter(f => f.phase === 'none' && f.speed >= T.huntApproach).length > 10);
 });

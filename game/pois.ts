@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createMeshSurface } from './surface-support';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import type { SolidCollider } from './collision';
 import * as layout from './world-layout';
@@ -274,6 +275,19 @@ export function createPois(scene: THREE.Scene, heightAt: (x: number, z: number) 
     model.scene = source; model.status = 'ready';
     const inverse = new THREE.Matrix4().copy(source.matrixWorld).invert();
     const meshes: THREE.Mesh[] = []; source.traverse(o => { if (o instanceof THREE.Mesh && !(o as THREE.SkinnedMesh).isSkinnedMesh) meshes.push(o); });
+    // Shared geometry, lazy triangle grids: precise supports without per-frame raycasts.
+    for (const e of model.entries) {
+      if (!e.colliders.some(c => c.tag === 'rock') && !['cabin','chapel','hut'].includes(model.name)) continue;
+      const surfaces = meshes.map(mesh => createMeshSurface(mesh.geometry, new THREE.Matrix4().multiplyMatrices(e.matrix, new THREE.Matrix4().multiplyMatrices(inverse, mesh.matrixWorld))));
+      const surface = (x:number,z:number) => { let y=-Infinity; for(const sample of surfaces)y=Math.max(y,sample(x,z)??-Infinity); return Number.isFinite(y)?y:undefined; };
+      for(const c of e.colliders)if(c.tag==='rock')c.surfaceHeight=surface;
+      const walls=(model.def.colliders??[]).filter(c=>c.kind==='box'&&c.tag?.endsWith('wall')) as Extract<ModelCollider,{kind:'box'}>[];
+      if(walls.length){
+        const x0=Math.min(...walls.map(c=>c.x-c.halfX)),x1=Math.max(...walls.map(c=>c.x+c.halfX)),z0=Math.min(...walls.map(c=>c.z-c.halfZ)),z1=Math.max(...walls.map(c=>c.z+c.halfZ));
+        const at=placePoint(e.p,(x0+x1)/2,(z0+z1)/2),scale=e.p.scale??1;
+        e.colliders.push({kind:'box',x:at.x,z:at.z,halfX:(x1-x0)*scale/2,halfZ:(z1-z0)*scale/2,yaw:e.p.yaw,minY:e.ground+Math.max(...walls.map(c=>c.maxY))*scale,maxY:e.ground+model.def.radius*2,tag:'climb roof',surfaceHeight:surface});
+      }
+    }
     const scattered = model.entries.filter(e => e.scatter);
     if (scattered.length) for (const mesh of meshes) {
       const instanced = new THREE.InstancedMesh(mesh.geometry, mesh.material, scattered.length);
@@ -292,6 +306,7 @@ export function createPois(scene: THREE.Scene, heightAt: (x: number, z: number) 
       object.traverse(o => { if (o instanceof THREE.Mesh && !model.name.startsWith('rock_') && model.name !== 'minerock') o.customDepthMaterial = propDepth; o.updateMatrix(); o.matrixAutoUpdate = false; });
       object.updateMatrixWorld(true);
     }
+    commit();
     model.repack = true; dirty = true;
     // Ask for the textures and shader programs to be built a little at a time, now, instead of all in the frame the model is first drawn.
     const warm = perfOn('streamWarmup') ? scene.userData.gpuWarmup as GpuWarmup | undefined : undefined;

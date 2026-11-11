@@ -105,7 +105,7 @@ test('the developer hunt spawn brings it near, out of view, already hunting; dis
   s.aim(new THREE.Vector3(0, 0, -1));
   s.encounters.spawn(s.player, new THREE.Vector3(0, 0, -1), 'hunt');
   let status;
-  for (let i = 0; i < 30 * 3; i++) status = s.frame({ hours: 12, darkness: 0 });
+  for (let i = 0; i < 30 * 1; i++) status = s.frame({ hours: 12, darkness: 0 });
   assert.equal(status.presence, 'body');
   assert.ok(status.transitions.some(t => t.kind === 'spawn' && !t.inView));
   assert.equal(status.brain.behaviour, 'hunt', 'hunting at noon, as asked');
@@ -260,6 +260,11 @@ test('every sound means something once: a run of stuns hisses once; a hunt begun
   const sounds = kind => events.filter(e => e.type === 'sound' && e.kind === kind), pins = () => events.filter(e => e.type === 'stun' && e.phase === 'slowing'), hunts = () => events.filter(e => e.type === 'hunt');
   const run = (seconds, { beam = true, look = true } = {}) => {
     for (let i = 0; i < 30 * seconds; i++) {
+      // Keep separation for this audio-only test so the faster charge does not end the stun sequence in a grab.
+      if (beam && s.encounters.probe().visible) {
+        const creature = s.creature(), away = s.player.clone().sub(creature).setY(0);
+        if (away.length() < 18) s.player.copy(creature.add(away.normalize().multiplyScalar(18))).setY(0);
+      }
       if (look && s.encounters.probe().visible) s.lookAt(); else s.lookAway();
       s.frame({ hours: 23.5, darkness: 1, flashlightOn: beam });
       // Taken: black, and it is moved far off and left to calm down (as the engine does).

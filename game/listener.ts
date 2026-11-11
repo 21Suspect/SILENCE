@@ -16,7 +16,7 @@ const arm = (side: 'L' | 'R') => {
 };
 const ARMS = { L: arm('L'), R: arm('R') };
 // Twigs and the like are crushed underfoot, so they neither hold a foot nor block a leg.
-const WALKABLE = new Set(['rock', 'river stone', 'fallen log', 'twig', 'stump', 'bridge timber', 'boundary stone', 'bridge deck', 'road bridge deck']);
+const WALKABLE = new Set(['rock', 'river stone', 'fallen log', 'twig', 'stump', 'bridge timber', 'boundary stone', 'cabin floor', 'chapel floor', 'hut floor', 'step', 'bridge deck', 'road bridge deck']);
 // Metres of bark each foot wraps around from the body's side, and how far along the trunk it reaches.
 const WRAP = [.78, 1.2, 1.2, .78], ALONG = [2.7, 1.05, -1.05, -2.7];
 
@@ -41,7 +41,13 @@ export function createListener(scene: THREE.Scene, heightAt: (x: number, z: numb
     const foot = navigation.findFoot(target.x, target.z, anchor.x, anchor.z, free ? from.x : undefined, free ? from.z : undefined);
     out.point.set(foot.x, foot.y, foot.z);
     const e = .35;
-    out.normal.set(heightAt(foot.x - e, foot.z) - heightAt(foot.x + e, foot.z), 2 * e, heightAt(foot.x, foot.z - e) - heightAt(foot.x, foot.z + e)).normalize();
+    out.normal.set(navigation.supportAt(foot.x - e, foot.z) - navigation.supportAt(foot.x + e, foot.z), 2 * e, navigation.supportAt(foot.x, foot.z - e) - navigation.supportAt(foot.x, foot.z + e)).normalize();
+  };
+  const buildingSurface: SpiderSurface = (target,out) => {
+    const contact=navigation.climbing?.contact(target);
+    if(!contact){groundSurface(target,out);return;}
+    out.point.set(contact.point.x,contact.point.y,contact.point.z);
+    out.normal.set(contact.normal.x,contact.normal.y,contact.normal.z);
   };
   const trunkSurface: SpiderSurface = (target, out: Contact, from) => {
     const t = climbing!;
@@ -69,6 +75,8 @@ export function createListener(scene: THREE.Scene, heightAt: (x: number, z: numb
     let nearest = Infinity;
     for (const o of solids) {
       if (o === climbing) continue;
+      const hull=navigation.climbing?.hull;
+      if(hull && (o===hull || (o.tag!=='tree' && obstacleClearance(hull,mx,mz)<.8)))continue;
       if (o.kind === 'capsule' && o.tag === 'tree') {
         if (Math.hypot(o.ax - mx, o.az - mz) > reach + o.radius + .5) continue;
         for (let i = 0; i <= 8; i++) {
@@ -177,6 +185,11 @@ export function createListener(scene: THREE.Scene, heightAt: (x: number, z: numb
       command.surface = groundSurface; command.rest = undefined; command.hug = 0; command.swingPath = undefined; command.reachSpeed = undefined;
       command.pace = pace;
       command.width = width; command.length = 1; command.ride = lerp(1.9, 1.56, sstep(gait.speed, 1.5, 7)) * S;
+      const surfaceClimb=navigation.climbing;
+      if(surfaceClimb){
+        const frame=surfaceClimb.frame();up.set(frame.up.x,frame.up.y,frame.up.z).normalize();forward.set(frame.forward.x,frame.forward.y,frame.forward.z).normalize();
+        command.surface=buildingSurface;command.hug=1-up.y;command.ride=lerp(1.05*S,command.ride,up.y);command.width=.8;command.reachSpeed=5;
+      }
       const safe = Math.max(dt, 1 / 240);
       rearing = damp(rearing, rear, rear > rearing ? 7 : 4, safe); recoiling = damp(recoiling, recoil, recoil > recoiling ? 9 : 4, safe);
       // Rearing: the thorax lifts, the head goes up and the hands come forward. Recoiling: low and coiled, head drawn in.

@@ -27,6 +27,8 @@ export const OPENING = {
   forceLead: 45,
   /** Still unseen this long after the deadline, the director moves on regardless (a stuck encounter never blocks). */
   giveUpAfter: 60,
+  /** A seen creature may never finish leaving while watched or obstructed. Release the script anyway. */
+  leaveTimeout: 90,
   /** Seconds into the interlude for the one distant call. */
   callAfter: [10, 22] as const,
   /** The breathing room after the tree. */
@@ -45,7 +47,7 @@ export type DirectorEvent =
   | { type: 'seen'; phase: OpeningPhase; at: number; late: boolean }
   /** One distant call from where it went. */
   | { type: 'call' }
-  /** The deadline passed without a sighting and the director gave up waiting. */
+  /** The sighting deadline or departure timeout expired. */
   | { type: 'gave-up'; phase: OpeningPhase };
 
 export type DirectorInput = {
@@ -108,7 +110,7 @@ export function createOpeningDirector(options: { random: () => number; tuning?: 
           if (clock >= nextEscalate) { step++; nextEscalate += t.escalateEvery; events.push({ type: 'escalate', step }); }
           if (!forced && clock >= deadline() - t.forceLead) { forced = true; events.push({ type: 'force' }); }
         }
-        const done = seenAt !== undefined && input.gone, stuck = seenAt === undefined && clock > deadline() + t.giveUpAfter;
+        const done = seenAt !== undefined && input.gone, stuck = seenAt === undefined ? clock > deadline() + t.giveUpAfter : clock - seenAt > t.leaveTimeout;
         if (stuck) events.push({ type: 'gave-up', phase });
         if (done || stuck) enter(phase === 'glimpse' ? 'interlude' : 'breathing', events);
       } else if (phase === 'interlude') {

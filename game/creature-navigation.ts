@@ -1,8 +1,9 @@
 import type {SolidCollider} from './collision';
+import {createSurfaceClimb} from './surface-climb';
 
 type Point={x:number;y:number;z:number};
 type Query={nearby:(x:number,z:number,radius?:number)=>SolidCollider[]};
-const walkableTags=new Set(['rock','river stone','fallen log','twig','stump','bridge timber','boundary stone']);
+const walkableTags=new Set(['rock','river stone','fallen log','twig','stump','bridge timber','boundary stone','cabin floor','chapel floor','hut floor','step']);
 /** Clearance to the actual horizontal capsule/box footprint, in metres. */
 export function obstacleClearance(c:SolidCollider,x:number,z:number){
   if(c.kind==='capsule'){
@@ -22,7 +23,7 @@ const boundsOf=(c:SolidCollider):[number,number,number,number]=>{
 const near=(b:[number,number,number,number],x:number,z:number,r:number)=>x>=b[0]-r&&x<=b[1]+r&&z>=b[2]-r&&z<=b[3]+r;
 export function creatureCanClimb(c:SolidCollider,heightAt:(x:number,z:number)=>number){
   const x=c.kind==='capsule'?(c.ax+c.bx)*.5:c.x,z=c.kind==='capsule'?(c.az+c.bz)*.5:c.z;
-  return walkableTags.has(c.tag??'')&&c.maxY-heightAt(x,z)<2.5;
+  return walkableTags.has(c.tag??'')&&(!!c.surfaceHeight||c.maxY-heightAt(x,z)<2.5);
 }
 /** One spatial query serves body planning and the rig's contacts. Navigation is only
  * active during an encounter; static geometry is never rebuilt for the agent. */
@@ -31,6 +32,7 @@ export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,wo
   /** m/s squared: how fast a body that has lost its route eases down when nothing slower was asked for. */
   const COAST_BRAKE=9,COAST_BRAKE_MAX=45,COAST_LOOK=7,APPROACH_BRAKE=8,ROUTE_END_REPLAN=4;
   const MAX_ROUTE_ITERATIONS=900;
+  let climb:ReturnType<typeof createSurfaceClimb>,climbCooldown=0;
   let solids:SolidCollider[]=[],blockers:SolidCollider[]=[],supports:SolidCollider[]=[],layers:SolidCollider[]=[],cacheX=Infinity,cacheZ=Infinity,cacheAge=1;
   // Each list's bounds, so the many questions asked of them (a route search asks thousands) only look at what is near the point.
   let blockerBounds:[number,number,number,number][]=[],supportBounds:[number,number,number,number][]=[],layerBounds:[number,number,number,number][]=[];
@@ -42,7 +44,7 @@ export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,wo
   const baseSurfaceAt=(x:number,z:number)=>Math.max(heightAt(x,z),waterSurfaceAt?.(x,z)??-Infinity);
   function refresh(x:number,z:number,dt=0,force=false){
     clock+=dt;cacheAge+=dt;if(!force&&cacheAge<.3&&Math.hypot(x-cacheX,z-cacheZ)<2)return;
-    cacheX=x;cacheZ=z;cacheAge=0;solids=world.nearby(x,z,27).filter(c=>!ignored(c));layers=solids.filter(c=>c.tag==='bridge deck'||c.tag==='bridge timber');const layered=new Set(layers);supports=solids.filter(c=>!layered.has(c)&&creatureCanClimb(c,heightAt));const climbable=new Set(supports);blockers=solids.filter(c=>!climbable.has(c)&&!layered.has(c));
+    cacheX=x;cacheZ=z;cacheAge=0;solids=world.nearby(x,z,27).filter(c=>!ignored(c));layers=solids.filter(c=>c.tag==='bridge deck'||c.tag==='bridge timber'||c.tag==='climb roof');const layered=new Set(layers);supports=solids.filter(c=>!layered.has(c)&&creatureCanClimb(c,heightAt));const climbable=new Set(supports);blockers=solids.filter(c=>!climbable.has(c)&&!layered.has(c));
     blockerBounds=blockers.map(boundsOf);supportBounds=supports.map(boundsOf);layerBounds=layers.map(boundsOf);
   }
   function clear(x:number,z:number,r=radius){
@@ -59,7 +61,7 @@ export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,wo
     const steps=Math.max(1,Math.ceil(Math.hypot(bx-ax,bz-az)/.35));
     for(let i=0;i<=steps;i++)if(!clear(ax+(bx-ax)*i/steps,az+(bz-az)*i/steps,r))return false;return true;
   }
-  function supportAt(x:number,z:number){
+  function supportAt(x:number,z:number,includeLayers=true){
     let y=baseSurfaceAt(x,z);
     for(let i=0;i<supports.length;i++){
       const c=supports[i];if(!near(supportBounds[i],x,z,.035))continue;
@@ -75,7 +77,7 @@ export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,wo
     // Bridge decks are reachable layers, not terrain. A creature approaching
     // beneath follows the water/ground; one already on a ramp can stay on top.
     const from=referenceY??baseSurfaceAt(x,z);
-    for(let i=0;i<layers.length;i++){
+    for(let i=0;includeLayers&&i<layers.length;i++){
       const c=layers[i];if(!near(layerBounds[i],x,z,.02))continue;
       if(obstacleClearance(c,x,z)>.02||c.maxY<=y)continue;
       const top=c.surfaceHeight?c.surfaceHeight(x,z):c.maxY;
@@ -192,6 +194,18 @@ export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,wo
     // An inflated endpoint inside bark cannot be reached by any A* search.
     // Try the next stance immediately instead of exhausting thousands of nodes.
     if(clearance>1&&(!clear(x,z,clearance)||!clear(goal.x,goal.z,clearance))){plan(x,z,hx,hz,clearance>2.3?2.25:.95);return;}
+    // A wall descent may finish between porch posts inside the preferred
+    // planning margin. Leave using the real body envelope, then widen again.
+    if(clearance<1.1&&!clear(x,z,clearance)&&clear(x,z,hardRadius+.025)){
+      let escape:{x:number;z:number}|undefined,score=Infinity;
+      for(let r=.4;r<=3.2;r+=.4)for(let i=0;i<24;i++){
+        const angle=i*Math.PI/12,tx=x+Math.cos(angle)*r,tz=z+Math.sin(angle)*r;
+        if(!clear(tx,tz,clearance)||!segmentClear(x,z,tx,tz,hardRadius+.025))continue;
+        const cost=r+Math.hypot(tx-goal.x,tz-goal.z);
+        if(cost<score){score=cost;escape={x:tx,z:tz};}
+      }
+      if(escape){routeRadius=hardRadius+.025;route=[escape];return;}
+    }
     if(clearance<1.1){const gap=gapRoute(x,z,clearance);if(gap.nodes.length){route=roundRoute({x,z},gap.nodes,clearance);return;}}
     // Bounded local A*: comfortably outside the 17 m goal, with a real swept
     // clearance test on every edge (no diagonal corner cutting through trunks).
@@ -239,6 +253,7 @@ export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,wo
   }
   return {
     refresh,
+    get climbing(){return climb;},
     supportAt,
     ceilingAt,
     findFoot,
@@ -269,7 +284,7 @@ export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,wo
     get blocked(){return lastBlocked;},
     canEscape(x:number,z:number,hx:number,hz:number){referenceY=undefined;refresh(x,z,0,true);plan(x,z,hx,hz);const end=route[route.length-1];const ok=!!end&&Math.hypot(end.x-x,end.z-z)>7;route=[];replanIn=0;return ok;},
     replan(){route=[];replanIn=0;},
-    reset(initialSpeed=0){route=[];cacheAge=1;replanIn=0;routeRadius=radius;travelSpeed=initialSpeed;angularVelocity=0;headingReady=false;referenceY=undefined;},
+    reset(initialSpeed=0){climb=undefined;climbCooldown=0;route=[];cacheAge=1;replanIn=0;routeRadius=radius;travelSpeed=initialSpeed;angularVelocity=0;headingReady=false;referenceY=undefined;},
     safeSpawn(x:number,z:number){
       referenceY=undefined;refresh(x,z,0,true);
       // Keep spawn placement bounded.  The old 289 samples were repeated for
@@ -286,6 +301,24 @@ export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,wo
     move(position:Point,hx:number,hz:number,speed:number,dt:number,brake=2.2){
       referenceY=position.y;refresh(position.x,position.z,dt);replanIn-=dt;
       const len=Math.hypot(hx,hz)||1;hx/=len;hz/=len;
+      climbCooldown=Math.max(0,climbCooldown-dt);
+      if(climb?.done){climb=undefined;climbCooldown=3;route=[];replanIn=0;}
+      if(!climb&&climbCooldown===0&&speed>.4){
+        for(const c of layers){
+          if(c.tag!=='climb roof'||c.kind!=='box'||obstacleClearance(c,position.x,position.z)>4.5)continue;
+          const candidate=createSurfaceClimb(c,position,hx,hz,(x,z)=>supportAt(x,z,false));
+          if(candidate){
+            // A tree in the approach corridor is still a solid obstruction.
+            let safe=true;for(let d=0;d<4;d+=.3)for(const b of blockers)if(b.tag==='tree'&&obstacleClearance(b,position.x+hx*d,position.z+hz*d)<hardRadius)safe=false;
+            if(safe){climb=candidate;route=[];break;}
+          }
+        }
+      }
+      if(climb){
+        const pace=Math.min(speed,4.5);travelSpeed+=(pace-travelSpeed)*(1-Math.exp(-dt*5));
+        const next=climb.advance(position,travelSpeed,dt);heading=Math.atan2(hx,hz);headingReady=true;lastBlocked=false;
+        return{...next,yaw:heading,turnRate:0,speed:travelSpeed,desiredSpeed:pace};
+      }
       const goalChange=hx*lastHeading.x+hz*lastHeading.z<.94;
       // A route that stops short of its goal (the way on is shut) is planned again as its end comes near, not only after it has been
       // used up: from a few metres on the planner often sees a way round.
@@ -340,7 +373,10 @@ export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,wo
       angularVelocity+=(desiredAngular-angularVelocity)*(1-Math.exp(-dt*10));
       if(Math.abs(error)<Math.abs(angularVelocity*dt)){heading=desiredHeading;angularVelocity=0;}else heading+=angularVelocity*dt;
       const ahead=Math.min(.9,travelSpeed*.25),floor=baseSurfaceAt(x,z),support=Math.max(supportAt(x,z),supportAt(x+lastDX*ahead,z+lastDZ*ahead)-.12);
-      const y=Math.max(floor,support-.48),moved=Math.hypot(x-position.x,z-position.z)/Math.max(dt,.001);
+      const targetY=Math.max(floor,support-.48),rise=targetY-position.y,maxRise=Math.max(1.4,travelSpeed)*dt;
+      const fraction=Math.min(1,maxRise/Math.max(maxRise,Math.abs(rise)));
+      x=position.x+(x-position.x)*fraction;z=position.z+(z-position.z)*fraction;
+      const y=position.y+Math.max(-maxRise,Math.min(maxRise,rise)),moved=Math.hypot(x-position.x,z-position.z)/Math.max(dt,.001);
       return{x,y,z,yaw:heading,turnRate:angularVelocity,speed:moved,desiredSpeed};
     },
     inspect(){return{route:route.map(p=>({...p})),replans,blockers:blockers.length,solids:solids.length,blocked:lastBlocked,radius:routeRadius,hardRadius,travelSpeed,desiredSpeed:lastDesiredSpeed,turnRate:angularVelocity,ceiling:ceilingAt(cacheX,cacheZ),referenceY};},
