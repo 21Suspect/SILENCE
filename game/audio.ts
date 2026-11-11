@@ -1,9 +1,11 @@
 import type * as THREE from 'three';
 import {createBreathing} from './breathing';
 import { riverX, waterHeightAt } from './world';
+import { coastDistance, SEA_LEVEL } from './coastal-geography';
+import { WORLD_V2 } from './world-flags';
 import { volumeGain, type Settings } from './settings';
 
-type Surface = 'dirt' | 'road' | 'water';
+type Surface = 'dirt' | 'road' | 'water' | 'wood';
 export type ForestAudioFrame = {
   position: THREE.Vector3;
   direction: THREE.Vector3;
@@ -34,6 +36,7 @@ export class ForestAudio {
   private userMaster: GainNode | null = null;
   private ambienceGroup: GainNode | null = null;
   private creatureGroup: GainNode | null = null;
+  // Full-strength baseline; user sliders remain independent.
   private volume = { master: 1, ambience: 1, creature: 1 };
   private listening = false;
   private noise: AudioBuffer | null = null;
@@ -41,11 +44,15 @@ export class ForestAudio {
   private breathing=createBreathing();
   private revealPanner:PannerNode|null=null;
   private revealPoint:Point|null=null;
+  private surfVoices: {gain:GainNode;pan:PannerNode;side:number}[]=[];
   private riverGain: GainNode | null = null;
   private riverPanner: PannerNode | null = null;
 
   private sources = new Set<AudioScheduledSourceNode>();
   private disposed = false;
+  private ambienceDirections = new Map<PannerNode, Point>();
+  private stepSide = 1;
+  private stepTake = 0;
   private travelled = 0;
   private lastStep = -10;
   private age = 0;
@@ -106,8 +113,40 @@ export class ForestAudio {
       void fetch(`/audio/ambience/${name}.mp3`).then(r => { if (!r.ok) throw new Error(`${name} unavailable`); return r.arrayBuffer(); }).then(bytes => context.decodeAudioData(bytes))
         .then(buffer => { if (!this.disposed) this.beds.set(name, buffer); }).catch(error => console.warn('SILENCE: ambience could not load.', error));
     }
-    const water = this.loop(0, 1200, 'lowpass', 0, 1.13, true);
+    // Recorded stream, faded and spatialized at the nearest river segment.
+    const water=context.createGain(), riverPan=context.createPanner();
+    water.gain.value=0; riverPan.panningModel='HRTF';riverPan.rolloffFactor=0;
+    water.connect(riverPan).connect(ambienceGroup);this.riverPanner=riverPan;
+    void fetch('/audio/ambience/river.mp3').then(r=>{if(!r.ok)throw Error('River unavailable');return r.arrayBuffer();}).then(b=>context.decodeAudioData(b)).then(buffer=>{
+      if(this.disposed)return;
+      // Crossfade the recording ends once, instead of clicking at each loop seam.
+      const n=Math.min(context.sampleRate*3,Math.floor(buffer.length/4)), length=buffer.length-n;
+      const loop=context.createBuffer(1,length,buffer.sampleRate), out=loop.getChannelData(0);
+      for(let i=0;i<length;i++){let v=0;for(let c=0;c<buffer.numberOfChannels;c++){const a=buffer.getChannelData(c);v+=i<n?a[i]*(i/n)+a[length+i]*(1-i/n):a[i];}out[i]=v/buffer.numberOfChannels;}
+      const source=context.createBufferSource();source.buffer=loop;source.loop=true;source.connect(water);this.track(source,[water,riverPan]);source.start();
+    }).catch(e=>console.warn('SILENCE: river recording unavailable',e));
+    if(WORLD_V2)void fetch('/audio/ambience/surf.mp3').then(r=>{if(!r.ok)throw Error('Surf unavailable');return r.arrayBuffer();}).then(b=>context.decodeAudioData(b)).then(buffer=>{
+      if(this.disposed)return;
+      // Two coherent channels placed along the beach retain the recording's
+      // stereo width while the entire sound field follows the coast, not the head.
+      const n=Math.min(buffer.sampleRate*3,Math.floor(buffer.length/4)),length=buffer.length-n;
+      for(let c=0;c<2;c++){
+        const loop=context.createBuffer(1,length,buffer.sampleRate),out=loop.getChannelData(0),a=buffer.getChannelData(c%buffer.numberOfChannels);
+        for(let i=0;i<length;i++)out[i]=i<n?a[i]*(i/n)+a[length+i]*(1-i/n):a[i];
+        const source=context.createBufferSource(),gain=context.createGain(),pan=context.createPanner();
+        source.buffer=loop;source.loop=true;gain.gain.value=0;pan.panningModel='HRTF';pan.rolloffFactor=0;
+        source.connect(gain).connect(pan).connect(ambienceGroup);this.track(source,[gain,pan]);source.start();
+        this.surfVoices.push({gain,pan,side:c===0?-1:1});
+      }
+    }).catch(e=>console.warn('SILENCE: surf recording unavailable',e));
+    for(const material of ['Sand','Stone'])for(const side of ['L','R'])for(let i=1;i<=3;i++){
+      const name=`${material}${side}${i}`;
+      void fetch(`/audio/footsteps/${name}.wav`).then(r=>{if(!r.ok)throw Error(name);return r.arrayBuffer();}).then(b=>context.decodeAudioData(b)).then(b=>{if(!this.disposed)this.beds.set(name,b);}).catch(e=>console.warn('SILENCE: footstep unavailable',e));
+    }
 
+    for(const kind of ['wood','gravel'])for(let i=0;i<10;i++){
+      const name=kind+i;void fetch(`/audio/footsteps/${name}.wav`).then(r=>{if(!r.ok)throw Error(name);return r.arrayBuffer();}).then(b=>context.decodeAudioData(b)).then(b=>{if(!this.disposed)this.beds.set(name,b);}).catch(e=>console.warn('Footstep unavailable',e));
+    }
     this.riverGain = water;
     await context.resume();
     master.gain.setTargetAtTime(0.68, context.currentTime, 2.2);
@@ -118,7 +157,7 @@ export class ForestAudio {
     source.onended = () => {
       this.sources.delete(source);
       source.disconnect();
-      for (const node of cleanup) node.disconnect();
+      for (const node of cleanup) { this.ambienceDirections.delete(node as PannerNode); node.disconnect(); }
     };
   }
 
@@ -239,17 +278,17 @@ export class ForestAudio {
 
   private footstep(surface: Surface, speed: number): void {
     const force = 0.55 + Math.min(speed, 3.4) * 0.14;
-    this.tone({ frequency: 74 + Math.random() * 18, endFrequency: 33, duration: 0.13, level: 0.055 * force });
-    if (surface === 'water') {
-      this.noiseHit({ duration: 0.48, frequency: 1600, level: 0.18 * force, attack: 0.026 });
-      this.noiseHit({ duration: 0.2, frequency: 3500, level: 0.055, delay: 0.12, type: 'bandpass' });
-    } else {
-      this.noiseHit({ duration: 0.24, frequency: surface === 'road' ? 1900 : 950, level: 0.095 * force });
-      for (let i = 0; i < 4; i++) {
-        this.noiseHit({ duration: 0.035 + Math.random() * 0.07, frequency: 1800 + Math.random() * 2400,
-          level: (surface === 'road' ? 0.018 : 0.035) * force, delay: 0.018 + Math.random() * 0.17 });
-      }
-      if (surface === 'dirt') this.noiseHit({ duration: 0.2, frequency: 320, level: 0.075, delay: 0.055, type: 'bandpass' });
+    if(surface!=='water'){
+      this.stepSide*=-1;this.stepTake=(this.stepTake+1+Math.floor(Math.random()*9))%10;
+      const buffer=this.beds.get(surface==='road'?`Stone${this.stepSide<0?'L':'R'}${this.stepTake%3+1}`:`${surface==='wood'?'wood':'gravel'}${this.stepTake}`);
+      if(!buffer||!this.context||!this.master)return;
+      const source=this.context.createBufferSource(), gain=this.context.createGain(), pan=this.context.createStereoPanner();
+      source.buffer=buffer;source.playbackRate.value=.97+Math.random()*.06;
+      gain.gain.value=(surface==='dirt'?.19:.22)*force*(.88+Math.random()*.24);pan.pan.value=0;
+      gain.channelCount=1;gain.channelCountMode='explicit';
+      source.connect(gain).connect(pan).connect(this.master);this.track(source,[gain,pan]);source.start();
+    }else{
+      this.noiseHit({ duration: 0.48, frequency: 1600, level: 0.12 * force, attack: 0.026 });
     }
   }
 
@@ -341,6 +380,13 @@ export class ForestAudio {
     listener.upY.value = 1;
     listener.upZ.value = 0;
     this.ambience(dt, info, now);
+    // Diffuse forest ambience follows translation, but not head rotation. It
+    // surrounds the listener anywhere on the map instead of collecting behind them.
+    for(const [pan,offset] of this.ambienceDirections){
+      pan.positionX.value=info.position.x+offset.x;
+      pan.positionY.value=info.position.y+offset.y;
+      pan.positionZ.value=info.position.z+offset.z;
+    }
     if(this.revealPanner&&this.revealPoint){const p=this.revealPoint;this.revealPanner.positionX.setTargetAtTime(p.x,now,.04);this.revealPanner.positionY.setTargetAtTime(p.y,now,.04);this.revealPanner.positionZ.setTargetAtTime(p.z,now,.04);}
     const breath=this.breathing.update(dt,info.sprinting&&info.speed>.65);
     if(breath.breathe)this.playerBreath(breath.level);
@@ -358,8 +404,20 @@ export class ForestAudio {
       this.riverPanner.positionY.setTargetAtTime(waterHeightAt(riverZ), now, 0.12);
       this.riverPanner.positionZ.setTargetAtTime(riverZ, now, 0.12);
     }
-    const river = Math.exp(-Math.max(0, riverDistance) / 11);
-    this.riverGain?.gain.setTargetAtTime(river * 0.14, now, 0.5);
+    const river = Math.exp(-Math.max(0, riverDistance) / 11) * (1 - smoothstep(riverDistance, 35, 55));
+    this.riverGain?.gain.setTargetAtTime(river * 0.9, now, 0.5);
+    if(this.surfVoices.length){
+      const x=info.position.x,z=info.position.z,d=coastDistance(x,z);
+      let nx=coastDistance(x+1,z)-coastDistance(x-1,z),nz=coastDistance(x,z+1)-coastDistance(x,z-1);
+      const length=Math.hypot(nx,nz)||1;nx/=length;nz/=length;
+      const level=(1-smoothstep(Math.abs(d),12,100))*.42;
+      for(const voice of this.surfVoices){
+        voice.gain.gain.setTargetAtTime(level,now,.5);
+        voice.pan.positionX.setTargetAtTime(x-nx*(d+7)-nz*voice.side*18,now,.25);
+        voice.pan.positionZ.setTargetAtTime(z-nz*(d+7)+nx*voice.side*18,now,.25);
+        voice.pan.positionY.setTargetAtTime(SEA_LEVEL+.3,now,.25);
+      }
+    }
     if (info.speed > 0.08) {
       this.travelled += info.speed * dt;
       if (this.travelled > 0.82 && this.age - this.lastStep > 0.28) {
@@ -389,7 +447,20 @@ export class ForestAudio {
       const buffer = this.beds.get(name)!, source = context.createBufferSource(), gain = context.createGain(), fade = current ? 14 : 4;
       source.buffer = buffer; source.loop = true;
       gain.gain.setValueAtTime(0, now); gain.gain.linearRampToValueAtTime(1, now + fade);
-      source.connect(gain).connect(buses[group]); this.track(source, [gain]);
+      // Opposing bearings form a surrounding field, kept relative to listener position.
+      const split=context.createChannelSplitter(2), nodes:AudioNode[]=[gain,split];
+      source.connect(gain).connect(split);
+      const bearing=group==='day'?.45:group==='night'?2.6:4.1;
+      for(let channel=0;channel<2;channel++){
+        const pan=context.createPanner(), angle=bearing+channel*Math.PI;
+        pan.panningModel='HRTF';pan.rolloffFactor=0;
+        this.ambienceDirections.set(pan,{x:Math.sin(angle)*45,y:group==='wind'?18:6,z:Math.cos(angle)*45});
+        pan.positionX.value=info.position.x+Math.sin(angle)*45;
+        pan.positionY.value=info.position.y+(group==='wind'?18:6);
+        pan.positionZ.value=info.position.z+Math.cos(angle)*45;
+        split.connect(pan,Math.min(channel,buffer.numberOfChannels-1));pan.connect(buses[group]);nodes.push(pan);
+      }
+      this.track(source,nodes);
       source.start(now, Math.random() * buffer.duration);
       if (current) { current.gain.gain.cancelScheduledValues(now); current.gain.gain.setValueAtTime(current.gain.gain.value, now); current.gain.gain.linearRampToValueAtTime(0, now + fade); current.source.stop(now + fade + .1); }
       this.voices[group] = { name, source, gain };
@@ -445,6 +516,6 @@ export class ForestAudio {
     this.context = null;
     this.noise = null;
     this.userMaster = null; this.ambienceGroup = null; this.creatureGroup = null;
-    this.riverPanner = null;this.revealPanner=null;this.revealPoint=null;this.field=[];this.buses=null;this.voices={};this.beds.clear();
+    this.riverPanner = null;this.revealPanner=null;this.revealPoint=null;this.field=[];this.ambienceDirections.clear();this.buses=null;this.voices={};this.beds.clear();
   }
 }

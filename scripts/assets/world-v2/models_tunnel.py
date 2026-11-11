@@ -32,7 +32,7 @@ def boulder(m, c, r, seed, mat="stone", squash=(1.0, .72, .9), n=(14, 9)):
         d = np.array((math.sin(ph) * math.cos(th), math.cos(ph), math.sin(ph) * math.sin(th)))
         rr = r * (1 + .2 * math.sin(3 * th + seed) * math.sin(ph) + .14 * math.sin(4 * ph + seed * 2) + .09 * math.sin(5 * th + 3 * ph + seed * 3) + .06 * math.sin(9 * th - 5 * ph + seed))
         return c + d * rr * np.asarray(squash)
-    m.surface(mat, fn, n[0], n[1], (4 * r, 2.5 * r), flip=True, wear=lambda u, v: .3 + .4 * (1 - v))
+    m.surface(mat, fn, n[0], n[1], (4 * r, 2.5 * r), flip=False, wear=lambda u, v: .3 + .4 * (1 - v))
 
 
 def tunnel():

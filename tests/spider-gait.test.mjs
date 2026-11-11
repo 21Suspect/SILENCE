@@ -92,7 +92,7 @@ test('swings lift the claw off flat ground and land exactly on it without dippin
     else if (frames[k - 1].swinging[leg]) { landings++; assert.equal(foot.y, 0, `leg ${leg} lands on the surface`); }
   }
   assert.ok(landings > 20, `${landings} landings`);
-  assert.ok(highest > .15, `the arc lifts the claw ${highest.toFixed(2)} m`);
+  assert.ok(highest > .035 && highest < .18, `the arc lifts the claw ${highest.toFixed(2)} m`);
 });
 
 test('hovering a leg lifts only its drawn claw, never unplanting the foot', () => {
@@ -330,3 +330,12 @@ test('standing still among trunks, every leg settles and then stays down', () =>
     assert.deepEqual(late.map(s => `leg ${s.leg} at ${frames[s.frame].t.toFixed(1)} s`), [], `${name}: legs still stepping after five seconds at rest`);
   }
 });
+
+ test('flat-ground foot lift grows with actual walking speed', () => {
+  const peak = speed => {
+    const {frames} = simulate({seconds:8, move:straight(() => speed)});
+    return Math.max(...frames.flatMap(f=>f.feet.map((p,i)=>f.swinging[i]?p.y:0)));
+  };
+  const slow=peak(.6), walk=peak(2.5), run=peak(6.5);
+  assert.ok(slow<walk && walk<run, `lift must grow with speed: ${slow}, ${walk}, ${run}`);
+ });

@@ -235,9 +235,18 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
       tmp.lerpVectors(leg.from, leg.to, smoother(t));
       cmd.surface(tmp, trial);
       const above = (trial.point.x - tmp.x) * trial.normal.x + (trial.point.y - tmp.y) * trial.normal.y + (trial.point.z - tmp.z) * trial.normal.z;
-      need = Math.max(need, (above + .1 * K) / Math.max(arc(t), .08));
+      // Fade toe clearance at contact: a constant margin divided by the tiny
+      // end-of-swing arc used to force high lifts even on perfectly flat ground.
+      const hump = arc(t);
+      need = Math.max(need, (above + (above > .01 * K ? .1 * K : .035 * K * hump)) / Math.max(hump, .08));
     }
-    leg.lift = Math.max((.16 * K + Math.min(span, 4 * K) * .13 + leg.seedLift * .05 * K), Math.min(need, 1.8 * K));
+    // Use actual smoothed body speed, not the requested speed when blocked.
+    // Lock the height at lift-off so acceleration cannot pop a foot mid-swing.
+    const paceLift = sstep(smoothSpeed, .25, 9);
+    const strideLift = sstep(span / K, .15, 2.5);
+    const naturalLift = K * (.055 + .34 * paceLift) * (.65 + .35 * strideLift)
+      + .012 * K * leg.seedLift * strideLift;
+    leg.lift = Math.max(naturalLift, Math.min(need, 1.8 * K));
     return true;
   }
   function placeAll(cmd: SpiderCommand) {

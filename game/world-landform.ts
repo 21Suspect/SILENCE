@@ -1,4 +1,6 @@
 /** The natural shape of the land before anyone built on it. Depends only on noise, so site selection can read it. */
+import { WORLD_V2 } from './world-flags';
+import { coastalTerrain } from './coastal-geography';
 import { fbm, noise, pathX, smooth, warped, rockMask } from './world-noise';
 
 const mix = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -16,7 +18,8 @@ export function landform(x: number, z: number, radius = Math.hypot(x, z)) {
   const drains = smooth(fbm(u * .0034 + 21, v * .0034 - 40, 2), -.02, .3);
   const gully = 1 - smooth(Math.abs(fbm(u * .0075 + 70, v * .0075 + 11, 2)), 0, .05);
   h -= gully * 2.8 * smooth(radius, 45, 130) * drains;
-  return Math.max(-.55, h + (noise(x * .15 + 3, z * .15 - 8) - .5) * 1.1 + (noise(x * .41, z * .41 + 5) - .5) * .4);
+  const forest = Math.max(-.55, h + (noise(x * .15 + 3, z * .15 - 8) - .5) * 1.1 + (noise(x * .41, z * .41 + 5) - .5) * .4);
+  return WORLD_V2 ? coastalTerrain(x, z, forest) : forest;
 }
 
 /** Rise over run measured across a few metres, ignoring the lumpy forest floor. */

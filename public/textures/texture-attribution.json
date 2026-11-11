@@ -211,7 +211,60 @@
           "md5": "3698df51ef8262ddf2248ffca1e73196",
           "color_space": "linear"
         }
-      }
+      },
+      "files": [
+        "coastal-diff.webp",
+        "coastal-normal-rough.png"
+      ],
+      "processing": "Sand/snow/leaf-litter atlas; 16px wrapped gutters; roughness in normal alpha. Rebuild: scripts/assets/coastal/build_textures.py"
+    },
+    {
+      "asset": "sand_02",
+      "source": "https://polyhaven.com/a/sand_02",
+      "license": "CC0-1.0",
+      "maps": {
+        "Diffuse": {
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/sand_02/sand_02_diff_1k.jpg",
+          "resolution": "1k"
+        },
+        "nor_gl": {
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/sand_02/sand_02_nor_gl_1k.jpg",
+          "resolution": "1k"
+        },
+        "Rough": {
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/sand_02/sand_02_rough_1k.jpg",
+          "resolution": "1k"
+        }
+      },
+      "files": [
+        "coastal-diff.webp",
+        "coastal-normal-rough.png"
+      ],
+      "processing": "Sand/snow/leaf-litter atlas; 16px wrapped gutters; roughness in normal alpha. Rebuild: scripts/assets/coastal/build_textures.py"
+    },
+    {
+      "asset": "snow_02",
+      "source": "https://polyhaven.com/a/snow_02",
+      "license": "CC0-1.0",
+      "maps": {
+        "Diffuse": {
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/snow_02/snow_02_diff_1k.jpg",
+          "resolution": "1k"
+        },
+        "nor_gl": {
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/snow_02/snow_02_nor_gl_1k.jpg",
+          "resolution": "1k"
+        },
+        "Rough": {
+          "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/snow_02/snow_02_rough_1k.jpg",
+          "resolution": "1k"
+        }
+      },
+      "files": [
+        "coastal-diff.webp",
+        "coastal-normal-rough.png"
+      ],
+      "processing": "Sand/snow/leaf-litter atlas; 16px wrapped gutters; roughness in normal alpha. Rebuild: scripts/assets/coastal/build_textures.py"
     }
   ]
 }

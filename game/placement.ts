@@ -1,5 +1,6 @@
 import { WORLD_V2 } from './world-flags';
-import { treeDensity } from './world-noise';
+import { coastDistance, lakeDistance, beachWidth, SEA_LEVEL } from './coastal-geography';
+import { noise, treeDensity } from './world-noise';
 export type LayoutTree={x:number;z:number;y:number;height:number;width:number;yaw:number;kind:number;seed:number};
 export type LayoutScatter={x:number;z:number;y:number;size:number;yaw:number;variant:number};
 export type Footprint={ax:number;az:number;bx:number;bz:number;radius:number;priority:number;id:string;kind:string};
@@ -44,7 +45,7 @@ export function createNaturalLayout(g:Geography){
     for(let ix=0;ix<6;ix++)for(let iz=0;iz<6;iz++){
       const x=cx*CELL+(ix+.15+r()*.7)*CELL/6,z=cz*CELL+(iz+.15+r()*.7)*CELL/6;
       if(!valid(x,z,.42))continue;const b=g.biomeAt(x,z);
-      if(slope(x,z)>.68||r()>(.88-b.heath*.65-b.alpine*.72)*(WORLD_V2?treeDensity(x,z):1))continue;
+      if(slope(x,z)>(b.alpine>.2?.95:.68)||r()>(.88-b.heath*.65-b.alpine*.72)*(WORLD_V2?treeDensity(x,z):1))continue;
       const roll=r(),birch=.09+b.grove*.57+b.heath*.17,oak=.08+b.grove*.17;
       let kind=roll<birch?4+Math.floor(r()*2):roll<birch+oak?6+Math.floor(r()*2):Math.floor(r()*4);if(b.alpine>.55)kind=2+Math.floor(r()*2);
       const species=Math.floor(kind/2),height=(species===0?.77+r()*.42:species===1?.68+r()*.35:species===2?.52+r()*.29:.50+r()*.33)*(1-b.alpine*.45-b.heath*.16);
@@ -53,7 +54,7 @@ export function createNaturalLayout(g:Geography){
       // Keep the whole base on soil so the tree and its shadow meet the bank.
       const baseY=g.heightAt(x,z),rootRadius=1.4*width;
       let supported=true;
-      for(let a=0;a<8;a++)if(Math.abs(g.heightAt(x+Math.cos(a*Math.PI/4)*rootRadius,z+Math.sin(a*Math.PI/4)*rootRadius)-baseY)>rootRadius*.72){supported=false;break;}
+      for(let a=0;a<8;a++)if(Math.abs(g.heightAt(x+Math.cos(a*Math.PI/4)*rootRadius,z+Math.sin(a*Math.PI/4)*rootRadius)-baseY)>rootRadius*(b.alpine>.2?.98:.72)){supported=false;break;}
       if(!supported)continue;
       add({x,z,y:g.heightAt(x,z),height,width,yaw:r()*Math.PI*2,kind,seed:Math.floor(r()*900000)},'trees',1.4*width+.08,0,0);
     }
@@ -66,6 +67,15 @@ export function createNaturalLayout(g:Geography){
       const b=g.biomeAt(a.x,a.z);a.variant=b.alpine>.4||b.heath>.4?1+r()*2:r()<.76?r():1+r()*2;
       add(a,'rubble',a.size*(Math.floor(a.variant)===2?1.72:1.45),0,1);
     }
+    // Shore outcrops are sparse clusters, not a uniform border of boulders.
+    // They share footprint rejection and grounded mesh seating with forest rocks.
+    if(WORLD_V2)for(let i=0;i<12;i++){
+      const a=item(.22+Math.pow(r(),2)*2.3,1+r()),d=coastDistance(a.x,a.z),lake=lakeDistance(a.x,a.z);
+      const coastal=d>-3&&d<beachWidth(a.x,a.z)+5,lakeside=lake>-2&&lake<8;
+      if(!(coastal||lakeside)||slope(a.x,a.z)>.72||a.y<SEA_LEVEL-.5)continue;
+      if(noise(a.x*.025+12,a.z*.025) < .56)continue;
+      add(a,'rubble',a.size*1.55,0,1);
+    }
     for(let i=0;i<3;i++){
       const a=item(2.6+r()*5.3,.16+r()*.24),dx=Math.sin(a.yaw)*a.size*.5,dz=Math.cos(a.yaw)*a.size*.5;
       if(valid(a.x,a.z,.30)&&r()<.68&&slope(a.x,a.z)<.45&&slope(a.x-dx,a.z-dz)<.55&&slope(a.x+dx,a.z+dz)<.55)add(a,'deadfall',a.variant*1.2,a.size,3);
@@ -77,7 +87,7 @@ export function createNaturalLayout(g:Geography){
     for(let i=0;i<82;i++){
       const x=(cx+r())*CELL,z=(cz+r())*CELL;
       if(g.riverPresence(z)<.8||Math.abs(x-g.riverX(z))>4.7||slope(x,z)>1.0)continue;
-      const a={x,z,y:g.heightAt(x,z),size:.045+Math.pow(r(),2.2)*.30,yaw:r()*6.283,variant:r()};add(a,'river',a.size*1.4,0,1);
+      const a={x,z,y:g.heightAt(x,z),size:.045+Math.pow(r(),2.2)*(WORLD_V2&&z>290?1.15:.30),yaw:r()*6.283,variant:r()};add(a,'river',a.size*1.4,0,1);
     }
     const result={candidates,scatter};raw.set(key,result);return result;
   }

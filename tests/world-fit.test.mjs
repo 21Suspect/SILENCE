@@ -7,7 +7,7 @@ import './helpers/register-ts-hooks.mjs';
 // The rebuilt world only exists behind ?world-v2; game modules read the flag when they load, so it is set before the first import.
 globalThis.location = { search: `?world-v2${process.env.WORLD_SEED ? `&seed=${process.env.WORLD_SEED}` : ''}` };
 const { heightAt, pathX, pathDistance, pathWidth, roadZ, riverX, riverPresence, biomeAt, vegetationExclusion, WORLD_RADIUS } = await import('../game/world.ts');
-const { POI_PLACEMENTS, SCATTER_PLACEMENTS, TRAILS, TRAIL_LINES, placeLocal } = await import('../game/world-layout.ts');
+const { POI_PLACEMENTS, SCATTER_PLACEMENTS, TRAILS, TRAIL_LINES, MAIN_TRAIL_BOUNDS, placeLocal } = await import('../game/world-layout.ts');
 const { createPois, seatPlacement, worldColliders, footprintOf, placePoint } = await import('../game/pois.ts');
 const { naturalLayout } = await import('../game/placement.ts');
 const { createCollisionWorld, moveCharacter, solidContact } = await import('../game/collision.ts');
@@ -259,7 +259,7 @@ for (const e of entries) {
 // 3. every place with an entrance is reached by a trail that starts on the main trail, the road or the bridge
 const bridgeEnds = [[riverX(-35) - 12, -35], [riverX(-35) + 12, -35]]; // the footbridge spans riverX(-35) +/- 12 at z = -35 (game/terrain.ts)
 const startsOn = ([x, z]) => {
-  if (pathDistance(x, z) <= pathWidth(z) + .5) return 'the main trail';
+  if (z>=MAIN_TRAIL_BOUNDS.south && z<=MAIN_TRAIL_BOUNDS.north && pathDistance(x, z) <= pathWidth(z) + .5) return 'the main trail';
   if (Math.abs(z - roadZ(x)) <= 2.65) return 'the road'; // the road's graded surface ends 2.65 m from its centre line (rawHeight)
   if (bridgeEnds.some(b => Math.hypot(b[0] - x, b[1] - z) <= LIMITS.entranceM)) return 'the bridge end';
   return undefined;
@@ -267,7 +267,7 @@ const startsOn = ([x, z]) => {
 /** The nearest point on the main trail, the road or a bridge end, and how far it is. */
 function nearestRoute([x, z]) {
   let best = { d: Infinity };
-  for (let dz = -12; dz <= 12; dz += .05) { const pz = z + dz, d = Math.hypot(pathX(pz) - x, dz); if (d < best.d) best = { d, x: pathX(pz), z: pz, on: 'the main trail' }; }
+  for (let dz = -12; dz <= 12; dz += .05) { const pz = z + dz, d = Math.hypot(pathX(pz) - x, dz); if (pz>=MAIN_TRAIL_BOUNDS.south && pz<=MAIN_TRAIL_BOUNDS.north && d < best.d) best = { d, x: pathX(pz), z: pz, on: 'the main trail' }; }
   for (let dx = -12; dx <= 12; dx += .05) { const px = x + dx, d = Math.hypot(dx, roadZ(px) - z); if (d < best.d) best = { d, x: px, z: roadZ(px), on: 'the road centre line' }; }
   for (const b of bridgeEnds) { const d = Math.hypot(b[0] - x, b[1] - z); if (d < best.d) best = { d, x: b[0], z: b[1], on: 'the bridge end' }; }
   return best;
@@ -299,9 +299,9 @@ TRAIL_LINES.forEach((line, i) => { if (!claimed.has(i)) found(3, `trail ${i} end
 // 4. the paths can be walked, with the real moveCharacter
 const ENGINE = { height: 1.69, accel: 6, decel: 10, yDamp: 18 };
 // Every trail starts on the main trail or the road, so those are walked end to end as well (4 m between points, like the trails).
-const along = (n, f) => Array.from({ length: n + 1 }, (_, i) => f(-400 + i * 800 / n));
+const along = (n, f, from=-400, to=400) => Array.from({ length: n + 1 }, (_, i) => f(from + i * (to-from) / n));
 const ROUTES = [...TRAIL_LINES.map((line, i) => ({ line, name: lineName(i), index: i })),
-  { line: along(200, x => [x, roadZ(x)]), name: 'the road (x -400 to 400)', extra: true }, { line: along(200, z => [pathX(z), z]), name: 'the main trail (z -400 to 400)', extra: true }];
+  { line: along(200, x => [x, roadZ(x)],-370,370), name: 'the road between the closed tunnel barriers', extra: true }, { line: along(Math.ceil((MAIN_TRAIL_BOUNDS.north-MAIN_TRAIL_BOUNDS.south)/4), z => [pathX(z), z],MAIN_TRAIL_BOUNDS.south,MAIN_TRAIL_BOUNDS.north), name: 'the main trail (dry beach to mountain foothills)', extra: true }];
 const solids = createCollisionWorld(), labels = new Map(), treeColliders = [], allProps = [];
 for (const e of entries) for (const [i, c] of e.colliders.entries()) { labels.set(c, `${e.p.id} ${c.tag ?? `collider ${i}`}`); allProps.push(c); }
 {

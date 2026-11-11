@@ -6,6 +6,8 @@ import { createRiver } from './river';
 import { textureVariationGLSL } from './texture-variation';
 import { createRockGeometry, createRockMaterial, createWeatheredWoodMaterial } from './surfaces';
 import { roadSurface } from './road-surface';
+import { coastalGLSL } from './coastal-geography';
+import { coastalMaterialGLSL } from './coastal-material';
 
 import { WORLD_EXTENT, WORLD_RADIUS, TERRAIN_CHUNK, TERRAIN_STEP, hash, noise, pathX, riverX, roadZ, riverPresence, biomeAt, cacheTerrainBlock, heightAt, vegetationExclusion, worldGeographyGLSL, waterHeightAt } from './world';
 import type { SolidCollider } from './collision';
@@ -21,7 +23,13 @@ const horizonColor=0x99998f;
 const horizonTextureGLSL=`
   vec3 horizonTexture(sampler2D tex,vec3 p,vec3 n){
     vec3 w=pow(abs(normalize(n)),vec3(4.));w/=max(dot(w,vec3(1.)),.0001);
-    return texture2D(tex,p.zy/3.).rgb*w.x+texture2D(tex,p.xz/3.).rgb*w.y+texture2D(tex,p.xy/3.).rgb*w.z;
+    // Rotated, offset scan patches preserve physical scale without kilometre-long tile grids.
+    TexturePatch px=groundTexturePatch(p.zy/3.+vec2(21.,48.));
+    TexturePatch py=groundTexturePatch(p.xz/3.+vec2(21.,48.));
+    TexturePatch pz=groundTexturePatch(p.xy/3.+vec2(21.,48.));
+    vec3 stone=samplePatch(tex,px).rgb*w.x+samplePatch(tex,py).rgb*w.y+samplePatch(tex,pz).rgb*w.z;
+    float strata=surfaceNoise(p.xz*.025+vec2(p.y*.017,43.))*.65+surfaceNoise(p.xz*.11+vec2(p.y*.04,9.))*.35;
+    return stone*mix(vec3(.73,.77,.79),vec3(1.12,1.06,.97),strata);
   }
 `;
 
@@ -49,21 +57,21 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
   const nearCenter=new THREE.Vector2(),nearCoverage={value:DETAIL_RADIUS};
   const distantTint=new THREE.Color(horizonColor);
   const material = new THREE.MeshStandardMaterial({
-    map: texture('ground-diff', true), normalMap: texture('ground-normal'), roughnessMap: texture('ground-rough'),
+    map: texture('ground-diff', true), normalMap: texture('/textures/ground-normal-rough.png'),
     normalScale: new THREE.Vector2(.75, .75), roughness: .94, color: 0x9b9c87,
   });
   // Pack roughness in normal-map alpha to leave texture units for flashlight shadows/cookie on 16-unit mobile GPUs.
   const riverbedMap=texture('riverbed-diff',true),riverbedNormal=texture('/textures/riverbed-normal-rough.png');
   const roadMap=texture('road-diff',true),roadNormal=texture('/textures/road-normal-rough.png');
-  const leavesMap=texture('leaves-diff',true),leavesNormal=texture('leaves-normal');
   const stoneMap=texture('/plantassets/forest-variety/granite-diff.jpg',true),stoneNormal=texture('/plantassets/forest-variety/granite-normal.jpg');
+  const coastalMap=texture('/textures/coastal-diff.webp',true),coastalNormal=texture('/textures/coastal-normal-rough.png');
   material.onBeforeCompile = (shader) => {
     // The rebuilt world's road is worked out in game/road-surface.ts; the original keeps its narrow dirt track.
     const road=WORLD_V2?roadSurface():undefined;
     shader.uniforms.uNearCenter={value:nearCenter};shader.uniforms.uNearCoverage=nearCoverage;shader.uniforms.uDistantTint={value:distantTint};
     shader.uniforms.uRoadMap={value:roadMap};shader.uniforms.uRoadNormal={value:roadNormal};
-    shader.uniforms.uLeavesMap={value:leavesMap};shader.uniforms.uLeavesNormal={value:leavesNormal};
     shader.uniforms.uStoneMap={value:stoneMap};shader.uniforms.uStoneNormal={value:stoneNormal};
+    shader.uniforms.uCoastalMap={value:coastalMap};shader.uniforms.uCoastalNormal={value:coastalNormal};
     shader.uniforms.uBedMap={value:riverbedMap};shader.uniforms.uBedNormal={value:riverbedNormal};
     shader.vertexShader = `uniform vec2 uNearCenter;uniform float uNearCoverage;attribute float horizonY;attribute float treeGround;attribute vec4 biome;varying float vTreeGround;varying vec4 vBiome;varying vec3 vGroundPosition;\n${shader.vertexShader}`.replace('#include <begin_vertex>', `
       #include <begin_vertex>
@@ -71,10 +79,11 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
       transformed.y=mix(transformed.y,horizonY,smoothstep(max(uNearCoverage*.65,uNearCoverage-${TRANSITION_WIDTH}.),uNearCoverage+.001,edge));
     `).replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvGroundPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;vBiome=biome;vTreeGround=treeGround;');
     shader.fragmentShader = `varying vec3 vGroundPosition;varying vec4 vBiome;varying float vTreeGround;
-      uniform sampler2D uBedMap,uBedNormal,uRoadMap,uRoadNormal,uLeavesMap,uLeavesNormal,uStoneMap,uStoneNormal;
+      uniform sampler2D uBedMap,uBedNormal,uRoadMap,uRoadNormal,uStoneMap,uStoneNormal;
       uniform vec2 uNearCenter;uniform float uNearCoverage;uniform vec3 uDistantTint;
       ${textureVariationGLSL}
       ${worldGeographyGLSL}
+      ${coastalMaterialGLSL}
       ${horizonTextureGLSL}
       ${road?road.functions:`float roadHalfWidth(float x){return 1.55+worldNoise(vec2(x*.047,118.))*.65+worldNoise(vec2(x*.17,72.))*.15;}
       float roadWeight(vec3 p){
@@ -82,7 +91,13 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
         float erosion=(surfaceNoise(p.xz*.8)-.5)*.24+(surfaceNoise(p.xz*2.3)-.5)*.1;
         return (1.-smoothstep(width-.55,width+.48,abs(p.z-roadCenter(p.x))+erosion))*roadPresence(p.xz);
       }`}
-      float bedWeight(vec3 p){float edge=1.-smoothstep(2.7,8.,streamOffset(p.xz));float damp=1.-smoothstep(.10,1.35,p.y-streamHeight(p.z));return clamp(edge*damp*streamPresence(p.z),0.,1.);}
+      float bedWeight(vec3 p){
+        float edge=1.-smoothstep(2.7,8.,streamOffset(p.xz));
+        float damp=1.-smoothstep(.10,1.35,p.y-streamHeight(p.z));
+        float gravel=edge*damp*streamPresence(p.z);
+        ${WORLD_V2?'gravel=max(gravel,(1.-smoothstep(-1.,6.,lakeDistance(p.xz)))*(1.-smoothstep(.1,1.2,p.y-.6)));':''}
+        return clamp(gravel,0.,1.);
+      }
       ${shader.fragmentShader}`.replace('#include <map_fragment>', `
       vec2 p=vGroundPosition.xz;
       float detailDistance=length(p-uNearCenter);
@@ -107,7 +122,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
       vec3 groundColor=vec3(0.),leafColor=vec3(0.);
       if(bank<1.){
         groundColor=samplePatch(map,soilPatch).rgb*diffuseColor.rgb;
-        leafColor=samplePatch(uLeavesMap,leafPatch).rgb;
+        leafColor=coastPatch(uCoastalMap,leafPatch,2.).rgb;
         if(leafBlend>.002)groundColor=mix(groundColor,leafColor*.74,leafBlend);
         if(stoneBlend>.002){
           vec3 stoneTone=(samplePatch(uStoneMap,stoneX).rgb*stoneWeights.x+samplePatch(uStoneMap,stoneY).rgb*stoneWeights.y+samplePatch(uStoneMap,stoneZ).rgb*stoneWeights.z)*.85;
@@ -159,22 +174,46 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
         vec3 baseNormal=inverseTransformDirection(normalize(vNormal),viewMatrix);
         groundColor=mix(groundColor,uDistantTint*horizonTexture(uStoneMap,vGroundPosition,baseNormal),distantBlend);
       }
+      float sandCover=0.,snowCover=0.;
+      TexturePatch coastDetail=groundTexturePatch(groundUv/.85+vec2(17.,63.));
+      ${WORLD_V2?`
+      float coast=coastDistance(p),lake=lakeDistance(p);
+      float brokenEdge=(surfaceNoise(p*.22)-.5)*4.+(surfaceNoise(p*1.1)-.5)*1.3;
+      sandCover=max(1.-smoothstep(beachWidth(p)*.65,beachWidth(p)+8.,coast+brokenEdge),
+        (1.-smoothstep(2.,8.,lake+brokenEdge*.4))*.65);
+      sandCover*=smoothstep(.55,.9,slopeNormal.y)*(1.-road);
+      snowCover=snowCoverage(vGroundPosition,slopeNormal);
+      float wet=1.-smoothstep(.05,.65,vGroundPosition.y+5.2);
+      if(sandCover>.001){
+        vec3 scan=coastPatch(uCoastalMap,coastDetail,0.).rgb;
+        // Preserve photographed grain while giving quartz sand its pale albedo.
+        float grain=clamp(dot(scan,vec3(.2126,.7152,.0722))*1.25+.38,.42,.9);
+        vec3 sand=vec3(.88,.76,.56)*grain;
+        sand*=mix(1.,.46,wet);
+        groundColor=mix(groundColor,sand,sandCover);
+      }
+      if(snowCover>.001)groundColor=mix(groundColor,coastPatch(uCoastalMap,coastDetail,1.).rgb*vec3(.88,.94,1.),snowCover);
+      `:''}
       diffuseColor.rgb=groundColor;
       `).replace('#include <roughnessmap_fragment>',`
       float roughnessFactor=roughness;
-      if(bank<1.)roughnessFactor*=samplePatch(roughnessMap,soilPatch).g;
+      if(bank<1.)roughnessFactor*=samplePatch(normalMap,soilPatch).a;
       roughnessFactor=mix(roughnessFactor,.89,max(leafBlend,dirtCoverage));roughnessFactor=mix(roughnessFactor,.92,stoneBlend);
       ${road?road.roughness:'if(road>.001)roughnessFactor=mix(roughnessFactor,samplePatch(uRoadNormal,roadPatch).a*.82+.08,road);'}
       if(bank>.001)roughnessFactor=mix(roughnessFactor,samplePatch(uBedNormal,gravelPatch).a*.72+.12,bank);
       roughnessFactor=mix(roughnessFactor,.98,distantBlend);
+      if(sandCover>.001)roughnessFactor=mix(roughnessFactor,coastPatch(uCoastalNormal,coastDetail,0.).a*.72+.15,sandCover);
+      if(snowCover>.001)roughnessFactor=mix(roughnessFactor,.94,snowCover);
       `).replace('#include <normal_fragment_maps>',`
       vec3 detailNormal=vec3(0.,0.,1.);
       if(bank<1.)detailNormal=samplePatchNormal(normalMap,soilPatch);
       detailNormal.xy*=normalScale;
       float litterNormalBlend=max(leafBlend,dirtCoverage);
-      if(litterNormalBlend>.002){vec3 n=samplePatchNormal(uLeavesNormal,leafPatch);n.xy*=.72;detailNormal=mix(detailNormal,n,litterNormalBlend);}
+      if(litterNormalBlend>.002){vec3 n=coastNormal(leafPatch,2.);n.xy*=.72;detailNormal=mix(detailNormal,n,litterNormalBlend);}
       ${road?road.normal:'if(road>.001){vec3 n=samplePatchNormal(uRoadNormal,roadPatch);n.xy*=.5;detailNormal=mix(detailNormal,n,road);}'}
       if(bank>.001){vec3 n=samplePatchNormal(uBedNormal,gravelPatch);n.xy*=.65;detailNormal=mix(detailNormal,n,bank);}
+      if(sandCover>.001)detailNormal=mix(detailNormal,normalize(mix(vec3(0.,0.,1.),coastNormal(coastDetail,0.),.62)),sandCover);
+      if(snowCover>.001)detailNormal=mix(detailNormal,coastNormal(coastDetail,1.),snowCover*.7);
       vec3 worldGroundNormal=inverseTransformDirection(normal,viewMatrix);
       vec3 groundTangent=normalize(vec3(worldGroundNormal.y,-worldGroundNormal.x,0.));
       vec3 groundBitangent=normalize(cross(worldGroundNormal,groundTangent));
@@ -186,12 +225,12 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
         vec3 nY=vec3(worldGroundNormal.x+ny.x,worldGroundNormal.y*abs(ny.z),worldGroundNormal.z+ny.y);
         vec3 nZ=vec3(worldGroundNormal.x+nz.x,worldGroundNormal.y+nz.y,worldGroundNormal.z*abs(nz.z));
         vec3 stoneDetail=normalize(nX*stoneWeights.x+nY*stoneWeights.y+nZ*stoneWeights.z);
-        surfaceNormal=normalize(mix(surfaceNormal,stoneDetail,stoneBlend*(1.-road)*(1.-bank)*(1.-dirtCoverage)));
+        surfaceNormal=normalize(mix(surfaceNormal,stoneDetail,stoneBlend*(1.-road)*(1.-bank)*(1.-dirtCoverage)*(1.-sandCover)*(1.-snowCover)));
       }
       normal=normalize(mat3(viewMatrix)*mix(surfaceNormal,worldGroundNormal,distantBlend));
       `);
   };
-  material.customProgramCacheKey=()=> `silence-ground-natural-road-v10${WORLD_V2?`-w2-${WORLD_SEED}`:''}`;
+  material.customProgramCacheKey=()=> `silence-ground-coastal-snow-v12${WORLD_V2?`-w2-${WORLD_SEED}`:''}`;
   const terrainChunks=new Map<string,{tile:TerrainTile;mesh:THREE.Mesh}>();
   // The low-detail distant surface preserves the mountain silhouette and covers
   // teleports while near chunks stream. It is below the exact walkable surface.
@@ -199,10 +238,18 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
   horizonMaterial.onBeforeCompile=shader=>{
     shader.uniforms.uNearCenter={value:nearCenter};
     shader.uniforms.uNearCoverage=nearCoverage;
+    shader.uniforms.uCoastalMap={value:coastalMap};shader.uniforms.uCoastalNormal={value:coastalNormal};
     shader.vertexShader=`varying vec3 vHorizon;varying vec3 vRidgeNormal;\n${shader.vertexShader}`.replace('#include <worldpos_vertex>','#include <worldpos_vertex>\nvHorizon=(modelMatrix*vec4(transformed,1.)).xyz;vRidgeNormal=normalize(mat3(modelMatrix)*normal);');
-    shader.fragmentShader=`uniform vec2 uNearCenter;uniform float uNearCoverage;varying vec3 vHorizon;varying vec3 vRidgeNormal;\n${horizonTextureGLSL}\n${shader.fragmentShader}`.replace('#include <map_fragment>',`
+    shader.fragmentShader=`uniform vec2 uNearCenter;uniform float uNearCoverage;varying vec3 vHorizon;varying vec3 vRidgeNormal;\n${textureVariationGLSL}\n${horizonTextureGLSL}\n${coastalGLSL}\n${coastalMaterialGLSL}\n${shader.fragmentShader}`.replace('#include <map_fragment>',`
       if(length(vHorizon.xz-uNearCenter)<uNearCoverage)discard;
       diffuseColor.rgb*=horizonTexture(map,vHorizon,vRidgeNormal);
+      ${WORLD_V2?`
+      TexturePatch detail=groundTexturePatch(vHorizon.xz/2.1);
+      float snow=snowCoverage(vHorizon,normalize(vRidgeNormal));
+      float sand=(1.-smoothstep(beachWidth(vHorizon.xz)*.65,beachWidth(vHorizon.xz)+8.,coastDistance(vHorizon.xz)))*smoothstep(.55,.9,vRidgeNormal.y);
+      diffuseColor.rgb=mix(diffuseColor.rgb,vec3(.88,.76,.56)*clamp(dot(coastPatch(uCoastalMap,detail,0.).rgb,vec3(.2126,.7152,.0722))*1.25+.38,.42,.9),sand);
+      diffuseColor.rgb=mix(diffuseColor.rgb,coastPatch(uCoastalMap,detail,1.).rgb*vec3(.88,.94,1.),snow);
+      `:''}
     `);
   };
   const horizon=new THREE.Mesh(groundGeometry(WORLD_EXTENT*2,384,0,0),horizonMaterial);
@@ -210,7 +257,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
   // by the game camera), but does not need a duplicate draw in the water's
   // layer-0 reflection. Reflected terrain fades into the same fog/sky before
   // this coarse horizon contributes a visible landmark.
-  horizon.name='Distant mountain basin';horizon.renderOrder=2;horizon.layers.set(2);scene.add(horizon);
+  horizon.name='Coastal headlands and alpine skyline';horizon.renderOrder=2;horizon.layers.set(2);scene.add(horizon);
   let worker:Worker|undefined;
   let requested:TerrainTile|undefined,prepared:PreparedTerrainTile|undefined;
   let pendingChunks=0,lastCoverageUpdate=performance.now();

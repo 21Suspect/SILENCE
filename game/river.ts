@@ -3,6 +3,7 @@ import { Reflector } from 'three/addons/objects/Reflector.js';
 import { RIVER_EXTENT, waterHeightAt, waterGradeAt, riverProfileGLSL, riverCourseGLSL, channelOffset } from './world';
 import { BRANCHES, branchX } from './world-noise';
 import { WORLD_V2 } from './world-flags';
+import { LAKE_CENTER, LAKE_RADII, LAKE_LEVEL, SEA_LEVEL, lakeDistance, coastDistance, coastalGLSL } from './coastal-geography';
 
 /** Live ripple rings: a footfall each stride, plus the small rings of drops coming back down. */
 const RIPPLES=WORLD_V2?12:8;
@@ -65,11 +66,13 @@ const WATER_FRAME_GLSL=`
 const WATER_FLOW_GLSL=`
         // Channel space: across in metres from mid-stream, along the bed. The water runs towards decreasing along,
         // fastest down the middle. Every layer is advected in these coordinates, so the current follows any bend.
-        float across=vChannel.x,along=vChannel.y,mid=1.-smoothstep(.3,5.2,abs(across)),speed=mix(.26,.92,mid);
+        float broad=step(1.5,vRibbon),ocean=step(2.5,vRibbon);
+        float across=vChannel.x,along=vChannel.y,mid=(1.-smoothstep(.3,5.2,abs(across)))*(1.-broad),speed=mix(mix(.26,.92,mid),mix(.10,.34,ocean),broad);
         vec2 ch=vec2(across,along);
         // Riffles stand where the bed lifts: fixed in place while the water runs through them.
-        float riffle=smoothstep(.5,.84,texture2D(tWaterFoam,vec2(across*.085+.37,along*.047)).b)*(.4+.6*mid);
-        float rough=(.55+.8*riffle+.2*mid)*mix(.4,1.,smoothstep(0.,.3,thickness));
+        float riffle=smoothstep(.5,.84,texture2D(tWaterFoam,vec2(across*.085+.37,along*.047)).b)*(.4+.6*mid)*(1.-broad);
+        riffle=max(riffle,smoothstep(.08,.65,abs(vSlope.y))*(1.-broad));
+        float rough=(.55+.8*riffle+.2*mid+.30*ocean)*mix(.4,1.,smoothstep(0.,.3,thickness));
         float nearFade=1.-smoothstep(9.,34.,vViewDepth),midFade=1.-smoothstep(26.,80.,vViewDepth),farFade=1.-smoothstep(50.,150.,vViewDepth);
         // Broad swell and mid ripples bend the bed and the reflection; the finest wrinkles only catch the light, since bending
         // the bed at that scale shatters the pebbles' outlines.
@@ -101,7 +104,13 @@ const WATER_FOAM_GLSL=`
         float shore=1.-smoothstep(.012,.22,thickness);
         // Scum in pockets along the bank, broken by long gaps: never a drawn line.
         float edgeFoam=shore*smoothstep(.34,.82,pat*(.12+1.2*clumpF))*(.3+.4*smoothstep(0.,.05,thickness));
-        float riffleFoam=riffle*smoothstep(.45,.95,pat*(.3+.9*clumpF))*.2*smoothstep(.03,.14,thickness);
+        // Thin broken swash bands advance and retreat across the sloping beach.
+        float shoreMetres=-coastDistance(vWater.xz);
+        float wavePhase=shoreMetres*.72+uTime*1.15+.5*sin(vWater.x*.047+vWater.z*.033);
+        float breaker=pow(.5+.5*sin(wavePhase),9.)*(1.-smoothstep(5.,22.,shoreMetres));
+        float swash=((1.-smoothstep(0.,3.5,abs(shoreMetres-2.4-1.8*sin(uTime*.55+vWater.x*.035))))+breaker)*ocean;
+        edgeFoam+=swash*smoothstep(.22,.72,pat)*1.15;
+        float riffleFoam=riffle*smoothstep(.45,.95,pat*(.3+.9*clumpF))*.48*smoothstep(.03,.14,thickness);
         float white=clamp((edgeFoam*.55+riffleFoam+ringFoam*(.4+.6*pat))*uFoamGain,0.,1.)*(1.-.5*smoothstep(15.,60.,vViewDepth));
         vec3 foamCol=mix(vec3(.17,.2,.19),vec3(.46,.5,.48),.3+.7*pat)*(1.-uDarkness*.96);
         result=mix(result,foamCol,white*.62);
@@ -148,7 +157,7 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
   const stream=new Reflector(geometry,{textureWidth:768,textureHeight:768,clipBias:.004,multisample:0,
     shader:{name:'Shallow flowing water',uniforms:{
       tDiffuse:{value:null},color:{value:new THREE.Color()},textureMatrix:{value:new THREE.Matrix4()},
-      tOpaque:{value:null},tOpaqueDepth:{value:null},uResolution:{value:new THREE.Vector2()},uInverseProjection:{value:new THREE.Matrix4()},uWorldToSurface:{value:new THREE.Matrix4()},
+      tOpaque:{value:null},tOpaqueDepth:{value:null},uResolution:{value:new THREE.Vector2()},uInverseProjection:{value:new THREE.Matrix4()},uWorldToSurface:{value:new THREE.Matrix4()},uReflectionPlane:{value:new THREE.Vector4(0,1,0,-waterHeightAt(0))},
       tReflectionDepth:{value:null},uReflectionInverseProjection:{value:new THREE.Matrix4()},uReflectionCameraWorld:{value:new THREE.Matrix4()},uSunScatterColor:{value:new THREE.Color(1,.81,.52)},
       uTime:{value:0},uDarkness:{value:0},uReflectionDetail:{value:0},uReflectionSteps:{value:6},uSky:{value:new THREE.Color(0x879b98)},uSunDirection:{value:new THREE.Vector3(.3,.55,-.7).normalize()},uRipple:{value:Array.from({length:RIPPLES},()=>new THREE.Vector4(0,0,99,0))},
       ...(WORLD_V2?{tWaterNormal:{value:waterNormal},tWaterFoam:{value:waterFoam},uDetail:{value:2},uFoamGain:{value:0}}:{}),
@@ -158,6 +167,7 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
       varying vec4 vReflection;varying vec3 vWater,vEye;varying float vViewDepth;varying vec2 vSlope;
       ${WORLD_V2?'attribute float aRibbon;varying vec2 vChannel;varying float vRibbon;':''}
       ${riverProfileGLSL}
+      ${WORLD_V2?coastalGLSL:''}
       void main(){
         vec3 p=position;
         float x=p.x,z=-p.y;
@@ -166,22 +176,32 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
         float b=z*4.7+x*2.3+uTime*1.9;
         float c=z*8.1-x*3.4+uTime*2.6;
         p.z=sin(a)*.012+sin(b)*.006+sin(c)*.002;
-        vSlope=vec2(-.65*cos(a)*.012+2.3*cos(b)*.006-3.4*cos(c)*.002,streamGrade(z)+2.1*cos(a)*.012+4.7*cos(b)*.006+8.1*cos(c)*.002);
+        float grade=streamGrade(z),level=streamHeight(z);
+        ${WORLD_V2?`if(aRibbon>1.5){grade=0.;level=aRibbon>2.5?${SEA_LEVEL.toFixed(4)}:${LAKE_LEVEL.toFixed(4)};}`:''}
+        vSlope=vec2(-.65*cos(a)*.012+2.3*cos(b)*.006-3.4*cos(c)*.002,grade+2.1*cos(a)*.012+4.7*cos(b)*.006+8.1*cos(c)*.002);
+        ${WORLD_V2?`if(aRibbon>2.5){
+          float swell=x*.13+z*.085+uTime*.72,secondary=x*.047-z*.11+uTime*.48;
+          float shore=-coastDistance(vec2(x,z));float swellFade=smoothstep(-4.,28.,shore);
+          p.z+=.065*sin(shore*.65+uTime*1.15)*exp(-abs(shore)*.08);
+          p.z+=(sin(swell)*.22+sin(secondary)*.10)*swellFade;
+          vSlope+=vec2(.13*cos(swell)*.22+.047*cos(secondary)*.10,.085*cos(swell)*.22-.11*cos(secondary)*.10)*swellFade;
+        }`:''}
         // World-space height follows the channel. The reflector itself tracks
         // its local tangent plane without bending or moving the visible stream.
-        vec4 world=vec4(x,streamHeight(z)+p.z,z,1.);
+        vec4 world=vec4(x,level+p.z,z,1.);
         vReflection=textureMatrix*uWorldToSurface*world;
         vWater=world.xyz;vEye=cameraPosition-world.xyz;
         vec4 view=viewMatrix*world;vViewDepth=-view.z;gl_Position=projectionMatrix*view;
       }`,
     fragmentShader:`
       uniform sampler2D tDiffuse,tOpaque,tOpaqueDepth,tReflectionDepth;uniform vec2 uResolution;
-      uniform mat4 uInverseProjection,uReflectionInverseProjection,uReflectionCameraWorld;uniform float uTime,uDarkness,uReflectionDetail,uReflectionSteps;uniform vec3 uSky,uSunDirection,uSunScatterColor;
+      uniform mat4 uInverseProjection,uReflectionInverseProjection,uReflectionCameraWorld;uniform vec4 uReflectionPlane;uniform float uTime,uDarkness,uReflectionDetail,uReflectionSteps;uniform vec3 uSky,uSunDirection,uSunScatterColor;
       varying vec4 vReflection;varying vec3 vWater,vEye;varying float vViewDepth;varying vec2 vSlope;
       ${WORLD_V2?'varying vec2 vChannel;varying float vRibbon;':''}
       float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
       float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);}
       ${WORLD_V2?`${riverCourseGLSL}
+      ${coastalGLSL}
       uniform vec4 uRipple[${RIPPLES}];uniform sampler2D tWaterNormal,tWaterFoam;uniform float uDetail,uFoamGain;
       ${WATER_GLSL}`:''}
       float viewDepth(vec2 uv){float d=texture2D(tOpaqueDepth,uv).x;vec4 p=uInverseProjection*vec4(uv*2.-1.,d*2.-1.,1.);return -p.z/p.w;}
@@ -223,10 +243,20 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
         // Surface intersection is determined by the real depth-buffer shoreline.
         if(thickness<.001)discard;
         ${WORLD_V2?`
+        // Broad surfaces own their shoreline pixels, so river junctions never
+        // double-draw or z-fight against the lake or estuary.
+        float lakeEdge=lakeDistance(vWater.xz),coastEdge=coastDistance(vWater.xz);
+        if(vRibbon<1.5 && (lakeEdge<0. || coastEdge<3.))discard;
+        // The terrain closes tributary heads and tapers the main source. The
+        // water must obey the SAME channel mask, even if forest behind it is
+        // lower than the water plane (depth testing alone cannot detect that).
+        if(vRibbon<1.5 && (streamOffset(vWater.xz)>3.5 || abs(vWater.z)>${(RIVER_EXTENT-52).toFixed(1)}))discard;
+        if(vRibbon>1.5 && vRibbon<2.5 && (lakeEdge>0. || coastEdge<0.))discard;
+        if(vRibbon>2.5 && coastEdge>12.)discard;
         // Where a side channel meets the stream the two surfaces share a level. Each pixel goes to exactly one of them.
         float offMain=abs(vWater.x-streamCentre(vWater.z))/sqrt(1.+pow((streamCentre(vWater.z+.6)-streamCentre(vWater.z-.6))/1.2,2.));
         float toSide=smoothstep(4.2,6.2,offMain),stipple=hash(floor(gl_FragCoord.xy));
-        if(vRibbon>.5?stipple>toSide:(stipple<toSide&&offMain<8.2&&offMain>4.2&&${BRANCHES.length?BRANCHES.map(b=>`vWater.z>${b.z0.toFixed(1)}&&vWater.z<${b.z1.toFixed(1)}`).join('||').replace(/^(.*)$/,'($1)'):'false'}))discard;`:''}
+        if(vRibbon<1.5 && (vRibbon>.5?stipple>toSide:(stipple<toSide&&offMain<8.2&&offMain>4.2&&${BRANCHES.length?BRANCHES.map(b=>`vWater.z>${b.z0.toFixed(1)}&&vWater.z<${b.z1.toFixed(1)}`).join('||').replace(/^(.*)$/,'($1)'):'false'})))discard;`:''}
         ${WORLD_V2?WATER_FLOW_GLSL:`
         vec2 flow=vWater.xz*vec2(1.3,2.8)+vec2(uTime*.04,uTime*.35);
         float n1=noise(flow),n2=noise(flow*2.7+vec2(8.5,uTime*.4));
@@ -245,16 +275,17 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
         float depth=min(thickness,4.);
         vec3 transmitted=texture2D(tOpaque,refractUv).rgb;
         vec3 absorption=exp(-${WORLD_V2?'vec3(.78,.44,.32)':'vec3(.54,.31,.22)'}*depth);
-        vec3 waterTint=${WORLD_V2?'vec3(.03,.047,.04)':'vec3(.021,.036,.032)'}*(1.-uDarkness*.97);
+        vec3 waterTint=${WORLD_V2?'mix(mix(vec3(.03,.047,.04),vec3(.035,.105,.095),broad),vec3(.029,.075,.095),ocean)':'vec3(.021,.036,.032)'}*(1.-uDarkness*.97);
         vec3 underwater=transmitted*absorption+waterTint*(1.-absorption);
         vec2 reflectUv=clamp(vReflection.xy/vReflection.w+${WORLD_V2?'reflectShift':'distortion*.72'},vec2(.001),vec2(.999));
         vec3 reflection=uSky;
-        if(uReflectionDetail>.001){
+        float localReflection=uReflectionDetail*(1.-smoothstep(.25,1.2,abs(dot(vec4(vWater,1.),uReflectionPlane))));
+        if(localReflection>.001){
           vec3 reflected=texture2D(tDiffuse,reflectUv).rgb;
-          reflection=mix(uSky,reflectedAtmosphere(reflected,reflectUv,N),uReflectionDetail);
+          reflection=mix(uSky,reflectedAtmosphere(reflected,reflectUv,N),localReflection);
         }
         // A broken, moving surface scatters the sky; only near grazing does it approach a reflection.
-        vec3 result=mix(underwater,reflection,${WORLD_V2?'min(fresnel*.68,.62)*(1.-.3*chop)':'fresnel'});
+        vec3 result=mix(underwater,reflection,${WORLD_V2?'min(fresnel*mix(.68,.88,broad),.85)*(1.-.3*chop)':'fresnel'});
         float glint=pow(max(dot(reflect(-uSunDirection,N),normalize(vEye)),0.),180.);
         result+=vec3(.55,.64,.60)*glint*.11*(1.-uDarkness);
         ${WORLD_V2?WATER_FOAM_GLSL:`
@@ -308,7 +339,9 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
     // that useful range so distant forest batches never enter the reflection
     // pass merely because the main view preserves a mountain horizon.
     if(sourceFar>reflectionFar){sourceCamera.far=reflectionFar;sourceCamera.updateProjectionMatrix();}
+    const wasVisible=stream.visible;
     try{reflect.call(this,renderer,world,camera,geo,mat,group);}finally{
+      stream.visible=wasVisible;
       if(sourceFar>reflectionFar){sourceCamera.far=sourceFar;sourceCamera.updateProjectionMatrix();}
       world.background=background;
     }
@@ -321,6 +354,31 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
     reflectionTime=time;reflectionDarkness=darkness;reflectedFlashlight=flashlight;reflectionReady=true;
   };
   scene.add(stream);
+  // Broad bodies reuse this material and its one reflection target. Their actual
+  // shoreline comes from the same geographic mask and opaque depth as terrain.
+  function broadSurface(name:string,kind:number,x0:number,x1:number,z0:number,z1:number,nx:number,nz:number){
+    const p:number[]=[],u:number[]=[],k:number[]=[],idx:number[]=[];
+    const nearCoast=(t:number)=>{const signed=t*2-1,q=Math.abs(signed);return Math.sign(signed)*(q<.8?q/.8*850:850+3150*((q-.8)/.2)**2);};
+    for(let j=0;j<=nz;j++)for(let i=0;i<=nx;i++){
+      let x=THREE.MathUtils.lerp(x0,x1,i/nx),z=THREE.MathUtils.lerp(z0,z1,j/nz);
+      if(kind===3){
+        // Spend the same vertex budget on the walkable coastline; the distant
+        // horizon needs very few vertices. Shore masks are still per fragment.
+        x=nearCoast(i/nx);z=nearCoast(j/nz);
+      }
+      p.push(x,-z,0);u.push(x,z);k.push(kind);
+    }
+    for(let j=0;j<nz;j++)for(let i=0;i<nx;i++){const a=j*(nx+1)+i,b=a+nx+1;idx.push(a,b,a+1,a+1,b,b+1);}
+    const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(p,3));g.setAttribute('uv',new THREE.Float32BufferAttribute(u,2));g.setAttribute('aRibbon',new THREE.Float32BufferAttribute(k,1));g.setIndex(idx);
+    const mesh=new THREE.Mesh(g,material);mesh.rotation.x=-Math.PI/2;mesh.layers.set(1);mesh.frustumCulled=false;mesh.name=name;
+    mesh.onBeforeRender=(renderer,world,camera,_geo,_mat,group)=>stream.onBeforeRender(renderer,world,camera,geometry,material,group);
+    scene.add(mesh);return mesh;
+  }
+  const lake=WORLD_V2?broadSurface('Lake — connected alpine watershed',2,LAKE_CENTER.x-LAKE_RADII.x*1.4,LAKE_CENTER.x+LAKE_RADII.x*1.4,LAKE_CENTER.z-LAKE_RADII.z*1.4,LAKE_CENTER.z+LAKE_RADII.z*1.4,52,72):null;
+  const sea=WORLD_V2?broadSurface('Open sea — coastal horizon',3,-4000,4000,-4000,4000,80,100):null;
+  const lakeBounds=new THREE.Box3(new THREE.Vector3(LAKE_CENTER.x-LAKE_RADII.x*1.4,LAKE_LEVEL-.2,LAKE_CENTER.z-LAKE_RADII.z*1.4),new THREE.Vector3(LAKE_CENTER.x+LAKE_RADII.x*1.4,LAKE_LEVEL+.2,LAKE_CENTER.z+LAKE_RADII.z*1.4));
+  const seaBounds=new THREE.Box3(new THREE.Vector3(-4000,SEA_LEVEL-.3,-4000),new THREE.Vector3(4000,SEA_LEVEL+.3,4000));
+  let lakeNearby=false,seaNearby=false;
   const frustum=new THREE.Frustum(),viewProjection=new THREE.Matrix4();
   const bounds:THREE.Box3[]=[];
   for(let z=-RIVER_EXTENT;z<RIVER_EXTENT;z+=20){
@@ -354,10 +412,14 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
       material.uniforms.uResolution.value=resolution;material.uniforms.uInverseProjection.value=projection;
     },
     update(time:number,player:THREE.Vector3,darkness:number){
-      const grade=waterGradeAt(player.z),intercept=waterHeightAt(player.z)-grade*player.z;
+      const lakeNear=WORLD_V2?Math.max(0,lakeDistance(player.x,player.z)):Infinity,seaNear=WORLD_V2?Math.max(0,coastDistance(player.x,player.z)):Infinity;
+      // Reflect the dominant local body; distant water transitions to fog/sky.
+      const nearLake=lakeNear<55,nearSea=seaNear<85;
+      const grade=nearSea||nearLake?0:waterGradeAt(player.z),intercept=nearSea?SEA_LEVEL:nearLake?LAKE_LEVEL:waterHeightAt(player.z)-grade*player.z;
       stream.rotation.x=-Math.PI/2-Math.atan(grade);stream.position.y=intercept;stream.updateMatrixWorld(true);
       material.uniforms.uWorldToSurface.value.copy(stream.matrixWorld).invert();
       reflectionPlane.normal.set(0,1,-grade).normalize();reflectionPlane.constant=-intercept/Math.sqrt(1+grade*grade);
+      material.uniforms.uReflectionPlane.value.set(reflectionPlane.normal.x,reflectionPlane.normal.y,reflectionPlane.normal.z,reflectionPlane.constant);
       material.uniforms.uTime.value=time;material.uniforms.uDarkness.value=darkness;
       if(WORLD_V2&&foamGain>0)material.uniforms.uFoamGain.value=foamGain=Math.min(1,foamGain+Math.min(.1,Math.max(0,time-lastRipple))/1.4);
       for(const r of ripples){r.z+=Math.max(0,time-lastRipple);if(r.z>2.4)r.w=0;}lastRipple=time;
@@ -365,11 +427,11 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
       if(scene.userData.sunScatterColor)material.uniforms.uSunScatterColor.value.copy(scene.userData.sunScatterColor);
       if(scene.userData.sunDirection)material.uniforms.uSunDirection.value.copy(scene.userData.sunDirection);
       const distance=WORLD_V2?channelOffset(player.x,player.z):Math.abs(player.x-riverX(player.z));
-      nearby=distance<110&&Math.abs(player.z)<RIVER_EXTENT+110;material.uniforms.uReflectionDetail.value=1-THREE.MathUtils.smoothstep(distance,23,39);
+      nearby=distance<110&&Math.abs(player.z)<RIVER_EXTENT+110;lakeNearby=lakeNear<450;seaNearby=seaNear<1000;material.uniforms.uReflectionDetail.value=1-THREE.MathUtils.smoothstep(Math.min(distance,lakeNear,seaNear),23,55);
       // Keep a long continuous stream without submitting its entire kilometre
       // to either rasterisation or the reflection pass on every frame.
-      const first=Math.max(0,Math.floor((player.z-135+RIVER_EXTENT)/rowStep));
-      const last=Math.min(rows,Math.ceil((player.z+135+RIVER_EXTENT)/rowStep));
+      const first=Math.min(rows,Math.max(0,Math.floor((player.z-135+RIVER_EXTENT)/rowStep)));
+      const last=Math.max(0,Math.min(rows,Math.ceil((player.z+135+RIVER_EXTENT)/rowStep)));
       geometry.setDrawRange(rowIndexStart[first],Math.max(0,rowIndexStart[last]-rowIndexStart[first]));
     },
     prepare(camera:THREE.PerspectiveCamera){
@@ -377,11 +439,14 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
       if(reflectionReady&&!reflectionProjection.equals(camera.projectionMatrix))reflectionReady=false;
       viewProjection.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse);frustum.setFromProjectionMatrix(viewProjection);
       stream.visible=nearby&&bounds.some(box=>frustum.intersectsBox(box)&&Math.abs((box.min.z+box.max.z)*.5-camera.position.z)<115);
+      if(lake)lake.visible=lakeNearby&&frustum.intersectsBox(lakeBounds);
+      if(sea)sea.visible=seaNearby&&frustum.intersectsBox(seaBounds);
     },
-    get visible(){return stream.visible;},
+    get visible(){return stream.visible||!!lake?.visible||!!sea?.visible;},
     get reflectionPlane(){return reflectionPlane;},
     dispose(){
       disposed=true;scene.remove(stream);stream.dispose();geometry.dispose();
+      for(const body of [lake,sea])if(body){scene.remove(body);body.geometry.dispose();}
       if(WORLD_V2){waterNormal?.dispose();waterFoam?.dispose();for(const t of loadedTextures)t.dispose();if(scene.userData.waterRing===ring)delete scene.userData.waterRing;}
     }
   };

@@ -122,7 +122,7 @@ test('the traversal simulation uses the movement constants game/engine.ts and ga
   const engine = readFileSync(new URL('../game/engine.ts', import.meta.url), 'utf8'), collision = readFileSync(new URL('../game/collision.ts', import.meta.url), 'utf8');
   const number = (source, pattern, what) => { const m = source.match(pattern); assert.ok(m, `no longer found: ${what}; update ENGINE in tests/traversal.test.mjs`); return m.slice(1).map(Number); };
   assert.deepEqual(number(engine, /moveSpeed=crouch\?[\d.]+:hurry\?([\d.]+):([\d.]+)/, 'the hurry and walking speeds'), [ENGINE.hurry, ENGINE.walk]);
-  assert.deepEqual(number(engine, /moveCharacter\(player,velocity\.x\*dt,velocity\.z\*dt,crouch\?[\d.]+:([\d.]+),heightAt,collisions\)/, 'the standing height passed to moveCharacter'), [ENGINE.height]);
+  assert.deepEqual(number(engine, /moveCharacter\(player,velocity\.x\*dt,velocity\.z\*dt,crouch\?[\d.]+:([\d.]+),movementGround,collisions\)/, 'the standing height passed to moveCharacter'), [ENGINE.height]);
   assert.deepEqual(number(engine, /damp\(player\.y,next\.y,(\d+),dt\)/, 'the height damping'), [ENGINE.yDamp]);
   assert.deepEqual(number(engine, /Math\.exp\(-dt\*\(temp\.lengthSq\(\)>0\?([\d.]+):([\d.]+)\)\)/, 'the velocity easing'), [ENGINE.accel, ENGINE.decel]);
   assert.deepEqual(number(collision, /world:ReturnType<typeof createCollisionWorld>,radius=([\d.]+)\)/, "moveCharacter's default radius"), [ENGINE.radius]);

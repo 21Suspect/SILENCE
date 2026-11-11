@@ -1,5 +1,5 @@
 /** Pure value noise and the seeded road and river courses. Only depends on the flags, so any module can load it first. */
-import { WORLD_SEED } from './world-flags';
+import { WORLD_SEED, WORLD_V2 } from './world-flags';
 export { WORLD_SEED };
 export function hash(x:number,z:number) {
   const n=Math.sin(x*127.1+z*311.7)*43758.5453;
@@ -56,7 +56,7 @@ export const roadZ=(x:number)=>{
   if(!WORLD_SEED)return ROAD_BASE+Math.sin(x*.013+COURSE[6])*29+Math.sin(x*.041+COURSE[7])*6.2+Math.sin(x*.087+COURSE[8])*1.3;
   // Roads hold their line across a bridge.
   const a=smooth(Math.abs(x-ROAD_AT_RIVER),32,95);
-  return ROAD_BASE+Math.sin(x*.013+COURSE[6])*29+a*(Math.sin(x*.103+COURSE[8])*1.35+Math.sin(x*.057+COURSE[7])*2.1+Math.sin(x*.041+COURSE[7])*6.2+Math.sin(x*.087+COURSE[8])*1.3+roadBend(x)*(Math.sin(x*.0063+BEND[9])*16+Math.sin(x*.027+BEND[10])*6));
+  return (WORLD_V2?(500+50*(1-smooth(x,-100,100)))*smooth(Math.abs(x),180,440):0)+ROAD_BASE+Math.sin(x*.013+COURSE[6])*29+a*(Math.sin(x*.103+COURSE[8])*1.35+Math.sin(x*.057+COURSE[7])*2.1+Math.sin(x*.041+COURSE[7])*6.2+Math.sin(x*.087+COURSE[8])*1.3+roadBend(x)*(Math.sin(x*.0063+BEND[9])*16+Math.sin(x*.027+BEND[10])*6));
 };
 
 /** A side channel: a braid leaves the stream and rejoins it round an island, a tributary comes in from the hills. */
@@ -150,7 +150,7 @@ export const courseGLSL=WORLD_SEED?`
   float streamBendGen(float z){return (.12+.88*smoothstep(55.,125.,abs(z-(${ROAD_BASE.toFixed(5)}))))*(.3+.7*smoothstep(-.5,.75,sin(z*.0113+${f(BEND[4])})+.5*sin(z*.0293+${f(BEND[5])})));}
   float streamXGen(float z){float e=streamBendGen(z);return ${RIVER_BASE.toFixed(5)}+sin(z*.0082+${f(COURSE[5])})*24.+sin(z*.021+${f(COURSE[3])})*20.*e+sin(z*.047+${f(COURSE[4])})*13.*e+sin(z*.11+${f(BEND[6])})*2.6*e;}
   float roadBendGen(float x){return .25+.75*smoothstep(-.4,.7,sin(x*.0079+${f(BEND[7])})+.5*sin(x*.019+${f(BEND[8])}));}
-  float roadZGen(float x){float a=smoothstep(32.,95.,abs(x-(${ROAD_AT_RIVER.toFixed(5)})));return ${ROAD_BASE.toFixed(5)}+sin(x*.013+${f(COURSE[6])})*29.+a*(sin(x*.103+${f(COURSE[8])})*1.35+sin(x*.057+${f(COURSE[7])})*2.1+sin(x*.041+${f(COURSE[7])})*6.2+sin(x*.087+${f(COURSE[8])})*1.3+roadBendGen(x)*(sin(x*.0063+${f(BEND[9])})*16.+sin(x*.027+${f(BEND[10])})*6.));}
+  float roadZGen(float x){float a=smoothstep(32.,95.,abs(x-(${ROAD_AT_RIVER.toFixed(5)})));return ${WORLD_V2?'(500.+50.*(1.-smoothstep(-100.,100.,x)))*smoothstep(180.,440.,abs(x))+':''}${ROAD_BASE.toFixed(5)}+sin(x*.013+${f(COURSE[6])})*29.+a*(sin(x*.103+${f(COURSE[8])})*1.35+sin(x*.057+${f(COURSE[7])})*2.1+sin(x*.041+${f(COURSE[7])})*6.2+sin(x*.087+${f(COURSE[8])})*1.3+roadBendGen(x)*(sin(x*.0063+${f(BEND[9])})*16.+sin(x*.027+${f(BEND[10])})*6.));}
   ${BRANCHES.map((b,i)=>`float streamBranch${i}(float z){return streamXGen(z)+${branchOffsetGLSL(b)};}`).join('\n  ')}
   float streamOffset(vec2 p){
     float z=p.y,s=(streamXGen(z+.6)-streamXGen(z-.6))/1.2,d=abs(p.x-streamXGen(z))/sqrt(1.+s*s);
@@ -159,7 +159,14 @@ export const courseGLSL=WORLD_SEED?`
   }
 `:'';
 
-export const waterHeightAt=(z:number)=>-1.17+.0075*(z+35)+.4*Math.sin((z+35)/110);
+/** Headwaters descend into a level lake; the outlet grades down to the sea. */
+export const waterHeightAt=(z:number)=>{
+  if(!WORLD_V2)return -1.17+.0075*(z+35)+.4*Math.sin((z+35)/110);
+  if(z < -45)return -5.2 + 5.8 * smooth(z,-300,-45);
+  if(z <= 245)return .6;
+  const d=z-245;
+  return .6 + .0005*d*d + .018*d + 2.4*smooth(z,310,319)+3.2*smooth(z,356,364)+4.5*smooth(z,403,411)+6*smooth(z,451,458)+9*smooth(z,500,508)+12*smooth(z,546,558);
+};
 
 /** Warped position shared by every large landform, so hills, shelves and ravines agree. */
 export function warped(x:number,z:number):[number,number] {

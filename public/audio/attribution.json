@@ -13,5 +13,29 @@
     "source": "Field recordings by Joseph Sardin, bigsoundbank.com: Forest #4 (2749), Forest #2 (1348), Countryside at night #1 (0110), Forest at night after rain (0555), Forest: wind in the trees (0904), Tawny owls (0429). Trimmed, levelled and looped by scripts/assets/audio/ambience.py.",
     "license": "CC0 1.0 (public domain)",
     "license_url": "https://creativecommons.org/publicdomain/zero/1.0/"
+  },
+  "footsteps/*.wav": {
+    "source": "Fantozzi, grass/sand and stone footsteps. https://opengameart.org/content/fantozzis-footsteps-grasssand-stone",
+    "license": "CC0 1.0",
+    "processing": "Lossless FLAC converted to PCM WAV for browser compatibility."
+  },
+  "ambience/river.mp3": {
+    "source": "Joseph Sardin, Small Stream #4, https://bigsoundbank.com/small-stream-4-s1354.html",
+    "license": "CC0 1.0"
+  },
+  "footsteps/wood*.wav": {
+    "source": "Joseph Sardin https://bigsoundbank.com/man-footsteps-on-the-wooden-floor-s0165.html",
+    "license": "CC0",
+    "processing": "Ten mono footfall excerpts with edge fades and peak levelling"
+  },
+  "footsteps/gravel*.wav": {
+    "source": "Joseph Sardin https://bigsoundbank.com/steps-on-gravels-s0510.html",
+    "license": "CC0",
+    "processing": "Ten mono footfall excerpts with edge fades and peak levelling"
+  },
+  "ambience/surf.mp3": {
+    "source": "DenisChardonnet, Sea: Waves, https://bigsoundbank.com/sea-waves-s0266.html",
+    "license": "CC0 1.0",
+    "processing": "Stereo channels spatialized separately; runtime loop crossfade."
   }
 }

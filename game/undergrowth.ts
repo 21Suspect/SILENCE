@@ -5,6 +5,8 @@ import { WORLD_RADIUS, biomeAt } from './world';
 import { createVegetationBatcher, type VegetationBatchDefinition } from './vegetation-batches';
 import { createSlice, runSlice, runToEnd } from './time-slice';
 import { perfOn } from './perf-flags';
+import { coastDistance, beachWidth } from './coastal-geography';
+import { WORLD_V2 } from './world-flags';
 
 type Plant = {
   x: number; y: number; z: number; sx: number; sz: number;
@@ -308,7 +310,8 @@ export function createUndergrowth(
         const x = (ix + .12 + hash(ix, iz, 1) * .76) * .32;
         const z = (iz + .12 + hash(ix, iz, 2) * .76) * .32;
         if (Math.hypot(x, z) > WORLD_RADIUS-55) continue;
-        const e = exclusion(x, z);
+        const dune = WORLD_V2 && coastDistance(x,z)>beachWidth(x,z)*.82 && coastDistance(x,z)<beachWidth(x,z)+18;
+        const e = dune ? Math.min(.2,exclusion(x,z)) : exclusion(x, z);
         if (e > .91) continue;
         const cover = patch(x, z);
         const biome=biomeAt(x,z);
@@ -316,16 +319,24 @@ export function createUndergrowth(
         if (hash(ix, iz, 5) > probability) continue;
         if (Math.abs(x + 18) < 1.55 && Math.abs(z + 46) < 1.05 && hash(ix, iz, 93) > .12) continue;
         const size = Math.min(3, (1.8 + hash(ix, iz, 8) * 1.8) * (.72 + cover * .48) * (1 - e * .42));
-        const plant=makePlant(x,z,ix,iz,20,Math.floor(hash(ix,iz,14)*4),size,biome);if(Math.hypot(plant.sx,plant.sz)<.75)cell.fine.push(plant);
+        const plant=makePlant(x,z,ix,iz,20,Math.floor(hash(ix,iz,14)*4),size*(dune?1.2:1),biome);
+        if(dune){
+          if(patch(x*.7+17,z*.7)<.42)continue;
+          plant.dry=.85;plant.soilR=.34;plant.soilG=.27;plant.soilB=.17;
+        }
+        if(Math.hypot(plant.sx,plant.sz)<.75)cell.fine.push(plant);
       }
     }
     for (let i = 0; i < 35; i++) {
       const x = (cx + hash(cx * 37 + i, cz, 101)) * CELL;
       const z = (cz + hash(cx, cz * 41 + i, 103)) * CELL;
       if (Math.hypot(x, z) > WORLD_RADIUS-55 || Math.hypot(x + 18, z + 46) < 2) continue;
-      const e = exclusion(x, z), p = patch(x, z);
+      const dune = WORLD_V2 && coastDistance(x,z)>beachWidth(x,z)*.74 && coastDistance(x,z)<beachWidth(x,z)+14;
+      const e = dune ? Math.min(.25,exclusion(x,z)) : exclusion(x, z), p = patch(x, z);
       if (e > .7 || hash(cx * 39 + i, cz, 104) > (.3 + p * .57) * (1 - e) * (1-biomeAt(x,z).alpine*.91)) continue;
-      const plant=makePlant(x,z,cx*59+i,cz,105,i%3,.9+hash(cx*67+i,cz,107)*1.15);if(Math.hypot(plant.sx,plant.sz)<.65)cell.tussock.push(plant);
+      const plant=makePlant(x,z,cx*59+i,cz,105,i%3,(dune?1.35:.9)+hash(cx*67+i,cz,107)*1.15);
+      if(dune){plant.dry=.95;plant.soilR=.34;plant.soilG=.27;plant.soilB=.17;}
+      if(Math.hypot(plant.sx,plant.sz)<.65)cell.tussock.push(plant);
     }
     groundCover.set(key, cell);
     return cell;

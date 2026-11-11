@@ -1,7 +1,7 @@
 /** Shared deterministic geography. Metres, with the original clearing at (0, 0). */
 export const WORLD_RADIUS = 600;
 export const WORLD_EXTENT = 768;
-export const RIVER_EXTENT = 470;
+export const RIVER_EXTENT = WORLD_V2 ? 600 : 470;
 export const TERRAIN_CHUNK = 32;
 export const TERRAIN_SEGMENTS = 48;
 export const TERRAIN_STEP = TERRAIN_CHUNK / TERRAIN_SEGMENTS;
@@ -9,8 +9,9 @@ export const TERRAIN_STEP = TERRAIN_CHUNK / TERRAIN_SEGMENTS;
 import { hash, smooth, noise, fbm, pathX, riverX, roadZ, warped, rockMask, COURSE, RIVER_BASE, ROAD_BASE, WORLD_SEED, waterHeightAt, channelOffset, channelShape, channelBranch, courseGLSL } from './world-noise';
 import { landform } from './world-landform';
 import { WORLD_V2 } from './world-flags';
+import { broadWaterLevelAt, coastDistance, coastZ, lakeDistance, LAKE_CENTER, beachWidth, coastalGLSL } from './coastal-geography';
 import { ROAD } from './road-profile';
-import { GROUND_PADS, POI_PLACEMENTS, ROAD_ENDS, SCATTER_PLACEMENTS, TRAIL_LINES, placeLocal } from './world-layout';
+import { GROUND_PADS, POI_PLACEMENTS, ROAD_ENDS, SCATTER_PLACEMENTS, TRAIL_LINES, MAIN_TRAIL_BOUNDS, placeLocal } from './world-layout';
 export { hash, smooth, noise, pathX, riverX, roadZ, channelOffset };
 const mix=(a:number,b:number,t:number)=>a+(b-a)*t;
 export const pathWidth=(z:number)=>.34+noise(z*.055,43)*.55+noise(z*.23,81)*.14;
@@ -19,13 +20,24 @@ export const pathDistance=(x:number,z:number)=>Math.abs(x-pathX(z))/Math.sqrt(1+
 // The stream descends towards -Z. A continuous 0.39–1.12% grade avoids a
 // perfectly level canal without introducing uphill flow or detached pools.
 export { waterHeightAt };
-export const waterGradeAt=(z:number)=>.0075+(.4/110)*Math.cos((z+35)/110);
-export const riverProfileGLSL=`
+export const waterGradeAt=(z:number)=>{
+  if(!WORLD_V2)return .0075+(.4/110)*Math.cos((z+35)/110);
+  if(z < -300)return 0;
+  if(z < -45){const t=(z+300)/255;return 5.8*6*t*(1-t)/255;}
+  if(z<=245)return 0;
+  let grade=.018+.001*(z-245);
+  for(const [a,b,h] of [[310, 319, 2.4], [356, 364, 3.2], [403, 411, 4.5], [451, 458, 6], [500, 508, 9], [546, 558, 12]]){const t=Math.max(0,Math.min(1,(z-a)/(b-a)));grade+=h*6*t*(1-t)/(b-a);}
+  return grade;
+};
+export const riverProfileGLSL=WORLD_V2?`
+  float streamHeight(float z){if(z< -45.)return -5.2+5.8*smoothstep(-300.,-45.,z);if(z<=245.)return .6;float d=z-245.;return .6+.0005*d*d+.018*d+2.4*smoothstep(310.,319.,z)+3.2*smoothstep(356.,364.,z)+4.5*smoothstep(403.,411.,z)+6.0*smoothstep(451.,458.,z)+9.0*smoothstep(500.,508.,z)+12.0*smoothstep(546.,558.,z);}
+  float streamGrade(float z){if(z< -300.)return 0.;if(z< -45.){float t=(z+300.)/255.;return 5.8*6.*t*(1.-t)/255.;}if(z<=245.)return 0.;float grade=.018+.001*(z-245.);{float t=clamp((z-310.)/9.,0.,1.);grade+=2.4*6.*t*(1.-t)/9.;}{float t=clamp((z-356.)/8.,0.,1.);grade+=3.2*6.*t*(1.-t)/8.;}{float t=clamp((z-403.)/8.,0.,1.);grade+=4.5*6.*t*(1.-t)/8.;}{float t=clamp((z-451.)/7.,0.,1.);grade+=6.0*6.*t*(1.-t)/7.;}{float t=clamp((z-500.)/8.,0.,1.);grade+=9.0*6.*t*(1.-t)/8.;}{float t=clamp((z-546.)/12.,0.,1.);grade+=12.0*6.*t*(1.-t)/12.;}return grade;}
+`:`
   float streamHeight(float z){return -1.17+.0075*(z+35.)+.4*sin((z+35.)/110.);}
   float streamGrade(float z){return .0075+(.4/110.)*cos((z+35.)/110.);}
 `;
 export const riverPresence=(z:number)=>1-smooth(Math.abs(z),RIVER_EXTENT-52,RIVER_EXTENT-8);
-export const trailPresence=(x:number,z:number)=>1-smooth(Math.hypot(x,z),428,446);
+export const trailPresence=(x:number,z:number)=>WORLD_V2? smooth(z,MAIN_TRAIL_BOUNDS.south,MAIN_TRAIL_BOUNDS.south+8)*(1-smooth(z,MAIN_TRAIL_BOUNDS.north-8,MAIN_TRAIL_BOUNDS.north)):1-smooth(Math.hypot(x,z),428,446);
 // The road does not fade out: it runs to a tunnel mouth at each end of the valley and stops there.
 const ROAD_EAST=WORLD_V2?ROAD_ENDS.find(e=>e.side>0)!.x:1e9,ROAD_WEST=WORLD_V2?ROAD_ENDS.find(e=>e.side<0)!.x:-1e9;
 /**
@@ -73,7 +85,7 @@ function buildTrailGrade(){
   });
 }
 const PADS=[...GROUND_PADS.map(p=>({x:p.x,z:p.z,radius:p.radius,falloff:p.falloff,rise:0,reach:p.radius+p.falloff,level:p.level as number|undefined,small:true,fixed:p.level!==undefined})),
-  ...POI_PLACEMENTS.filter(p=>p.pad).map(p=>({x:p.x,z:p.z,radius:p.pad!.radius,falloff:p.pad!.falloff,rise:p.pad!.rise??0,reach:p.pad!.radius+p.pad!.falloff,level:undefined as number|undefined,small:false}))];
+  ...POI_PLACEMENTS.filter(p=>p.pad).map(p=>({x:p.x,z:p.z,radius:p.pad!.radius,falloff:p.pad!.falloff,rise:p.pad!.rise??0,reach:p.pad!.radius+p.pad!.falloff,level:undefined as number|undefined,small:false,fixed:p.pad!.fixed??false}))];
 const FOOTPRINTS=POI_PLACEMENTS.filter(p=>p.footprint).map(p=>{
   const [x,z]=placeLocal(p,p.footprint!.cx,p.footprint!.cz);
   return {x,z,hx:p.footprint!.hx,hz:p.footprint!.hz,c:Math.cos(p.yaw),s:Math.sin(p.yaw),reach:Math.hypot(p.footprint!.hx,p.footprint!.hz)};
@@ -113,7 +125,7 @@ export function vegetationExclusion(x:number,z:number){
   const base=Math.max((1-smooth(pathDistance(x,z),pathWidth(z)*.6,pathWidth(z)+.7))*presence,
     (1-smooth(WORLD_V2?channelShape(x,z):Math.abs(x-riverX(z)),4.1,6.8))*riverPresence(z),
     WORLD_V2?(1-smooth(roadDistance(x,z),ROAD.clearFrom,ROAD.clearTo))*roadPresence(x,z):(1-smooth(Math.abs(z-roadZ(x)),1.25,2.65))*roadPresence(x,z));
-  return WORLD_V2?Math.max(base,exclusionV2(x,z)):base;
+  return WORLD_V2?Math.max(base,exclusionV2(x,z),1-smooth(lakeDistance(x,z),3,13),1-smooth(coastDistance(x,z),beachWidth(x,z),beachWidth(x,z)+18),smooth(landform(x,z),90,138)):base;
 }
 /** The rendered ground: [worn earth 0..1, exposed rock 0..1]. */
 export function groundMasks(x:number,z:number):[number,number]{
@@ -133,7 +145,7 @@ function mineHill(x:number,z:number){
   // Local -z runs into the hill. The cut face is a horseshoe open to the yard; the slope carries on up behind it.
   const back=.1+.05*lx*lx-lz;
   if(back<=0)return 0;
-  const reach=1-smooth(Math.hypot(lx,lz+16),34,72);
+  const reach=1-smooth(Math.hypot(lx,lz+16),24,42);
   if(reach<=0)return 0;
   // The heading itself stays at floor level. The rock model roofs it over.
   const corridor=(1-smooth(Math.abs(lx),3,4.2))*smooth(lz,-13.5,-11.5);
@@ -191,7 +203,7 @@ function shapedGround(x:number,z:number,radius:number,road:number,path:number,de
 
 export interface BiomeWeights {forest:number;grove:number;heath:number;alpine:number;}
 export function biomeAt(x:number,z:number):BiomeWeights {
-  const alpine=smooth(Math.hypot(x,z),430,540);
+  const alpine=WORLD_V2?smooth(landform(x,z),44,100):smooth(Math.hypot(x,z),430,540);
   const grove=smooth(noise(x*.005+15,z*.005-8)*.47+Math.exp(-((x+170)**2+(z-165)**2)/42000)*.69,.43,.79)*(1-alpine);
   const heath=smooth(noise(x*.006-31,z*.006+11)*.25+Math.exp(-((x-265)**2+(z-200)**2)/22000)*.8+Math.exp(-((x+265)**2+(z+255)**2)/17000)*.65,.36,.75)*(1-alpine)*(1-grove);
   return {forest:Math.max(0,1-grove-heath-alpine),grove,heath,alpine};
@@ -216,7 +228,7 @@ export function rawHeight(x:number,z:number) {
   const foothills=8*smooth(radius,420,wallStart+5)*(1-cutting);
   const escarpment=(WORLD_V2?20:34)*smooth(d,0,22)*(1-smooth(d,41,102));
   let crest=0,folds=0;
-  if(radius>430&&radius<680){
+  if(!WORLD_V2&&radius>430&&radius<680){
     const angularWarp=(noise(Math.cos(angle)*7+19,Math.sin(angle)*7-11)-.5)*3.1;
     const tooth=Math.pow(1-Math.abs(Math.sin(angle*13+angularWarp)),2.2);
     const secondary=Math.pow(1-Math.abs(Math.sin(angle*23+1.7-angularWarp*.8)),3.1);
@@ -231,7 +243,7 @@ export function rawHeight(x:number,z:number) {
   }
   const mountains=escarpment+crest+folds;
   const land=WORLD_V2?shapedGround(x,z,radius,road,path,detail):Math.max(-.55,base+rolling+ridge)+detail*(1-Math.max(path,road)*.72)-path*.07;
-  const ground=land+foothills+mountains;
+  const ground=WORLD_V2?land:land+foothills+mountains;
   const distance=WORLD_V2?channelShape(x,z):Math.abs(x-riverX(z)),water=waterHeightAt(z);
   const sideChannel=WORLD_V2?channelBranch:0;
   const width=1.15+noise(z*.055,7)*.55;
@@ -243,13 +255,16 @@ export function rawHeight(x:number,z:number) {
   const bank=mix(shelf,lowBank,smooth(distance,3.6,8.8));
   const fromRoad=WORLD_V2?Math.abs(z-roadZ(x)):99,atBridge=WORLD_V2?1-smooth(fromRoad,8,48):0,atAbutment=WORLD_V2?1-smooth(fromRoad,6.5,13):0;
   // A side channel cuts its own valley, wider where it has more hill to get through.
-  const relief=WORLD_V2?Math.max(0,ground-water-1.65)*(sideChannel?1.9:1.4)*(1-atBridge):0;
+  const relief=WORLD_V2?Math.min(z>300?26:52,Math.max(0,ground-water-1.65)*(sideChannel?1.9:1.4))*(1-atBridge):0;
   // The wall rises to just under the road, and a concrete abutment holds the last three metres.
   const wallTop=mix(ground,ground-3.2,atAbutment);
   const channel=atAbutment>.001
     ?mix(mix(bank,wallTop,smooth(distance,mix(9,11.8,atBridge),mix(19,14.9,atBridge)+relief)),ground,smooth(distance,14.9,15.7)*atAbutment+(1-atAbutment)*smooth(distance,mix(9,11.8,atBridge),mix(19,14.9,atBridge)+relief))
     :mix(bank,ground,smooth(distance,mix(9,11.8,atBridge),mix(19,14.9,atBridge)+relief));
-  const out=mix(ground,channel,riverPresence(z)*(WORLD_V2?1-groundPadWeight:1));
+  let out=mix(ground,channel,riverPresence(z)*(WORLD_V2?1-groundPadWeight:1));
+  // Lake and ocean beds remain below their horizontal water plane. River
+  // banks must not leave dry ridges across the shared mouth of either basin.
+  if(WORLD_V2 && broadWaterLevelAt(x,z)!==undefined)out=Math.min(out,landform(x,z));
   return WORLD_V2&&!tunnelsOff?tunnelGround(x,z,out):out;
 }
 // The road tunnels are driven into the foot of the mountain: the ground stands up behind each mouth and runs on up
@@ -319,6 +334,7 @@ export function heightAt(x:number,z:number) {
 }
 /** Only the rendered wet channel supports the creature; water is not a player collider. */
 export function riverSurfaceAt(x:number,z:number):number|undefined {
+  if(WORLD_V2){const broad=broadWaterLevelAt(x,z);if(broad!==undefined&&heightAt(x,z)<broad)return broad;}
   if(riverPresence(z)<=0||(WORLD_V2?channelOffset(x,z):Math.abs(x-riverX(z)))>=8)return undefined;
   const level=waterHeightAt(z);
   return heightAt(x,z)<level?level:undefined;
@@ -337,6 +353,27 @@ export function horizonHeightAt(x:number,z:number){
 }
 export const terrainHeightStats=()=>({blocks:heightBlocks.size,limit:HEIGHT_CACHE_LIMIT,bytes:heightBlocks.size*(TERRAIN_SEGMENTS+1)**2*4});
 
+/** Dry viewpoints for the developer menu, chosen away from placed buildings. */
+function coastalDestination(name:string,x:number,z:number,kind:'lake'|'beach'|'alpine') {
+  let best=Infinity,at={name,x,z};
+  for(let dz=-42;dz<=42;dz+=6)for(let dx=-42;dx<=42;dx+=6){
+    const px=x+dx,pz=z+dz,coast=coastDistance(px,pz),lake=lakeDistance(px,pz);
+    if(coast<8||lake<4||riverSurfaceAt(px,pz)!==undefined)continue;
+    if(kind==='lake'&&lake>24||kind==='beach'&&coast>32||kind==='alpine'&&pz>322)continue;
+    if(FOOTPRINTS.some(f=>footprintDistance(f,px,pz)<8)||POI_PLACEMENTS.some(p=>Math.hypot(p.x-px,p.z-pz)<(p.clearing??8)+7))continue;
+    const slope=Math.hypot((rawHeight(px+2,pz)-rawHeight(px-2,pz))/4,(rawHeight(px,pz+2)-rawHeight(px,pz-2))/4);
+    if(slope>.4)continue;
+    const score=Math.hypot(dx,dz)+slope*12;
+    if(score<best){best=score;at={name,x:px,z:pz};}
+  }
+  return at;
+}
+export const COASTAL_DESTINATIONS=WORLD_V2?[
+  coastalDestination('Lake shore',LAKE_CENTER.x-78,100,'lake'),
+  coastalDestination('Beach',-180,coastZ(-180)+19,'beach'),
+  coastalDestination('Alpine overlook',-90,300,'alpine'),
+]:[];
+
 export const WORLD_DESTINATIONS = [
   {name:'Forest trail',x:0,z:7},
   {name:'Stream footbridge',x:riverX(-35)-9,z:-35},
@@ -346,6 +383,7 @@ export const WORLD_DESTINATIONS = [
   {name:'Ruined enclosure',x:176,z:-214},
   {name:'Old boundary fence',x:-224,z:170},
   {name:'Mountain foothills',x:-465,z:65},
+  ...COASTAL_DESTINATIONS,
 ] as const;
 
 /** Shader geography matches CPU vegetation, physics and river placement. */
@@ -353,6 +391,7 @@ export const riverCourseGLSL = WORLD_V2?`${courseGLSL}
   float streamCentre(float z){return streamXGen(z);}`:`float streamCentre(float z){return ${RIVER_BASE.toFixed(5)}+sin(z*.027+(${COURSE[3].toFixed(5)}))*10.+sin(z*.071+(${COURSE[4].toFixed(5)}))*2.+sin(z*.008+(${COURSE[5].toFixed(5)}))*18.;}`;
 export const worldGeographyGLSL = `
   ${riverProfileGLSL}
+  ${WORLD_V2?coastalGLSL:''}
   float worldHash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
   float worldNoise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(worldHash(i),worldHash(i+vec2(1.,0.)),f.x),mix(worldHash(i+vec2(0.,1.)),worldHash(i+vec2(1.)),f.x),f.y);}
   ${WORLD_V2?courseGLSL:''}
@@ -363,6 +402,6 @@ export const worldGeographyGLSL = `
   ${WORLD_V2?'':'float streamOffset(vec2 p){return abs(p.x-streamX(p.y));}'}
   float streamPresence(float z){return 1.-smoothstep(${RIVER_EXTENT-52}.,${RIVER_EXTENT-8}.,abs(z));}
   float roadCenter(float x){${WORLD_V2?'return roadZGen(x);':`return ${ROAD_BASE.toFixed(5)}+sin(x*.013+(${COURSE[6].toFixed(5)}))*29.+sin(x*.041+(${COURSE[7].toFixed(5)}))*6.2+sin(x*.087+(${COURSE[8].toFixed(5)}))*1.3;`}}
-  float trailPresence(vec2 p){return 1.-smoothstep(428.,446.,length(p));}
+  float trailPresence(vec2 p){${WORLD_V2?`return smoothstep(${MAIN_TRAIL_BOUNDS.south.toFixed(8)},${(MAIN_TRAIL_BOUNDS.south+8).toFixed(8)},p.y)*(1.-smoothstep(${(MAIN_TRAIL_BOUNDS.north-8).toFixed(8)},${MAIN_TRAIL_BOUNDS.north.toFixed(8)},p.y));`:'return 1.-smoothstep(428.,446.,length(p));'}}
   float roadPresence(vec2 p){${WORLD_V2?`return (1.-smoothstep(${(ROAD_EAST-.5).toFixed(2)},${(ROAD_EAST+2.5).toFixed(2)},p.x))*(1.-smoothstep(${(-ROAD_WEST-.5).toFixed(2)},${(-ROAD_WEST+2.5).toFixed(2)},-p.x));`:'return trailPresence(p);'}}
 `;

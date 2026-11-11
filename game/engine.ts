@@ -12,7 +12,7 @@ import { createEncounters } from './encounters';
 import { createStory } from './story';
 import { createStableSunShadow } from './shadows';
 import { createRenderBudget } from './quality';
-import { createCollisionWorld, moveCharacter, characterSupportAt } from './collision';
+import { createCollisionWorld, moveCharacter, characterSupportAt, solidContact } from './collision';
 import { createAdmin } from './admin';
 import { createSky } from './sky';
 import { biomeAt, riverSurfaceAt, WORLD_DESTINATIONS } from './world';
@@ -30,6 +30,13 @@ import { createPerfProbe, drawList, shadowInstanceCulling, textureReport } from 
 import { perfOn, perfSwitches } from './perf-flags';
 import { createGpuWarmup } from './gpu-warmup';
 import { createTextureSlicer } from './texture-slicer';
+
+// Deep lakes and open sea support a swimming body, rather than a player
+// walking across the bottom with the camera below the water surface.
+const movementGround=(x:number,z:number)=>{
+  const bed=heightAt(x,z),water=riverSurfaceAt(x,z);
+  return water!==undefined?Math.max(bed,water-.95):bed;
+};
 
 export function createGame(container:HTMLElement) {
   let saved:string|null=null;try{saved=localStorage.getItem('silence-settings');}catch{}
@@ -100,6 +107,7 @@ export function createGame(container:HTMLElement) {
   const unsubscribeNoise=noise.subscribe(e=>{if(e.x!==undefined&&e.z!==undefined)encounters.hear({loudness:e.loudness,source:e.source,x:e.x,z:e.z} satisfies CreatureNoise);});
   const creature=scene.getObjectByName('something-between-the-trees')!;
   const velocity=new THREE.Vector3();
+  let jumpVelocity=0, airborne=false, jumpRequested=false;
   const forward=new THREE.Vector3(0,0,-1);
   const keys=new Set<string>();
   let yaw=Math.atan2(player.x-pathX(player.z-8),8),pitch=-.045,elapsed=0,walkingPhase=0,cameraHeight=1.69;
@@ -190,7 +198,7 @@ export function createGame(container:HTMLElement) {
     if(Object.values(settings.bindings).includes(e.code))e.preventDefault();
     keys.add(e.code);
     if(e.code===settings.bindings.interact&&!e.repeat){start();if(isActive()&&interact(true))shadowDirty=true;}
-    if(e.code===settings.bindings.rise&&!e.repeat&&isActive()&&!grab)world2?.letGo();
+    if(e.code===settings.bindings.rise&&!e.repeat&&isActive()&&!grab){if(world2?.climbing)world2.letGo();else if(!flying&&!airborne)jumpRequested=true;}
     if(e.code===settings.bindings.drop&&!e.repeat&&isActive()&&!grab&&world2?.drop())shadowDirty=true;
     if(e.code===OBJECTIVE_KEY&&!e.repeat&&isActive()&&!grab&&!Object.values(settings.bindings).includes(e.code))objectiveHud?.toggle();
     if(e.code===settings.bindings.fullscreen && !loading && !e.repeat){
@@ -200,7 +208,7 @@ export function createGame(container:HTMLElement) {
     if(!e.repeat && [settings.bindings.forward,settings.bindings.back,settings.bindings.left,settings.bindings.right].includes(e.code))start();
   };
   const keyUp=(e:KeyboardEvent)=>keys.delete(e.code);
-  const clearInput=()=>{keys.clear();velocity.set(0,0,0);drag=false;touchMove.set(0,0);touches.clear();mouseTap.cancel();touchTap.cancel();touchTapId=undefined;renderBudget.pause();};
+  const clearInput=()=>{jumpRequested=false;keys.clear();velocity.set(0,0,0);drag=false;touchMove.set(0,0);touches.clear();mouseTap.cancel();touchTap.cancel();touchTapId=undefined;renderBudget.pause();};
   const blur=()=>{clearInput();void audio.suspend();};
   const focus=()=>{if(!admin.open&&!document.hidden)void audio.resume();};
   const visibilityChange=()=>{if(document.hidden)blur();else{clearInput();focus();}};
@@ -260,12 +268,12 @@ export function createGame(container:HTMLElement) {
   renderer.domElement.addEventListener('touchstart',touchStart,{passive:false});
   renderer.domElement.addEventListener('touchmove',touchUpdate,{passive:false});
   renderer.domElement.addEventListener('touchend',touchEnd);renderer.domElement.addEventListener('touchcancel',touchEnd);
-  const teleport=(x:number,z:number)=>{player.set(x,heightAt(x,z)+(flying?5:0),z);velocity.set(0,0,0);};
+  const teleport=(x:number,z:number)=>{player.set(x,heightAt(x,z)+(flying?5:0),z);velocity.set(0,0,0);jumpVelocity=0;airborne=false;jumpRequested=false;};
   const admin=createAdmin(container,{
     settings,volumeChanged:()=>audio.setVolumes(settings),listening:(on)=>audio.listen(on),settingsChanged:()=>{try{localStorage.setItem('silence-settings',JSON.stringify(settings));}catch{}diagnosticRatio=undefined;fixedQuality=settings.quality!=='auto';renderBudget.pause();resize();filterTextures();},
     getState:()=>({hours,cycleSpeed,flying,position:player.toArray(),fps:Math.round(1000/frameAverage),solids:collisions.stats().solids}),
     setHours:(h)=>{hours=((h%24)+24)%24;},setSpeed:(speed)=>{cycleSpeed=speed;},
-    setFlying:(value)=>{flying=value;velocity.set(0,0,0);if(!flying)player.y=characterSupportAt(player.x,player.z,player.y,heightAt,collisions);},
+    setFlying:(value)=>{flying=value;jumpVelocity=0;airborne=false;jumpRequested=false;velocity.set(0,0,0);if(!flying)player.y=characterSupportAt(player.x,player.z,player.y,heightAt,collisions);},
     spawn:(mode)=>{camera.getWorldDirection(forward);encounters.spawn(player,forward,mode);},dismiss:()=>{encounters.dismiss(elapsed);shadowDirty=true;},teleport,
     visibility:(open)=>{
       clearInput();
@@ -511,6 +519,7 @@ export function createGame(container:HTMLElement) {
     let moveSpeed=crouch?.95:hurry?3.35:1.8;
     const waterY=riverSurfaceAt(player.x,player.z);
     const inWater=waterY!==undefined&&player.y<waterY+.10;
+    const swimming=!flying&&waterY!==undefined&&waterY-heightAt(player.x,player.z)>1.2&&player.y<waterY+.1;
     if(inWater)moveSpeed*=.55;
     // Walking through dense living ground cover gives soft resistance; its thin stems
     // bend rather than behaving like rigid posts. Leaf litter and twigs remain stepable.
@@ -526,16 +535,24 @@ export function createGame(container:HTMLElement) {
     const oldX=player.x,oldZ=player.z;
     // WORLD_V2 ladders: while attached the climber holds the player on the line (no gravity, strafing or collision) and normal movement is skipped.
     const climb=world2?.climb({dt:active?dt:0,forward:active?THREE.MathUtils.clamp(directionZ,-1,1):0,player,enabled:!flying});
-    if(climb){player.set(climb.x,climb.y,climb.z);velocity.set(0,0,0);}
+    if(climb){jumpVelocity=0;airborne=false;jumpRequested=false;player.set(climb.x,climb.y,climb.z);velocity.set(0,0,0);}
     else if(flying)player.addScaledVector(velocity,dt);
     else{
-      const next=moveCharacter(player,velocity.x*dt,velocity.z*dt,crouch?1.05:1.69,heightAt,collisions);
-      player.x=next.x;player.z=next.z;player.y=THREE.MathUtils.damp(player.y,next.y,18,dt);
+      const next=moveCharacter(player,velocity.x*dt,velocity.z*dt,crouch?1.05:1.69,movementGround,collisions);
+      player.x=next.x;player.z=next.z;
+      if(jumpRequested&&active&&!airborne&&!crouch&&!swimming){jumpVelocity=4.3;airborne=true;}jumpRequested=false;
+      if(airborne||player.y-next.y>.32){
+        airborne=true;jumpVelocity-=12*dt;let y=player.y+jumpVelocity*dt;
+        if(jumpVelocity>0)for(const c of collisions.nearby(player.x,player.z,.24)){
+          if(c.minY>=player.y+1.69-.02&&c.minY<y+1.69&&solidContact(c,player.x,player.z,.24).depth>0){y=c.minY-1.69-.01;jumpVelocity=0;}
+        }
+        if(jumpVelocity<=0&&y<=next.y){y=next.y;jumpVelocity=0;airborne=false;}player.y=y;
+      }else player.y=THREE.MathUtils.damp(player.y,next.y,18,dt);
     }
     const speed=climb?0:Math.hypot(player.x-oldX,player.z-oldZ)/Math.max(dt,.001);
     // Every footfall goes into the creature's noise stream, as loud as the gait and the ground make it. Wading
     // is left to the rebuilt world's splashes, which are already in the stream.
-    if(simulate&&!flying&&!climb&&!grab&&speed>.25&&!(world2&&inWater)){
+    if(simulate&&!swimming&&!airborne&&!flying&&!climb&&!grab&&speed>.25&&!(world2&&inWater)){
       stride+=speed*dt;
       if(stride>.82){
         stride%=.82;
@@ -545,8 +562,8 @@ export function createGame(container:HTMLElement) {
       }
     }
     walkingPhase+=speed*dt*(crouch?2.7:3.7);
-    cameraHeight=THREE.MathUtils.damp(cameraHeight,crouch?1.05:1.69,7,dt);
-    const motion=flying?0:THREE.MathUtils.clamp(speed/1.8,0,1);
+    cameraHeight=THREE.MathUtils.damp(cameraHeight,crouch&&!swimming?1.05:1.69,7,dt);
+    const motion=flying||swimming||airborne?0:THREE.MathUtils.clamp(speed/1.8,0,1);
     const bob=Math.sin(walkingPhase*2)*.017*motion;
     const breath=Math.sin(now*.0013)*.0028;
     camera.position.set(player.x,player.y+cameraHeight+bob+breath+(climb?.bob??0),player.z);
@@ -608,7 +625,7 @@ export function createGame(container:HTMLElement) {
     renderer.shadowMap.needsUpdate=drawSun||flashlight.light.shadow.needsUpdate;
     shadowDirty=false;
     if(probe)probe.marks.shadow1=performance.now();
-    audio.update(dt,{position:camera.position,direction:forward,speed:active?speed:0,sprinting:active&&hurry&&!flying&&!crouch,darkness,surface:inWater?'water':(WORLD_V2?roadDistance(player.x,player.z)<ROAD.footstep:Math.abs(player.z-roadZ(player.x))<2.7)?'road':'dirt',riverDistance:waterDistance});
+    audio.update(dt,{position:camera.position,direction:forward,speed:active&&!airborne&&!flying&&!climb&&!swimming?speed:0,sprinting:active&&hurry&&!flying&&!crouch,darkness,surface:inWater?'water':world2?.indoors(player)?'wood':(WORLD_V2?roadDistance(player.x,player.z)<ROAD.footstep:Math.abs(player.z-roadZ(player.x))<2.7)?'road':'dirt',riverDistance:waterDistance});
     if(probe)probe.marks.audio1=performance.now();
     renderer.info.reset();
     if(texturesDirty){filterTextures();texturesDirty=false;}
