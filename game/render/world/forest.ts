@@ -26,10 +26,10 @@ const VARIANTS = 4;
 // Trees are placed out to TREE_RANGE+FOREST_BUFFER round the point the forest was last rebuilt at and faded by distance from the eye in
 // the shader, so the placement stays valid until the player is FOREST_BUFFER from that point. A rebuild starts every FOREST_STEP and
 // is spread over a few frames; the 1.5 m between the two is the room it has to finish in.
-const FOREST_STEP=6, FOREST_BUFFER=FOREST_STEP+1.5, TREE_RANGE=98, TREE_COLLISION_RANGE=94, TRUNK_DETAIL_END=43, CROWN_DETAIL_START=30, CROWN_DETAIL_END=40;
+const FOREST_STEP=6, FOREST_BUFFER=FOREST_STEP+1.5, TREE_RANGE=98, TREE_COLLISION_RANGE=94, TRUNK_DETAIL_END=43, CROWN_DETAIL_START=22, CROWN_DETAIL_END=30;
 // The crown band is a uniform (dev: __SILENCE__.perf.crownBand()), so other bands can be measured and compared live; both crowns
-// are placed over CROWN_PLACE_*, so widen that to try a band outside it. 22/30 m was measured (2026-11-12, 1920x1080): -0.1 to
-// -0.44 ms, but spruces at 25 m read visibly thinner; the band stays at 30/40 until that is judged.
+// are placed over CROWN_PLACE_*, so widen that to try a band outside it. 22/30 m against the earlier 30/40 (2026-11-12, 1920x1080,
+// interleaved A/B): -0.1 ms at the canopy, -0.4 at spawn, -0.44 at dusk; judged in play to look the same.
 const CROWN_PLACE_START=CROWN_DETAIL_START, CROWN_PLACE_END=CROWN_DETAIL_END;
 // How far the scanned ground pieces are drawn. Each dissolves out over the last 8 m, so a rebuild never pops one in or out.
 const ROCK_RANGE=58, BRANCH_RANGE=42, STUMP_RANGE=65, TRUNK_RANGE=77, PEBBLE_RANGE=24;
