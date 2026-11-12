@@ -263,6 +263,21 @@
       },
       "packed": "rosette_leaves/: color.jpg (Color, 1024 px), alpha.png (Opacity), normal.jpg (NormalGL)",
       "use": "leaf rosettes (undergrowth.ts leafPatch)"
+    },
+    {
+      "asset": "Foliage001",
+      "provider": "ambientCG",
+      "source": "https://ambientcg.com/a/Foliage001",
+      "license": "CC0-1.0",
+      "license_url": "https://docs.ambientcg.com/license/",
+      "files": {
+        "zip": {
+          "source_url": "https://ambientcg.com/get?file=Foliage001_2K-PNG.zip",
+          "md5": "2ec42eea6c2c2d5770b3d97037de616c"
+        }
+      },
+      "packed": "meadow_blades/: color.jpg (Color, 1024 px), alpha.png (Opacity), normal.jpg (NormalGL)",
+      "use": "tall grass swards (undergrowth.ts meadowPatch)"
     }
   ],
   "providers": {
