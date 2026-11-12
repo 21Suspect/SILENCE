@@ -9,7 +9,9 @@ import type { Grade } from './final-image';
 type Key = Omit<Grade, 'shadows' | 'highlights'> & { shadows: readonly [number, number, number]; highlights: readonly [number, number, number] };
 
 export const NOON: Key = {
-  key: .15, minExposure: .4, maxExposure: 9, bias: 0, temperature: .04, tint: 0, saturation: .98, contrast: 1.1,
+  // Sun flecks on the forest floor are the brightest thing a forest view meters on; at .15 a sunlit floor (albedo about .12)
+  // came out near white and the tone curve bleached its colour away. At .11 the moss and needles keep their colour.
+  key: .11, minExposure: .4, maxExposure: 9, bias: 0, temperature: .04, tint: 0, saturation: .98, contrast: 1.1,
   shadows: [.96, .99, 1.04], highlights: [1.02, 1, .97], scotopic: 0, vignette: .1, grain: 0, bloom: .04,
 };
 export const GOLDEN: Key = {

@@ -142,16 +142,19 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
       float open=1.-clamp(vBiome.y*1.3+rootBlend,0.,1.);
       float ground=(1.-road)*(1.-bank);
       float wRock=stoneBlend*steep*ground;
-      float wRocky=(stoneBlend*(1.-steep)*.9+worn*(1.-worn)*1.1)*ground;
+      // Gravel shows at a path's edge only as a trace: on this damp floor the margin is moss and needles, and a full band of
+      // the pale scan read as a dry gravel verge.
+      float wRocky=(stoneBlend*(1.-steep)*.9+worn*(1.-worn)*.45)*ground;
       float wPath=dirtCoverage;
       float wRoots=rootBlend*.9*ground*(1.-dirtCoverage);
-      // Under conifers the floor is needles almost everywhere; broadleaf groves add leaves on top.
-      float woods=(1.-vBiome.w)*(1.-vBiome.z*.6);
-      float wLitter=clamp(max(leafBlend,woods*(.5+.38*surfaceNoise(p*.08+12.))),0.,1.)*ground*(1.-dirtCoverage*.7);
-      float wMoss=smoothstep(.4,.74,damp*.8+surfaceNoise(p*.31+77.)*.2)*flatGround*(1.-vBiome.w)*ground*(1.-dirtCoverage)*(.6+.4*open);
+      // The base floor is a damp conifer floor: moss mats with lanes of needles between them. Broadleaf groves drop leaves
+      // over it, and wherever the ground is level and holds water, the moss closes into a carpet.
+      float wLitter=clamp(leafBlend*(.62+.38*surfaceNoise(p*.08+12.)),0.,1.)*ground*(1.-dirtCoverage*.7);
+      float level=smoothstep(.7,.93,slopeNormal.y);
+      float wMoss=smoothstep(.3,.66,damp*.75+surfaceNoise(p*.31+77.)*.25)*level*(1.-vBiome.w)*ground*(1.-dirtCoverage)*(1.-leafBlend*.45);
       float wFloor=max(.08,1.-max(max(max(wRock,wRocky),max(wPath,wRoots)),max(wLitter,wMoss)));
-      TexturePatch floorP=groundTexturePatch(groundUv/3.15),litterP=groundTexturePatch(groundUv/1.5+vec2(57.,9.)),rootsP=groundTexturePatch(groundUv/1.67+vec2(13.,71.));
-      TexturePatch mossP=groundTexturePatch(groundUv/2.+vec2(91.,37.)),pathP=groundTexturePatch(groundUv/2.17+vec2(29.,5.)),rockyP=groundTexturePatch(groundUv/2.+vec2(63.,44.));
+      TexturePatch floorP=groundTexturePatch(groundUv/2.5),litterP=groundTexturePatch(groundUv/3.+vec2(57.,9.)),rootsP=groundTexturePatch(groundUv/1.67+vec2(13.,71.));
+      TexturePatch mossP=groundTexturePatch(groundUv/1.5+vec2(91.,37.)),pathP=groundTexturePatch(groundUv/2.17+vec2(29.,5.)),rockyP=groundTexturePatch(groundUv/2.+vec2(63.,44.));
       vec4 cFloor=samplePatchLayer(uGroundColor,floorP,0.);
       vec4 cLitter=cFloor,cRoots=cFloor,cMoss=cFloor,cPath=cFloor,cRocky=cFloor,cRock=cFloor;
       if(wLitter>.02||road>.001)cLitter=samplePatchLayer(uGroundColor,litterP,1.);
@@ -267,7 +270,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
       normal=normalize(mat3(viewMatrix)*mix(surfaceNormal,worldGroundNormal,distantBlend));
       `);
   };
-  material.customProgramCacheKey=()=> `silence-ground-layers-v1${WORLD_V2?`-w2-${WORLD_SEED}`:''}-${perfOn('groundTaps')?'taps':'all'}`;
+  material.customProgramCacheKey=()=> `silence-ground-layers-v2${WORLD_V2?`-w2-${WORLD_SEED}`:''}-${perfOn('groundTaps')?'taps':'all'}`;
   const terrainChunks=new Map<string,{tile:TerrainTile;mesh:THREE.Mesh}>();
   // The low-detail distant surface preserves the mountain silhouette and covers
   // teleports while near chunks stream. It is below the exact walkable surface.

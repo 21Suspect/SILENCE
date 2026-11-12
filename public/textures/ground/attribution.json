@@ -1,83 +1,63 @@
 {
- "provider": "Poly Haven",
  "license": "CC0-1.0",
  "license_url": "https://polyhaven.com/license",
- "packing": "color.webp (2048 px): RGB = diffuse x ambient occlusion^0.6, A = displacement (height). surface.jpg (1024 px, 4:4:4): R,G = OpenGL normal x,y, B = roughness. Built by work/gfx/ph/pack.sh from the 2K maps listed per layer.",
+ "packing": "color.webp (2048 px): RGB = diffuse x ambient occlusion^0.6, A = displacement (height). surface.jpg (1024 px, 4:4:4): R,G = OpenGL normal x,y, B = roughness. Built by work/gfx/ph/pack.sh (and its twin work/gfx/lush/pack2.sh, which takes the maps by path) from the 2K maps listed per layer.",
  "assets": [
   {
    "layer": "floor",
-   "asset": "forest_ground_04",
-   "source": "https://polyhaven.com/a/forest_ground_04",
+   "asset": "Ground068",
+   "provider": "ambientCG",
+   "source": "https://ambientcg.com/view?id=Ground068",
    "license": "CC0-1.0",
-   "license_url": "https://polyhaven.com/license",
+   "license_url": "https://docs.ambientcg.com/license/",
    "maps": {
-    "diff": {
-     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/forest_ground_04/forest_ground_04_diff_2k.jpg",
-     "md5": "f6ce9c8af4316c2627a4b3fbab8ad944"
-    },
-    "nor": {
-     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/forest_ground_04/forest_ground_04_nor_gl_2k.jpg",
-     "md5": "5fa9256955e7bfa40a0269b4965ce646"
-    },
-    "rough": {
-     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/forest_ground_04/forest_ground_04_rough_2k.jpg",
-     "md5": "81daa9a1d8b35dd9ffdff3aa7a74fbd9"
-    },
-    "ao": {
-     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/forest_ground_04/forest_ground_04_ao_2k.jpg",
-     "md5": "c86e235729064b28e2354bf4bdcd4465"
-    },
-    "disp": {
-     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/2k/forest_ground_04/forest_ground_04_disp_2k.png",
-     "md5": "aee602747c99de3ecee2c4d969775aaf"
+    "zip": {
+     "source_url": "https://ambientcg.com/get?file=Ground068_2K-JPG.zip",
+     "md5": "936ec8fe7d5781e0f435b32894d03458",
+     "used": [
+      "Color",
+      "NormalGL",
+      "Roughness",
+      "AmbientOcclusion",
+      "Displacement"
+     ]
     }
    },
-   "files": {
-    "color": "floor-color.webp",
-    "surface": "floor-surface.jpg"
-   },
-   "authors": [
-    "Rob Tuytel",
-    "Rico Cilliers"
-   ],
-   "physical_width_m": 3.15
+   "physical_width_m": "2.5 (estimated: ambientCG gives none)"
   },
   {
    "layer": "litter",
-   "asset": "forest_leaves_04",
-   "source": "https://polyhaven.com/a/forest_leaves_04",
+   "asset": "forest_leaves_02",
+   "provider": "Poly Haven",
+   "source": "https://polyhaven.com/a/forest_leaves_02",
    "license": "CC0-1.0",
    "license_url": "https://polyhaven.com/license",
-   "maps": {
-    "diff": {
-     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/forest_leaves_04/forest_leaves_04_diff_2k.jpg",
-     "md5": "a6cfde9e6846f5aa27bcbe0a58fe9907"
-    },
-    "nor": {
-     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/forest_leaves_04/forest_leaves_04_nor_gl_2k.jpg",
-     "md5": "556be132fa21f23036afc33cd12cd4d8"
-    },
-    "rough": {
-     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/forest_leaves_04/forest_leaves_04_rough_2k.jpg",
-     "md5": "af02739e88a39f8760df09f28c64fee6"
-    },
-    "ao": {
-     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/forest_leaves_04/forest_leaves_04_ao_2k.jpg",
-     "md5": "cd50521f3040e8f61cba62ea4dac0ae9"
-    },
-    "disp": {
-     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/2k/forest_leaves_04/forest_leaves_04_disp_2k.png",
-     "md5": "4d36f558b5fcdc64e488b558ffc38309"
-    }
-   },
-   "files": {
-    "color": "litter-color.webp",
-    "surface": "litter-surface.jpg"
-   },
    "authors": [
     "Rob Tuytel"
    ],
-   "physical_width_m": 1.5
+   "maps": {
+    "diff": {
+     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/forest_leaves_02/forest_leaves_02_diffuse_2k.jpg",
+     "md5": "b7837ba1c51fb0e11af36d6b4e225c20"
+    },
+    "nor": {
+     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/forest_leaves_02/forest_leaves_02_nor_gl_2k.jpg",
+     "md5": "f974000a2ddc7dcd22bc84c37aa5d7ce"
+    },
+    "rough": {
+     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/forest_leaves_02/forest_leaves_02_rough_2k.jpg",
+     "md5": "76e0435a0a0a0db7e591641b0a918e9e"
+    },
+    "ao": {
+     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/forest_leaves_02/forest_leaves_02_ao_2k.jpg",
+     "md5": "637a544691a376a40924d39830b9885c"
+    },
+    "disp": {
+     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/forest_leaves_02/forest_leaves_02_disp_2k.jpg",
+     "md5": "13830bbe7693f4cf7f0e3c0958d3f211"
+    }
+   },
+   "physical_width_m": 3
   },
   {
    "layer": "roots",
@@ -119,40 +99,25 @@
   },
   {
    "layer": "moss",
-   "asset": "sparse_grass",
-   "source": "https://polyhaven.com/a/sparse_grass",
+   "asset": "Moss003",
+   "provider": "ambientCG",
+   "source": "https://ambientcg.com/view?id=Moss003",
    "license": "CC0-1.0",
-   "license_url": "https://polyhaven.com/license",
+   "license_url": "https://docs.ambientcg.com/license/",
    "maps": {
-    "diff": {
-     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/sparse_grass/sparse_grass_diff_2k.jpg",
-     "md5": "b181e9c61bae87c1bb9b14eecd767d65"
-    },
-    "nor": {
-     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/sparse_grass/sparse_grass_nor_gl_2k.jpg",
-     "md5": "8ec54ff3b639e6e044ea83792d7c49b0"
-    },
-    "rough": {
-     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/sparse_grass/sparse_grass_rough_2k.jpg",
-     "md5": "446cbe6254b1b210de44ef7c53da6204"
-    },
-    "ao": {
-     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/sparse_grass/sparse_grass_ao_2k.jpg",
-     "md5": "f820543f1984a5b7e19de4f454fff698"
-    },
-    "disp": {
-     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/2k/sparse_grass/sparse_grass_disp_2k.png",
-     "md5": "c9f328ac5e7e29d65abe10b9943efb64"
+    "zip": {
+     "source_url": "https://ambientcg.com/get?file=Moss003_2K-JPG.zip",
+     "md5": "4fdd33e738fc751e3b44c4972297ac2b",
+     "used": [
+      "Color",
+      "NormalGL",
+      "Roughness",
+      "AmbientOcclusion",
+      "Displacement"
+     ]
     }
    },
-   "files": {
-    "color": "moss-color.webp",
-    "surface": "moss-surface.jpg"
-   },
-   "authors": [
-    "Amal Kumar"
-   ],
-   "physical_width_m": 2.0
+   "physical_width_m": "1.5 (estimated: ambientCG gives none)"
   },
   {
    "layer": "path",
@@ -265,5 +230,9 @@
    ],
    "physical_width_m": 2.0
   }
- ]
+ ],
+ "providers": {
+  "Poly Haven": "https://polyhaven.com/license",
+  "ambientCG": "https://docs.ambientcg.com/license/"
+ }
 }
