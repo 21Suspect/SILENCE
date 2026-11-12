@@ -54,36 +54,57 @@
     },
     {
       "source": "https://polyhaven.com/a/jolcham_oak_bark_01",
-      "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/jolcham_oak_bark_01/jolcham_oak_bark_01_diff_1k.jpg",
-      "file": "oak-diff.jpg"
+      "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/jolcham_oak_bark_01/jolcham_oak_bark_01_diff_2k.jpg",
+      "file": "oak-diff.jpg",
+      "note": "2K, the scan's occlusion (ao, ^0.6) multiplied in",
+      "author": "Charlotte Baglioni"
     },
     {
       "source": "https://polyhaven.com/a/jolcham_oak_bark_01",
-      "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/jolcham_oak_bark_01/jolcham_oak_bark_01_nor_gl_1k.jpg",
-      "file": "oak-normal.jpg"
+      "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/jolcham_oak_bark_01/jolcham_oak_bark_01_nor_gl_2k.jpg",
+      "file": "oak-normal.jpg",
+      "note": "2K, OpenGL",
+      "author": "Charlotte Baglioni"
     },
     {
       "source": "https://polyhaven.com/a/jolcham_oak_bark_01",
-      "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/jolcham_oak_bark_01/jolcham_oak_bark_01_rough_1k.jpg",
-      "file": "oak-rough.jpg"
+      "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/jolcham_oak_bark_01/jolcham_oak_bark_01_rough_2k.jpg",
+      "file": "oak-rough.jpg",
+      "note": "2K halved to 1K",
+      "author": "Charlotte Baglioni"
+    },
+    {
+      "source": "https://polyhaven.com/a/jolcham_oak_bark_01",
+      "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/jolcham_oak_bark_01/jolcham_oak_bark_01_disp_2k.jpg",
+      "file": "oak-height.jpg",
+      "note": "2K displacement halved to 1K, high-passed and levelled (pack.py)",
+      "author": "Charlotte Baglioni"
     },
     {
       "source": "https://www.cgbookcase.com/textures/birch-bark-01",
       "provider": "cgbookcase",
       "license": "CC0-1.0",
-      "note": "Normal map is DirectX; normalScale.y inverted in shader.",
+      "note": "BirchBark01_4K.zip (2048x4096; the site hands the zip out through a download button, not a link). Normal map is DirectX; normalScale.y inverted in forest.ts. Colour has the scan's ambient occlusion (^0.6) multiplied in; roughness and height are halved to 1024x2048, the height high-passed and levelled (tools/assets/trees/pack.py).",
       "files": [
         {
-          "source_url": "https://cgbookcase.b-cdn.net/textures/thumbnails/BirchBark01_1K/BirchBark01_1K_BaseColor.png",
-          "file": "birch-diff.png"
+          "source_file": "BirchBark01_4K_BaseColor.png",
+          "file": "birch-diff.jpg"
         },
         {
-          "source_url": "https://cgbookcase.b-cdn.net/textures/thumbnails/BirchBark01_1K/BirchBark01_1K_Normal.png",
-          "file": "birch-normal.png"
+          "source_file": "BirchBark01_4K_Normal.png",
+          "file": "birch-normal.jpg"
         },
         {
-          "source_url": "https://cgbookcase.b-cdn.net/textures/thumbnails/BirchBark01_1K/BirchBark01_1K_Roughness.png",
-          "file": "birch-rough.png"
+          "source_file": "BirchBark01_4K_Roughness.png",
+          "file": "birch-rough.jpg"
+        },
+        {
+          "source_file": "BirchBark01_4K_Height.png",
+          "file": "birch-height.jpg"
+        },
+        {
+          "source_file": "BirchBark01_4K_AO.png",
+          "file": "(multiplied into birch-diff.jpg)"
         }
       ]
     }

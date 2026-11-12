@@ -186,7 +186,7 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
   };
   const pineBark=coniferBark('pine','Scanned Scots pine bark'),spruceBark=coniferBark('spruce','Scanned fir bark');
   const pineNeedles=coniferNeedles('pine','Scanned pine sprays'),spruceNeedles=coniferNeedles('spruce','Scanned fir sprays');
-  const birchBark=new THREE.MeshStandardMaterial({map:texture('/plantassets/forest-variety/birch-diff.png',true),normalMap:texture('/plantassets/forest-variety/birch-normal.png'),roughnessMap:texture('/plantassets/forest-variety/birch-rough.png'),roughness:.96,normalScale:new THREE.Vector2(.85,-.85),vertexColors:true,color:0xe5e4d8});
+  const birchBark=new THREE.MeshStandardMaterial({map:texture('/plantassets/forest-variety/birch-diff.jpg',true),normalMap:texture('/plantassets/forest-variety/birch-normal.jpg'),roughnessMap:texture('/plantassets/forest-variety/birch-rough.jpg'),roughness:.96,normalScale:new THREE.Vector2(.85,-.85),vertexColors:true,color:0xe5e4d8});
   birchBark.name='Scanned silver birch — peeling bark and fissures';
   const oakBark=new THREE.MeshStandardMaterial({map:texture('/plantassets/forest-variety/oak-diff.jpg',true),normalMap:texture('/plantassets/forest-variety/oak-normal.jpg'),roughnessMap:texture('/plantassets/forest-variety/oak-rough.jpg'),roughness:1,normalScale:new THREE.Vector2(.9,.9),vertexColors:true,color:0xdbd6bd});
   oakBark.name='Scanned oak bark';

@@ -2,7 +2,7 @@
  "provider": "Poly Haven",
  "license": "CC0-1.0",
  "license_url": "https://polyhaven.com/license",
- "built_by": "tools/assets/trees/pack.py and sprays.py (textures only; the trees are grown by game/render/world/conifer.ts and broadleaf.ts)",
+ "built_by": "tools/assets/trees/pack.py and sprays.py (textures only; the trees are grown by game/render/world/conifer.ts and broadleaf.ts). bark-height.jpg is the displacement map, high-passed and levelled (see pack.py).",
  "assets": [
   {
    "asset": "pine_tree_01",
@@ -12,7 +12,8 @@
    ],
    "source": "https://polyhaven.com/a/pine_tree_01",
    "license": "CC0-1.0",
-   "used": "pine/: twig atlas (needle sprays) and bark"
+   "used": "pine/: twig atlas (needle sprays) and bark (colour, normal, roughness, height)",
+   "bark_height_source": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/pine_tree_01/pine_tree_01_bark_disp_2k.jpg"
   },
   {
    "asset": "fir_tree_01",
@@ -22,7 +23,8 @@
    ],
    "source": "https://polyhaven.com/a/fir_tree_01",
    "license": "CC0-1.0",
-   "used": "spruce/: twig atlas (needle sprays) and bark"
+   "used": "spruce/: twig atlas (needle sprays) and bark (colour, normal, roughness, height)",
+   "bark_height_source": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/fir_tree_01/fir_tree_01_bark_disp_2k.jpg"
   },
   {
    "asset": "LeafSet016",
@@ -41,5 +43,5 @@
    "used": "birch/: leaf sprays composed from the scanned deltoid leaves"
   }
  ],
- "note": "pine/ and spruce/ come from Poly Haven; oak/ and birch/ leaf sprays are composed from ambientCG leaf scans (provider per asset below)."
+ "note": "pine/ and spruce/ come from Poly Haven; oak/ and birch/ leaf sprays are composed from ambientCG leaf scans (provider per asset)."
 }
