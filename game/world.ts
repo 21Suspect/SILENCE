@@ -6,12 +6,14 @@ export const TERRAIN_CHUNK = 32;
 export const TERRAIN_SEGMENTS = 48;
 export const TERRAIN_STEP = TERRAIN_CHUNK / TERRAIN_SEGMENTS;
 
-import { hash, smooth, noise, fbm, pathX, riverX, roadZ, warped, rockMask, COURSE, RIVER_BASE, ROAD_BASE, WORLD_SEED, waterHeightAt, channelOffset, channelShape, channelBranch, courseGLSL } from './world-noise';
+import { hash, smooth, noise, fbm, pathX, riverX, roadZ, roadFoot, ROAD_NORM, warped, rockMask, COURSE, RIVER_BASE, ROAD_BASE, WORLD_SEED, waterHeightAt, channelOffset, channelShape, channelBranch, courseGLSL, type RoadFoot } from './world-noise';
+import { roadGradeAt } from './road-grade';
+import { roadGap } from './road-geometry';
 import { landform } from './world-landform';
 import { WORLD_V2 } from './world-flags';
 import { broadWaterLevelAt, coastDistance, coastZ, lakeDistance, LAKE_CENTER, beachWidth, coastalGLSL } from './coastal-geography';
 import { ROAD } from './road-profile';
-import { GROUND_PADS, POI_PLACEMENTS, ROAD_ENDS, SCATTER_PLACEMENTS, TRAIL_LINES, MAIN_TRAIL_BOUNDS, placeLocal } from './world-layout';
+import { GROUND_PADS, POI_PLACEMENTS, ROAD_ENDS, SCATTER_PLACEMENTS, TRAIL_LINES, MAIN_TRAIL_BOUNDS, FORDS, placeLocal } from './world-layout';
 export { hash, smooth, noise, pathX, riverX, roadZ, channelOffset };
 const mix=(a:number,b:number,t:number)=>a+(b-a)*t;
 export const pathWidth=(z:number)=>.34+noise(z*.055,43)*.55+noise(z*.23,81)*.14;
@@ -41,15 +43,12 @@ export const trailPresence=(x:number,z:number)=>WORLD_V2? smooth(z,MAIN_TRAIL_BO
 // The road does not fade out: it runs to a tunnel mouth at each end of the valley and stops there.
 const ROAD_EAST=WORLD_V2?ROAD_ENDS.find(e=>e.side>0)!.x:1e9,ROAD_WEST=WORLD_V2?ROAD_ENDS.find(e=>e.side<0)!.x:-1e9;
 /**
- * Metres from the road's centre line, measured across it (not along z, which on a diagonal stretch is up to 1.5 times
- * longer). The shader measures the same thing. Beyond the verge it only has to be big, so the far field is cheap.
+ * Metres from the road's centre line, measured across it (not along z, which on a diagonal stretch is up to 4 times longer). It is
+ * the distance to the nearest point of the curve, found by Newton steps (see roadFoot), and the shader measures the same thing.
+ * Beyond the verge it only has to be big, so the far field is one cheap evaluation of the centre line.
  */
-export function roadDistance(x:number,z:number){
-  const dz=Math.abs(z-roadZ(x));
-  if(dz>21)return dz/1.5;
-  const m=roadZ(x+.5)-roadZ(x-.5);
-  return dz/Math.sqrt(1+m*m);
-}
+const roadFootScratch:RoadFoot={x:0,z:0,m:0,across:0};
+export function roadDistance(x:number,z:number){return roadGap(x,z,24);}
 export const roadPresence=(x:number,z:number)=>WORLD_V2?(1-smooth(x,ROAD_EAST-.5,ROAD_EAST+2.5))*(1-smooth(-x,-ROAD_WEST-.5,-ROAD_WEST+2.5)):trailPresence(x,z);
 // --- rebuilt world: trails, pads and rock, all sampled from the same data everywhere -------------
 const trailCells=new Map<string,number[]>();const trailSegments:number[]=[];
@@ -75,7 +74,13 @@ function trailDistanceV2(x:number,z:number){
 let trailGrade:Float32Array[]|undefined;
 function buildTrailGrade(){
   return TRAIL_LINES.map(line=>{
-    const n=line.length,raw=Float32Array.from(line,([x,z])=>landform(x,z,Math.hypot(x,z)));
+    // Where a path meets the road it is graded to the road's own level: the road may stand on an embankment or lie in a cutting.
+    const n=line.length,raw=Float32Array.from(line,([x,z])=>{
+      const land=landform(x,z,Math.hypot(x,z));
+      if(Math.abs(z-roadZ(x))>26*ROAD_NORM)return land;
+      const foot=roadFoot(x,z,roadFootScratch),w=(1-smooth(Math.abs(foot.across),ROAD.level+1,26))*roadPresence(x,z);
+      return w>0?mix(land,roadGradeAt(foot.x),w):land;
+    });
     let out=raw;
     for(let pass=0;pass<4;pass++){const next=out.slice();for(let i=1;i<n-1;i++)next[i]=(out[i-1]+out[i]*2+out[i+1])/4;out=next;}
     const run=(i:number)=>Math.hypot(line[i][0]-line[i-1][0],line[i][1]-line[i-1][1]);
@@ -154,18 +159,23 @@ function mineHill(x:number,z:number){
 let groundPadWeight=0;
 function shapedGround(x:number,z:number,radius:number,road:number,path:number,detail:number){
   let h=landform(x,z,radius),roadGrade=0,roadHold=0,roadAcross=99;
-  // The road was cut and filled: it holds a gentle grade with banks either side. The grade is the one at the nearest point of
-  // the centre line, so a section across the carriageway is level even where the road runs diagonally, as far out as the shoulder.
-  const roadDz=z-roadZ(x);
-  if(Math.abs(roadDz)<40){
-    const m=roadZ(x+.5)-roadZ(x-.5),k=1/(1+m*m),across=Math.abs(roadDz)*Math.sqrt(k);
+  // The road is cut and filled to its own designed grade (road-grade.ts), level across the carriageway and shoulder. Beyond the
+  // shoulder the bank rises or falls no steeper than a bank is allowed to, and rounds off into the land where it meets it: a cutting
+  // through a hillside, a low embankment across a hollow. The grade is the one at the nearest point of the centre line.
+  if(Math.abs(z-roadZ(x))<ROAD.bank*ROAD_NORM){
+    const foot=roadFoot(x,z,roadFootScratch),across=Math.abs(foot.across);
     roadAcross=across;
-    if(across<ROAD.ease+1){
-      const xc=x+roadDz*m*k;
-      const cz=(px:number)=>landform(px,roadZ(px),Math.hypot(px,roadZ(px)));
-      const grade=(cz(xc-16)+cz(xc-8)+cz(xc)+cz(xc+8)+cz(xc+16))/5;
-      h=mix(grade,h,Math.max(smooth(across,ROAD.level,ROAD.ease),1-roadPresence(x,z)));
-      roadGrade=grade;roadHold=(1-smooth(across,ROAD.level,ROAD.level+5.6))*roadPresence(x,z);
+    if(across<ROAD.bank){
+      const grade=roadGradeAt(foot.x),presence=roadPresence(x,z),d=across-ROAD.level-1.2;
+      let bank=grade;
+      if(d>0){
+        // The last stretch before a mouth is a rock cutting: the banks steepen towards it, where the tunnel's own wings take over.
+        const toMouth=Math.min(ROAD_EAST-foot.x,foot.x-ROAD_WEST)*Math.hypot(1,foot.m);
+        const rise=h-grade,slope=rise>0?mix(2.6,ROAD.cutSlope,smooth(toMouth,4,44)):ROAD.fillSlope,limit=slope*(d-1.8*(1-Math.exp(-d/1.8))),a=Math.abs(rise),k=1.4,t=Math.max(k-Math.abs(a-limit),0)/k;
+        bank=grade+Math.sign(rise)*(Math.min(a,limit)-t*t*k*.25);
+      }
+      h=mix(h,bank,presence);
+      roadGrade=grade;roadHold=(1-smooth(across,ROAD.level-.4,ROAD.level+.8))*presence;
     }
   }
   const trailOff=trailDistanceV2(x,z);
@@ -212,7 +222,7 @@ export function biomeAt(x:number,z:number):BiomeWeights {
 export function rawHeight(x:number,z:number) {
   const radius=Math.hypot(x,z),angle=Math.atan2(z,x),presence=trailPresence(x,z);
   const path=(1-smooth(pathDistance(x,z),pathWidth(z)*.65,pathWidth(z)+.8))*presence;
-  const road=WORLD_V2?(1-smooth(roadDistance(x,z),ROAD.half,ROAD.level))*roadPresence(x,z):(1-smooth(Math.abs(z-roadZ(x)),1.55,2.65))*roadPresence(x,z);
+  const road=WORLD_V2?(1-smooth(roadDistance(x,z),ROAD.half,ROAD.level+1.4))*roadPresence(x,z):(1-smooth(Math.abs(z-roadZ(x)),1.55,2.65))*roadPresence(x,z);
   const base=2.2+(noise(x*.025,z*.025)-.5)*5.2+(noise(x*.085,z*.085)-.5)*1.15;
   const rolling=(noise(x*.008+9,z*.008-5)-.5)*12*smooth(radius,70,220);
   const ridge=14*Math.exp(-((x-265)**2+(z-200)**2)/23000)+7*Math.exp(-((x+265)**2+(z+255)**2)/14000);
@@ -247,7 +257,9 @@ export function rawHeight(x:number,z:number) {
   const distance=WORLD_V2?channelShape(x,z):Math.abs(x-riverX(z)),water=waterHeightAt(z);
   const sideChannel=WORLD_V2?channelBranch:0;
   const width=1.15+noise(z*.055,7)*.55;
-  const bed=water-.61+noise(x*.75,z*.75)*.12+Math.sin(z*.23)*.035;
+  // A ford is a gravel bar across the stream: its bed is raised to a knee's depth where a path crosses.
+  let ford=0;if(WORLD_V2)for(const f of FORDS){const d=Math.hypot(x-f.x,z-f.z);if(d<12)ford=Math.max(ford,1-smooth(d,4.5,11.5));}
+  const bed0=water-.61+noise(x*.75,z*.75)*.12+Math.sin(z*.23)*.035,bed=ford>0?mix(bed0,Math.max(bed0,water-.3),ford):bed0;
   // A gravel shelf, gentle near bank and long transition into the forest
   // replace the deep V-shaped ditch. Both shores meet the actual water level.
   const shelf=mix(bed,water+.16,smooth(distance,width,3.3+noise(z*.035,24)*.55));
@@ -265,20 +277,16 @@ export function rawHeight(x:number,z:number) {
   // Lake and ocean beds remain below their horizontal water plane. River
   // banks must not leave dry ridges across the shared mouth of either basin.
   if(WORLD_V2 && broadWaterLevelAt(x,z)!==undefined)out=Math.min(out,landform(x,z));
-  return WORLD_V2&&!tunnelsOff?tunnelGround(x,z,out):out;
+  return WORLD_V2?tunnelGround(x,z,out):out;
 }
 // The road tunnels are driven into the foot of the mountain: the ground stands up behind each mouth and runs on up
 // the slope, while the bore itself stays at road level. The rock model roofs the bore over and hides the cut.
-let tunnelsOff=false;
-const TUNNELS=WORLD_V2?ROAD_ENDS.map(e=>({...e,level:undefined as number|undefined})):[];
+const TUNNELS=WORLD_V2?ROAD_ENDS:[];
 function tunnelGround(x:number,z:number,h:number){
   for(const t of TUNNELS){
     const dx=x-t.x,dz=z-t.z;
     if(dx*dx+dz*dz>70*70)continue;
-    if(t.level===undefined){
-      // The mouth is cut into the foot of the slope: its floor is the road's own level a little way back down it.
-      tunnelsOff=true;t.level=Math.min(rawHeight(t.x,t.z),rawHeight(t.x+Math.sin(t.yaw)*18,t.z+Math.cos(t.yaw)*18)+.4);tunnelsOff=false;
-    }
+    // The mouth stands at the level the road was graded up to: the profile runs level for the last 30 m before it.
     const c=Math.cos(t.yaw),s=Math.sin(t.yaw),lx=dx*c-dz*s,lz=dx*s+dz*c,ax=Math.abs(lx);
     // Model-local +z looks down the road into the valley; -z runs into the hill.
     // Level across the mouth and through the bore, so the portal, its wings and the roadway all stand on one floor.

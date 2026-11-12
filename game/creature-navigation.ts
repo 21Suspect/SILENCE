@@ -27,28 +27,54 @@ export function creatureCanClimb(c:SolidCollider,heightAt:(x:number,z:number)=>n
 }
 /** One spatial query serves body planning and the rig's contacts. Navigation is only
  * active during an encounter; static geometry is never rebuilt for the agent. */
-export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,world:Query={nearby:()=>[]},waterSurfaceAt?:(x:number,z:number)=>number|undefined,bodyScale=1){
+export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,world:Query={nearby:()=>[]},waterSurfaceAt?:(x:number,z:number)=>number|undefined,bodyScale=1,offLimits?:(x:number,z:number)=>boolean){
   const radius=2.6*bodyScale,hardRadius=.85*bodyScale;
   /** m/s squared: how fast a body that has lost its route eases down when nothing slower was asked for. */
   const COAST_BRAKE=9,COAST_BRAKE_MAX=45,COAST_LOOK=7,APPROACH_BRAKE=8,ROUTE_END_REPLAN=4;
-  const MAX_ROUTE_ITERATIONS=900;
+  /** Metres per second squared: the most it gathers speed, and the most it sheds speed for a corner (a stun or a stop passes its own brake). */
+  const MAX_GATHER=8.5,MAX_EASE=10;
+  const MAX_ROUTE_ITERATIONS=900,PLAN_STEPS=1400;
   let climb:ReturnType<typeof createSurfaceClimb>,climbCooldown=0;
   let solids:SolidCollider[]=[],blockers:SolidCollider[]=[],supports:SolidCollider[]=[],layers:SolidCollider[]=[],cacheX=Infinity,cacheZ=Infinity,cacheAge=1;
   // Each list's bounds, so the many questions asked of them (a route search asks thousands) only look at what is near the point.
   let blockerBounds:[number,number,number,number][]=[],supportBounds:[number,number,number,number][]=[],layerBounds:[number,number,number,number][]=[];
+  const CELL=3,CELL_REACH=2.8;let blockerCells=new Map<number,number[]>();
   let route:{x:number;z:number}[]=[],goal={x:0,z:0},lastHeading={x:0,z:0},replanIn=0,replans=0,lastBlocked=false,routeRadius=radius;
-  let travelSpeed=0,heading=0,headingReady=false,angularVelocity=0,lastDesiredSpeed=0,referenceY:number|undefined;
+  /** Where it is really going, when the host knows (the player, a sound): routes are planned to it once it is near. */
+  let aim:{x:number;z:number}|undefined,goalAimed=false,planMs=0,planWorst=0,planSlow=0,searchSteps=0;
+  let travelSpeed=0,heading=0,headingReady=false,angularVelocity=0,lastDesiredSpeed=0,referenceY:number|undefined,travelY=-1e9;
   // Footholds that could not be found, by where they were asked for, for a moment: a foot with nowhere to go is asked
   // about every frame, and each failed search tries nearly a hundred places against every obstacle near.
   let clock=0;const failed=new Map<string,number>();
-  const baseSurfaceAt=(x:number,z:number)=>Math.max(heightAt(x,z),waterSurfaceAt?.(x,z)??-Infinity);
+  // It walks on the bed of whatever water it is in: it wades the river, legs in the water, and never stands on the surface.
+  // (It used to be held up by the water's surface, and crossed the lake as if it were a floor.)
+  const baseSurfaceAt=(x:number,z:number)=>heightAt(x,z);
+  // Where it will not go at all: the lake and the sea, past wading depth. Asked for tens of thousands of points in a route
+  // search, so answered once per 1.5 m cell until the obstacles around it are next refreshed.
+  const closed=new Map<number,boolean>();
+  const shut=(x:number,z:number)=>{if(!offLimits)return false;const key=(Math.floor(x/1.5)+8192)*16384+Math.floor(z/1.5)+8192;let v=closed.get(key);if(v===undefined){v=offLimits(x,z);closed.set(key,v);}return v;};
   function refresh(x:number,z:number,dt=0,force=false){
     clock+=dt;cacheAge+=dt;if(!force&&cacheAge<.3&&Math.hypot(x-cacheX,z-cacheZ)<2)return;
-    cacheX=x;cacheZ=z;cacheAge=0;solids=world.nearby(x,z,27).filter(c=>!ignored(c));layers=solids.filter(c=>c.tag==='bridge deck'||c.tag==='bridge timber'||c.tag==='climb roof');const layered=new Set(layers);supports=solids.filter(c=>!layered.has(c)&&creatureCanClimb(c,heightAt));const climbable=new Set(supports);blockers=solids.filter(c=>!climbable.has(c)&&!layered.has(c));
+    cacheX=x;cacheZ=z;cacheAge=0;if(closed.size>20000)closed.clear();solids=world.nearby(x,z,27).filter(c=>!ignored(c));layers=solids.filter(c=>c.tag==='bridge deck'||c.tag==='bridge timber'||c.tag==='climb roof');const layered=new Set(layers);supports=solids.filter(c=>!layered.has(c)&&creatureCanClimb(c,heightAt));const climbable=new Set(supports);blockers=solids.filter(c=>!climbable.has(c)&&!layered.has(c));
     blockerBounds=blockers.map(boundsOf);supportBounds=supports.map(boundsOf);layerBounds=layers.map(boundsOf);
+    // Which blockers can matter at a point, by 3 m cell: a route search asks "is this spot clear" tens of thousands of
+    // times, and against every trunk within 27 m that was most of a plan's cost.
+    blockerCells=new Map();
+    for(let i=0;i<blockers.length;i++){
+      const b=blockerBounds[i];
+      for(let cx=Math.floor((b[0]-CELL_REACH)/CELL);cx<=Math.floor((b[1]+CELL_REACH)/CELL);cx++)for(let cz=Math.floor((b[2]-CELL_REACH)/CELL);cz<=Math.floor((b[3]+CELL_REACH)/CELL);cz++){
+        const key=(cx+4096)*8192+cz+4096,list=blockerCells.get(key);if(list)list.push(i);else blockerCells.set(key,[i]);
+      }
+    }
   }
+  /** The blockers that could be within CELL_REACH of a point. */
+  const blockersNear=(x:number,z:number)=>blockerCells.get((Math.floor(x/CELL)+4096)*8192+Math.floor(z/CELL)+4096);
   function clear(x:number,z:number,r=radius){
-    for(let i=0;i<blockers.length;i++)if(near(blockerBounds[i],x,z,r)&&obstacleClearance(blockers[i],x,z)<r)return false;
+    if(shut(x,z))return false;
+    if(r<=CELL_REACH){
+      const list=blockersNear(x,z);
+      if(list)for(let k=0;k<list.length;k++){const i=list[k];if(near(blockerBounds[i],x,z,r)&&obstacleClearance(blockers[i],x,z)<r)return false;}
+    }else for(let i=0;i<blockers.length;i++)if(near(blockerBounds[i],x,z,r)&&obstacleClearance(blockers[i],x,z)<r)return false;
     let floor:number|undefined;
     for(let i=0;i<layers.length;i++){
       if(!near(layerBounds[i],x,z,r))continue;
@@ -154,7 +180,7 @@ export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,wo
   }
   // Exact gap centres supplement the grid: a narrow passage can fall between
   // grid samples. Edges still sweep the entire body; no trunk is ignored.
-  function gapRoute(x:number,z:number,clearance:number){
+  function gapRoute(x:number,z:number,goal:{x:number;z:number},clearance:number){
     const trees=blockers.filter(c=>c.kind==='capsule'&&c.tag==='tree');
     const nodes=[{x,z},goal],seen=new Set<string>();
     for(let i=0;i<trees.length;i++)for(let j=i+1;j<trees.length;j++){
@@ -168,13 +194,14 @@ export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,wo
     const candidates=nodes.slice(2).sort((a,b)=>Math.hypot(a.x-x,a.z-z)-Math.hypot(b.x-x,b.z-z)).slice(0,180);
     nodes.splice(2,nodes.length-2,...candidates);
     const cost=nodes.map(()=>Infinity),prev=nodes.map(()=>-1),closed=new Set<number>();cost[0]=0;let best=0,bestH=17;
+    const level:number[]=[];const levelAt=(i:number)=>level[i]??=baseSurfaceAt(nodes[i].x,nodes[i].z);
     for(let iteration=0;iteration<nodes.length;iteration++){
       let at=-1,score=Infinity;for(let i=0;i<nodes.length;i++){const f=cost[i]+Math.hypot(nodes[i].x-goal.x,nodes[i].z-goal.z);if(!closed.has(i)&&f<score){score=f;at=i;}}
       if(at<0)break;closed.add(at);const a=nodes[at],h=Math.hypot(a.x-goal.x,a.z-goal.z);if(h<bestH){best=at;bestH=h;}if(at===1||h<.65)break;
       for(let i=1;i<nodes.length;i++){
         if(closed.has(i)||i===at)continue;const b=nodes[i],distance=Math.hypot(a.x-b.x,a.z-b.z);
         if(distance>8&&i!==1||!segmentClear(a.x,a.z,b.x,b.z,clearance))continue;
-        if(Math.abs(baseSurfaceAt(a.x,a.z)-baseSurfaceAt(b.x,b.z))>distance*.75)continue;
+        if(Math.abs(levelAt(at)-levelAt(i))>distance*.75)continue;
         const next=cost[at]+distance;if(next<cost[i]){cost[i]=next;prev[i]=at;}
       }
     }
@@ -188,68 +215,162 @@ export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,wo
    * staged envelopes (2.6, 2.25, .95 m) are attempted; subsequent frames can
    * replan if that corridor becomes blocked.
    */
-  function plan(x:number,z:number,hx:number,hz:number,clearance=radius){
-    routeRadius=clearance;replans++;goal={x:x+hx*17,z:z+hz*17};lastHeading={x:hx,z:hz};replanIn=.8;
-    if(segmentClear(x,z,goal.x,goal.z,clearance)){route=[goal];return;}
-    // An inflated endpoint inside bark cannot be reached by any A* search.
-    // Try the next stance immediately instead of exhausting thousands of nodes.
-    if(clearance>1&&(!clear(x,z,clearance)||!clear(goal.x,goal.z,clearance))){plan(x,z,hx,hz,clearance>2.3?2.25:.95);return;}
-    // A wall descent may finish between porch posts inside the preferred
-    // planning margin. Leave using the real body envelope, then widen again.
-    if(clearance<1.1&&!clear(x,z,clearance)&&clear(x,z,hardRadius+.025)){
-      let escape:{x:number;z:number}|undefined,score=Infinity;
-      for(let r=.4;r<=3.2;r+=.4)for(let i=0;i<24;i++){
-        const angle=i*Math.PI/12,tx=x+Math.cos(angle)*r,tz=z+Math.sin(angle)*r;
-        if(!clear(tx,tz,clearance)||!segmentClear(x,z,tx,tz,hardRadius+.025))continue;
-        const cost=r+Math.hypot(tx-goal.x,tz-goal.z);
-        if(cost<score){score=cost;escape={x:tx,z:tz};}
-      }
-      if(escape){routeRadius=hardRadius+.025;route=[escape];return;}
+  /**
+   * The pace it can hold through the bends of the route ahead. Every bend has a speed it can be taken at (tighter is
+   * slower), and the body eases down for it over the distance it has, instead of arriving too fast and braking on top of
+   * it. On a straight route this is simply the pace asked for.
+   */
+  const bendAt:number[]=[],bendTurn:number[]=[];
+  function cornerPace(x:number,z:number,speed:number){
+    const SPAN=3,LATERAL=16,SLOWEST=4,look=speed*speed/(2*MAX_EASE)+4+SPAN;
+    bendAt.length=0;bendTurn.length=0;
+    let ax=x,az=z,travelled=0,last=headingReady?heading:undefined as number|undefined;
+    for(const point of route){
+      const d=Math.hypot(point.x-ax,point.z-az);if(d<.02)continue;
+      const angle=Math.atan2(point.x-ax,point.z-az);
+      if(last!==undefined){bendAt.push(travelled);bendTurn.push(Math.atan2(Math.sin(angle-last),Math.cos(angle-last)));}
+      last=angle;travelled+=d;ax=point.x;az=point.z;if(travelled>look)break;
     }
-    if(clearance<1.1){const gap=gapRoute(x,z,clearance);if(gap.nodes.length){route=roundRoute({x,z},gap.nodes,clearance);return;}}
+    let pace=speed;
+    for(let i=0;i<bendAt.length;i++){
+      // Turning summed with its sign over a body length: a route that wiggles left and right is straight to a body this big.
+      let bend=0;for(let j=0;j<bendAt.length;j++)if(Math.abs(bendAt[j]-bendAt[i])<=SPAN/2)bend+=bendTurn[j];
+      bend=Math.abs(bend);if(bend<.06)continue;
+      const through=Math.max(SLOWEST,Math.sqrt(LATERAL*SPAN/bend));
+      pace=Math.min(pace,Math.sqrt(through*through+2*MAX_EASE*.8*Math.max(0,bendAt[i]-.5)));
+    }
+    return pace;
+  }
+  type Trial={nodes:{x:number;z:number}[];left:number;clearance:number;length?:number};
+  /**
+   * The body envelopes a route is tried at, widest first: legs spread, legs drawn in, legs folded fore and aft, and last
+   * the bare body. A real spider takes the open way when there is one and threads a gap when there is not.
+   */
+  const LEVELS=[radius,radius*.865,1.55,.95,hardRadius+.06];
+  /** Within this of where it is going the route is planned to that very point; beyond, to a point 17 m on along the heading. */
+  const AIM_RANGE=19,WITHIN_REACH=2.8;
+  /** The clear spot nearest `to` for a body this wide: a player against a trunk cannot be stood on, only beside. */
+  function settle(to:{x:number;z:number},clearance:number,x:number,z:number,range:number){
+    if(clear(to.x,to.z,clearance))return to;
+    let found:{x:number;z:number}|undefined,score=Infinity;
+    for(let r=.5;r<=range&&!found;r+=.5)for(let i=0;i<16;i++){
+      const angle=i*Math.PI/8,tx=to.x+Math.cos(angle)*r,tz=to.z+Math.sin(angle)*r;
+      if(!clear(tx,tz,clearance))continue;
+      const cost=r+Math.hypot(tx-x,tz-z)*.2;if(cost<score){score=cost;found={x:tx,z:tz};}
+    }
+    return found;
+  }
+  /** One search with one body envelope: the way toward `to`, and how far short of it the way ends. */
+  function search(x:number,z:number,to:{x:number;z:number},clearance:number,budget:number):Trial{
+    const left=(p:{x:number;z:number})=>Math.hypot(p.x-to.x,p.z-to.z);
+    if(segmentClear(x,z,to.x,to.z,clearance))return{nodes:[to],left:0,clearance};
+    // Exact gap centres first: a passage only just wide enough falls between the grid's samples. Taken only if it goes
+    // all the way; a chain of gaps that ends in the trees is not a route (it used to be taken, and the body stood in
+    // the first gap planning the same dead end again and again).
+    let viaGaps:Trial|undefined;
+    if(clearance<1.1){const gap=gapRoute(x,z,to,clearance);if(gap.nodes.length){viaGaps={nodes:gap.nodes,left:gap.remaining,clearance};if(gap.remaining<.7)return viaGaps;}}
     // Bounded local A*: comfortably outside the 17 m goal, with a real swept
     // clearance test on every edge (no diagonal corner cutting through trunks).
     const spacing=clearance<radius?.75:1.05,half=clearance<radius?29:21,n=half*2+1,count=n*n,start=half*n+half;
-    // Keep route smoothness informed by only the nearby obstacles that can
-    // influence this 17 m local plan.  The old per-node full-blocker reduction
-    // was the dominant first-route cost in a streamed forest.
-    const routeBlockers=blockers.map(c=>({c,d:Math.min(obstacleClearance(c,x,z),obstacleClearance(c,goal.x,goal.z))}))
-      .filter(item=>item.d<22).sort((a,b)=>a.d-b.d).slice(0,32).map(item=>item.c);
     const g=new Float64Array(count);g.fill(Infinity);g[start]=0;
     const previous=new Int32Array(count);previous.fill(-1);
-    const done=new Uint8Array(count),open=[start],occupancy=new Int8Array(count);occupancy.fill(-1);
+    const done=new Uint8Array(count),occupancy=new Int8Array(count);occupancy.fill(-1);
     const px=(index:number)=>x+(index%n-half)*spacing,pz=(index:number)=>z+(Math.floor(index/n)-half)*spacing;
-    const heuristic=(index:number)=>Math.hypot(px(index)-goal.x,pz(index)-goal.z);
-    let best=start,bestH=heuristic(start),iterations=0;
-    while(open.length&&iterations++<MAX_ROUTE_ITERATIONS){
-      let at=0,f=Infinity;for(let i=0;i<open.length;i++){const v=g[open[i]]+heuristic(open[i])*1.04;if(v<f){f=v;at=i;}}
-      const current=open[at];open[at]=open[open.length-1];open.pop();if(done[current])continue;done[current]=1;
-      const h=heuristic(current);if(h<bestH){best=current;bestH=h;}if(h<1.25)break;
+    const heuristic=(index:number)=>Math.hypot(px(index)-to.x,pz(index)-to.z);
+    // The ground under each sample, worked out once.
+    const ground=new Float32Array(count);ground.fill(NaN);
+    const groundAt=(index:number)=>{let y=ground[index];if(y!==y){y=baseSurfaceAt(px(index),pz(index));ground[index]=y;}return y;};
+    // The open set as a binary heap on cost-so-far plus distance-to-go: scanning a plain list for its least entry on
+    // every step was most of what a search cost.
+    const heapNode:number[]=[],heapKey:number[]=[];
+    const push=(node:number,key:number)=>{let i=heapNode.length;heapNode.push(node);heapKey.push(key);while(i>0){const up=(i-1)>>1;if(heapKey[up]<=key)break;heapNode[i]=heapNode[up];heapKey[i]=heapKey[up];i=up;}heapNode[i]=node;heapKey[i]=key;};
+    const pop=()=>{const top=heapNode[0],node=heapNode.pop()!,key=heapKey.pop()!,size=heapNode.length;if(size){let i=0;for(;;){let child=i*2+1;if(child>=size)break;if(child+1<size&&heapKey[child+1]<heapKey[child])child++;if(heapKey[child]>=key)break;heapNode[i]=heapNode[child];heapKey[i]=heapKey[child];i=child;}heapNode[i]=node;heapKey[i]=key;}return top;};
+    let best=start,bestH=heuristic(start),iterations=0;push(start,0);
+    while(heapNode.length&&iterations<budget){
+      const current=pop();if(done[current])continue;done[current]=1;iterations++;
+      const h=heuristic(current);if(h<bestH){best=current;bestH=h;}if(h<spacing*.8)break;
       const cx=current%n,cz=Math.floor(current/n);
       for(let dz=-1;dz<=1;dz++)for(let dx=-1;dx<=1;dx++){
         if(!dx&&!dz)continue;const nx=cx+dx,nz=cz+dz;if(nx<0||nz<0||nx>=n||nz>=n)continue;
         const next=nz*n+nx;if(done[next])continue;
         if(occupancy[next]<0)occupancy[next]=clear(px(next),pz(next),clearance)?1:0;
         if(!occupancy[next]||!segmentClear(px(current),pz(current),px(next),pz(next),clearance))continue;
-        const elevation=Math.abs(baseSurfaceAt(px(next),pz(next))-baseSurfaceAt(px(current),pz(current)));if(elevation>1.35)continue;
+        const elevation=Math.abs(groundAt(next)-groundAt(current));if(elevation>1.35)continue;
         // Occupancy and swept edge checks enforce the complete body envelope;
         // this short list adds a small cost preference for open space without
         // rescanning every streamed blocker at every node.
-        const margin=clearance<1.6?routeBlockers.reduce((v,c)=>Math.min(v,obstacleClearance(c,px(next),pz(next))),4):4;
+        let margin=4;
+        if(clearance<1.6){const list=blockersNear(px(next),pz(next));if(list)for(let k=0;k<list.length;k++)margin=Math.min(margin,obstacleClearance(blockers[list[k]],px(next),pz(next)));}
         const nextG=g[current]+Math.hypot(dx,dz)*spacing*(1+(clearance<1.6?.12/Math.max(.12,margin-clearance+.12):0))+elevation*.35;
-        if(nextG<g[next]){g[next]=nextG;previous[next]=current;open.push(next);}
+        if(nextG<g[next]){g[next]=nextG;previous[next]=current;push(next,nextG+heuristic(next)*1.04);}
       }
     }
-    const nodes:{x:number;z:number}[]=[];for(let at=best;at!==start&&at>=0;at=previous[at])nodes.push({x:px(at),z:pz(at)});nodes.reverse();
+    const cells:{x:number;z:number}[]=[];for(let at=best;at!==start&&at>=0;at=previous[at])cells.push({x:px(at),z:pz(at)});cells.reverse();
+    // The grid ends on a sample beside the goal: finish on the goal itself when the last stretch is open.
+    if(bestH<spacing*1.5&&cells.length&&segmentClear(cells[cells.length-1].x,cells[cells.length-1].z,to.x,to.z,clearance)){cells.push(to);bestH=0;}
     // Line-of-sight string pulling makes the path a smooth corridor, not a grid walk.
-    route=[];let anchor={x,z};for(let i=0;i<nodes.length;){let far=i;for(let j=i+1;j<nodes.length;j++)if(segmentClear(anchor.x,anchor.z,nodes[j].x,nodes[j].z,clearance))far=j;route.push(nodes[far]);anchor=nodes[far];i=far+1;}
-    if(bestH>1.5&&clearance>1){
-      // One staged fallback handles a trunk corridor while bounding worst-case
-      // work to three searches instead of the old 2.6 -> 2.25 -> 1.5 -> .95
-      // recursion chain.
-      plan(x,z,hx,hz,clearance>2.3?2.25:.95);
+    const nodes:{x:number;z:number}[]=[];let anchor={x,z};for(let i=0;i<cells.length;){let far=i;for(let j=i+1;j<cells.length;j++)if(segmentClear(anchor.x,anchor.z,cells[j].x,cells[j].z,clearance))far=j;nodes.push(cells[far]);anchor=cells[far];i=far+1;}
+    searchSteps+=iterations;
+    const viaGrid:Trial={nodes,left:nodes.length?left(nodes[nodes.length-1]):Math.hypot(x-to.x,z-to.z),clearance};
+    return viaGaps&&viaGaps.left<viaGrid.left-.4?viaGaps:viaGrid;
+  }
+  /**
+   * Plan a short local route.  This is deliberately a bounded operation: the encounter update runs on the render thread,
+   * so each body envelope gets one bounded search and there are four envelopes at most.
+   *
+   * Where it is going is a real place when it has one (the player, a sound) and that place is near: the route is planned to
+   * it, round whatever stands between, and judged by how close the body gets. Only with nothing nearer to go on is it a
+   * point 17 m on along the heading. The widest envelope that gets there wins; if none does, the one that gets nearest.
+   */
+  function plan(x:number,z:number,hx:number,hz:number){
+    const began=performance.now();
+    planRoute(x,z,hx,hz);
+    const took=performance.now()-began;planMs+=took;if(took>planWorst)planWorst=took;if(took>8)planSlow++;
+  }
+  function planRoute(x:number,z:number,hx:number,hz:number){
+    replans++;lastHeading={x:hx,z:hz};replanIn=.8;
+    const aimed=!!aim&&Math.hypot(aim.x-x,aim.z-z)<AIM_RANGE;
+    goal=aimed?{x:aim!.x,z:aim!.z}:{x:x+hx*17,z:z+hz*17};goalAimed=aimed;
+    // A plan runs on the render thread, so the envelopes share one allowance of search steps (about 10 microseconds each).
+    // The wide ones get a short look: a wide route that needs a long search is a long way round, and would lose anyway.
+    let chosen:Trial|undefined;searchSteps=0;
+    for(let level=0;level<LEVELS.length;level++){
+      const clearance=LEVELS[level],tightest=level===LEVELS.length-1;
+      if(!clear(x,z,clearance)){
+        if(clearance>1)continue;
+        // Standing inside this envelope (a wall descent can finish between porch posts, a squeeze past a trunk): leave
+        // by the bare body to the nearest spot with room, then plan again from there.
+        if(clear(x,z,hardRadius+.025)){
+          let escape:{x:number;z:number}|undefined,score=Infinity;
+          for(let r=.4;r<=3.2;r+=.4)for(let i=0;i<24;i++){
+            const angle=i*Math.PI/12,tx=x+Math.cos(angle)*r,tz=z+Math.sin(angle)*r;
+            if(!clear(tx,tz,clearance)||!segmentClear(x,z,tx,tz,hardRadius+.025))continue;
+            const cost=r+Math.hypot(tx-goal.x,tz-goal.z);
+            if(cost<score){score=cost;escape={x:tx,z:tz};}
+          }
+          if(escape&&!chosen){routeRadius=hardRadius+.025;route=[escape];return;}
+        }
+        if(!tightest)continue;
+      }
+      const to=settle(goal,clearance,x,z,aimed?WITHIN_REACH+.8:2);
+      if(!to){if(!tightest)continue;}
+      const allowance=Math.min(clearance>1?320:MAX_ROUTE_ITERATIONS,PLAN_STEPS-searchSteps);if(allowance<60)break;
+      const trial=search(x,z,to??goal,clearance,allowance);
+      // How near the true goal the body ends up, whatever stand-in point the search was sent to.
+      const end=trial.nodes[trial.nodes.length-1]??{x,z};trial.left=Math.hypot(end.x-goal.x,end.z-goal.z);
+      const enough=aimed?WITHIN_REACH:Math.hypot((to??goal).x-goal.x,(to??goal).z-goal.z)+1.5;
+      let length=0,from={x,z};for(const node of trial.nodes){length+=Math.hypot(node.x-from.x,node.z-from.z);from=node;}
+      // What a route costs: its length, and dearly for every metre it stops short of where it is going.
+      trial.length=length+Math.max(0,trial.left-enough)*4;
+      // A wider envelope keeps the route unless a tighter one is clearly shorter: it goes round a thicket in the open
+      // when that is hardly further, and threads between the trunks when going round would be a long way.
+      if(!chosen||trial.length<chosen.length!-Math.max(2.5,chosen.length!*.18))chosen=trial;
+      // Nearly straight and it gets there: no tighter way could be worth having.
+      if(trial.left<=enough&&length<=Math.hypot(end.x-x,end.z-z)*1.25+1.5)break;
     }
-    else route=roundRoute({x,z},route,clearance);
+    if(!chosen){route=[];routeRadius=LEVELS[LEVELS.length-1];return;}
+    routeRadius=chosen.clearance;
+    route=roundRoute({x,z},chosen.nodes,chosen.clearance);
   }
   return {
     refresh,
@@ -298,8 +419,8 @@ export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,wo
       return undefined;
     },
     /** `brake` (m/s²) is the least deceleration toward a lower speed; a flinch stops harder than a walk. */
-    move(position:Point,hx:number,hz:number,speed:number,dt:number,brake=2.2){
-      referenceY=position.y;refresh(position.x,position.z,dt);replanIn-=dt;
+    move(position:Point,hx:number,hz:number,speed:number,dt:number,brake=2.2,target?:{x:number;z:number}){
+      aim=target;referenceY=position.y;refresh(position.x,position.z,dt);replanIn-=dt;
       const len=Math.hypot(hx,hz)||1;hx/=len;hz/=len;
       climbCooldown=Math.max(0,climbCooldown-dt);
       if(climb?.done){climb=undefined;climbCooldown=3;route=[];replanIn=0;}
@@ -319,11 +440,13 @@ export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,wo
         const next=climb.advance(position,travelSpeed,dt);heading=Math.atan2(hx,hz);headingReady=true;lastBlocked=false;
         return{...next,yaw:heading,turnRate:0,speed:travelSpeed,desiredSpeed:pace};
       }
-      const goalChange=hx*lastHeading.x+hz*lastHeading.z<.94;
+      // Aimed at a real place nearby, the plan holds until that place has moved; with only a heading, until the heading turns.
+      const aimedNow=!!aim&&Math.hypot(aim.x-position.x,aim.z-position.z)<AIM_RANGE;
+      const goalChange=aimedNow?!goalAimed||Math.hypot(aim!.x-goal.x,aim!.z-goal.z)>.8+.06*Math.hypot(aim!.x-position.x,aim!.z-position.z):goalAimed||hx*lastHeading.x+hz*lastHeading.z<.94;
       // A route that stops short of its goal (the way on is shut) is planned again as its end comes near, not only after it has been
       // used up: from a few metres on the planner often sees a way round.
       const shortEnd=(()=>{const e=route[route.length-1];return !!e&&Math.hypot(e.x-goal.x,e.z-goal.z)>1.5;})();
-      if(speed>.001&&(goalChange||(!route.length&&replanIn<=0)||Math.hypot(goal.x-position.x,goal.z-position.z)<3||(shortEnd&&replanIn<=0&&Math.hypot(route[route.length-1].x-position.x,route[route.length-1].z-position.z)<ROUTE_END_REPLAN)))plan(position.x,position.z,hx,hz);
+      if(speed>.001&&(goalChange||(!route.length&&replanIn<=0)||(!aimedNow&&Math.hypot(goal.x-position.x,goal.z-position.z)<3)||(shortEnd&&replanIn<=0&&Math.hypot(route[route.length-1].x-position.x,route[route.length-1].z-position.z)<ROUTE_END_REPLAN)))plan(position.x,position.z,hx,hz);
       while(route.length&&Math.hypot(route[0].x-position.x,route[0].z-position.z)<.035)route.shift();
       if(!headingReady){heading=Math.atan2(route[0]?route[0].x-position.x:hx,route[0]?route[0].z-position.z:hz);headingReady=true;}
       if(speed<=.001&&travelSpeed<.001){
@@ -338,11 +461,9 @@ export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,wo
       // front of the body. Moving, it coasts on along its heading and eases down: to the pace it was asked to
       // slow to (a stun's eased stop) or, with none asked, at COAST_BRAKE. It never stops dead from a run.
       const coasting=!route.length&&travelSpeed>.3;
-      const curvaturePace=1/(1+sharpness*.22);
-      let desiredSpeed=route.length?speed*Math.max(.68,curvaturePace):coasting&&speed<travelSpeed?speed:0;
-      // Fast bursts ease through tight turns before the support feet cross under
-      // the body. Straight, open ground retains the full requested pace.
-      desiredSpeed=Math.min(desiredSpeed,Math.max(4.5,9/Math.max(.001,Math.abs(angularVelocity))));
+      let desiredSpeed=route.length?cornerPace(position.x,position.z,speed):coasting&&speed<travelSpeed?speed:0;
+      // A last guard for a turn the route did not announce (a sudden new goal): never more sideways pull than a body can take.
+      desiredSpeed=Math.min(desiredSpeed,Math.max(4.5,14/Math.max(.001,Math.abs(angularVelocity))));
       // Running up to the end of a route that stops short of its goal, it eases down to arrive at a standstill: the end of the
       // route is where the planner could take it, and it is not a place to arrive at a run.
       const endPoint=route[route.length-1];
@@ -353,7 +474,8 @@ export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,wo
         let free=COAST_LOOK;for(let d=.3;d<=COAST_LOOK;d+=.3)if(!clear(position.x+Math.sin(heading)*d,position.z+Math.cos(heading)*d,hardRadius+.08)){free=d-.3;break;}
         coastBrake=Math.max(COAST_BRAKE,Math.min(COAST_BRAKE_MAX,travelSpeed*travelSpeed/(2*Math.max(.05,free-.15))));
       }
-      const acceleration=desiredSpeed>travelSpeed?Math.max(1.5,speed*1.8):Math.max(brake,speed*2.2,coastBrake);
+      // A body this size gathers and sheds speed over a second or so. Only a flinch, a stop or an obstacle brakes harder.
+      const acceleration=desiredSpeed>travelSpeed?Math.min(MAX_GATHER,Math.max(1.5,speed*1.8)):Math.max(brake,Math.min(MAX_EASE,speed*2.2),coastBrake);
       travelSpeed+=Math.max(-acceleration*dt,Math.min(acceleration*dt,desiredSpeed-travelSpeed));lastDesiredSpeed=desiredSpeed;
       if(coasting){look={x:position.x+Math.sin(heading)*5,z:position.z+Math.cos(heading)*5};route=[{x:position.x+Math.sin(heading)*(travelSpeed*dt+.6),z:position.z+Math.cos(heading)*(travelSpeed*dt+.6)}];}
       let budget=travelSpeed*dt,x=position.x,z=position.z,lastDX=Math.sin(heading),lastDZ=Math.cos(heading);lastBlocked=false;
@@ -373,12 +495,16 @@ export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,wo
       angularVelocity+=(desiredAngular-angularVelocity)*(1-Math.exp(-dt*10));
       if(Math.abs(error)<Math.abs(angularVelocity*dt)){heading=desiredHeading;angularVelocity=0;}else heading+=angularVelocity*dt;
       const ahead=Math.min(.9,travelSpeed*.25),floor=baseSurfaceAt(x,z),support=Math.max(supportAt(x,z),supportAt(x+lastDX*ahead,z+lastDZ*ahead)-.12);
-      const targetY=Math.max(floor,support-.48),rise=targetY-position.y,maxRise=Math.max(1.4,travelSpeed)*dt;
-      const fraction=Math.min(1,maxRise/Math.max(maxRise,Math.abs(rise)));
+      // The height it is travelling at is tracked here, apart from the body's own (smoothed) height: measured against the
+      // body, an ordinary slope looked like a step to climb and cost a quarter of the speed. Only a real ledge slows it now.
+      if(Math.abs(travelY-position.y)>1.6)travelY=position.y;
+      const targetY=Math.max(floor,support-.48),rise=targetY-travelY,maxRise=Math.max(2.5,travelSpeed*1.5)*dt;
+      const fraction=Math.min(1,(.6+maxRise)/Math.max(.6+maxRise,Math.abs(rise)));
       x=position.x+(x-position.x)*fraction;z=position.z+(z-position.z)*fraction;
-      const y=position.y+Math.max(-maxRise,Math.min(maxRise,rise)),moved=Math.hypot(x-position.x,z-position.z)/Math.max(dt,.001);
+      travelY+=Math.max(-maxRise,Math.min(maxRise,rise));
+      const y=travelY,moved=Math.hypot(x-position.x,z-position.z)/Math.max(dt,.001);
       return{x,y,z,yaw:heading,turnRate:angularVelocity,speed:moved,desiredSpeed};
     },
-    inspect(){return{route:route.map(p=>({...p})),replans,blockers:blockers.length,solids:solids.length,blocked:lastBlocked,radius:routeRadius,hardRadius,travelSpeed,desiredSpeed:lastDesiredSpeed,turnRate:angularVelocity,ceiling:ceilingAt(cacheX,cacheZ),referenceY};},
+    inspect(){return{route:route.map(p=>({...p})),replans,planMs,planWorst,planSlow,blockers:blockers.length,solids:solids.length,blocked:lastBlocked,radius:routeRadius,hardRadius,travelSpeed,desiredSpeed:lastDesiredSpeed,turnRate:angularVelocity,ceiling:ceilingAt(cacheX,cacheZ),referenceY};},
   };
 }

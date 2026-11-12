@@ -2,6 +2,7 @@ import './helpers/register-ts-hooks.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 const {createNaturalLayout,footprintsOverlap,groundedOrigin} = await import('../game/placement.ts');
+const {roadMarkerSpot} = await import('../game/road-geometry.ts');
 const {heightAt,rawHeight,horizonHeightAt,vegetationExclusion,biomeAt,riverX,riverPresence,roadZ,WORLD_RADIUS} = await import('../game/world.ts');
 const geography={heightAt,exclusion:vegetationExclusion,biomeAt,riverX,riverPresence,roadZ,radius:WORLD_RADIUS};
 test('natural solids have no intersections across cell borders, including river stones',()=>{
@@ -13,7 +14,7 @@ test('natural solids have no intersections across cell borders, including river 
   }
   assert.ok(rocks>40,'rock variety must remain visible');assert.ok(rocks<81*8*.8,'minimum spacing must thin the reduced candidates');assert.ok(river>30);
   for(let i=0;i<13;i++){
-    const x=-99+i*16.5,z=roadZ(x)+(i%2?3.6:-3.6);if(Math.abs(x-riverX(z))<9)continue;
+    const {x,z}=roadMarkerSpot(i);if(Math.abs(x-riverX(z))<9)continue;
     const marker={ax:x,az:z,bx:x,bz:z,radius:.16};
     for(const cell of cells.values())for(const f of cell.footprints)assert.equal(footprintsOverlap(marker,f,0),false,'natural props must not intersect a fixed road marker');
   }

@@ -1,3 +1,4 @@
+import {broadWaterLevelAt} from './coastal-geography';
 import * as THREE from 'three';
 import {createTreeCrawl} from './tree-crawl';
 import type { ForestAudio } from './audio';
@@ -43,7 +44,11 @@ export function createEncounters(
   scene.add(root);
   const body = new THREE.Group();
   root.add(body);
-  const navigation=createCreatureNavigation(heightAt,collisionWorld,waterSurfaceAt,SPIDER_SCALE/1.15);
+  // The lake and the sea are closed to it past wading depth: water is somewhere the player is safe from it. The river is
+  // not broad water; it wades that on the bed.
+  const WADE=.35;
+  const deepWater=waterSurfaceAt?(x:number,z:number)=>{const broad=broadWaterLevelAt(x,z);return broad!==undefined&&waterSurfaceAt(x,z)===broad&&heightAt(x,z)<broad-WADE;}:undefined;
+  const navigation=createCreatureNavigation(heightAt,collisionWorld,waterSurfaceAt,SPIDER_SCALE/1.15,deepWater);
   // The visible eight-legged rig supplies locomotion, visibility bounds and collision.
   const listener=createListener(scene,heightAt,navigation,collisionWorld);
   const sculpt={get ready(){return listener.ready;},inspect(){const box=new THREE.Box3();listener.root.updateMatrixWorld(true);listener.root.traverse(o=>{if((o as THREE.Bone).isBone)box.expandByPoint(o.getWorldPosition(new THREE.Vector3()));});return {ready:listener.ready,model:'listener',visible:listener.root.visible,parentVisible:listener.root.parent?.visible,root:listener.root.position.toArray(),bones:[box.min.toArray(),box.max.toArray()]};},dispose(){listener.dispose();}};
@@ -61,8 +66,11 @@ export function createEncounters(
   function animateCreature(dt:number,time:number){
     listener.walk(dt,time,root.position,root.rotation.y,attentionTarget,currentDarkness,plannedMoveSpeed);
   }
-  function moveCreature(dt:number,speed:number,direction:THREE.Vector3,brake?:number){
-    const moved=navigation.move(root.position,direction.x,direction.z,speed,dt,brake);
+  // The body's height follows the ground through a filter that also tracks how fast the ground is rising, so on a long
+  // slope it rides at its proper height instead of trailing below (uphill) or floating above (downhill) by slope x speed.
+  let climbRate=0,legGate=1;
+  function moveCreature(dt:number,speed:number,direction:THREE.Vector3,brake?:number,target?:{x:number;z:number}){
+    const moved=navigation.move(root.position,direction.x,direction.z,Math.min(speed,listener.legCapacity),dt,brake,target);
     plannedMoveSpeed=moved.speed;
     const oldYaw=root.rotation.y,difference=Math.atan2(Math.sin(moved.yaw-oldYaw),Math.cos(moved.yaw-oldYaw));
     const turn=moved.speed>.001?THREE.MathUtils.clamp(difference*(1-Math.exp(-dt*9)),-dt*2.4,dt*2.4):0;
@@ -73,8 +81,14 @@ export function createEncounters(
     // alignment tax made the admin slow-walk mode look like repeated braking;
     // only a near-reversed heading now receives a meaningful ease-in.
     const alignment=.90+.10*Math.max(0,Math.cos(difference));
-    const nx=THREE.MathUtils.lerp(root.position.x,moved.x,alignment),nz=THREE.MathUtils.lerp(root.position.z,moved.z,alignment),ny=THREE.MathUtils.damp(root.position.y,moved.y,9,dt);
-    const fraction=listener.movementAllowance(nx-root.position.x,ny-root.position.y,nz-root.position.z,turn);
+    const nx=THREE.MathUtils.lerp(root.position.x,moved.x,alignment),nz=THREE.MathUtils.lerp(root.position.z,moved.z,alignment);
+    climbRate=THREE.MathUtils.damp(climbRate,THREE.MathUtils.clamp((moved.y-root.position.y)/Math.max(dt,.001),-12,12)*(moved.speed>.05?1:0),5,dt);
+    const ny=THREE.MathUtils.damp(root.position.y+climbRate*dt*.85,moved.y,9,dt);
+    // Steps are planned to fit the legs, so this is 1 in ordinary travel. When a leg does reach its limit the body is
+    // eased down over a few frames and back up again: it never stops dead and restarts.
+    const allowed=listener.movementAllowance(nx-root.position.x,ny-root.position.y,nz-root.position.z,turn);
+    legGate=allowed<legGate?Math.max(allowed,legGate-dt*10):Math.min(allowed,legGate+dt*6);
+    const fraction=legGate;
     const oldX=root.position.x,oldZ=root.position.z;
     root.position.x=THREE.MathUtils.lerp(root.position.x,nx,fraction);root.position.y=THREE.MathUtils.lerp(root.position.y,ny,fraction);root.position.z=THREE.MathUtils.lerp(root.position.z,nz,fraction);root.rotation.y=oldYaw+turn*fraction;
     lastMoveSpeed=Math.hypot(root.position.x-oldX,root.position.z-oldZ)/Math.max(dt,.001);
@@ -89,7 +103,7 @@ export function createEncounters(
   // the beam has been off it this long (or a new hunt begins). ROAR_GAP, HUNT_GAP: one roar per hunt, at its start; a hunt
   // that begins within ROAR_GAP of the last roar, or within HUNT_GAP of the last hunt ending, is the same hunt taken up again.
   // LOUD_QUIET, SIGHT_QUIET: an ambient sound (clicks, knock, branch, call) is no use straight after it has been loud or seen.
-  const BRANCH_FAR=70,BODY_REACH=1.2,CALL_GAP=180,PRESENCE_GAP=30,STUN_BRAKE=20,STOP_BRAKE=22,DEAD_AIR=150,DEAD_AIR_CALL=30,HISS_QUIET=45,ROAR_GAP=75,HUNT_GAP=45,LOUD_QUIET=25,SIGHT_QUIET=30;
+  const BRANCH_FAR=70,BODY_REACH=1.2,CALL_GAP=180,PRESENCE_GAP=30,STUN_BRAKE=20,STOP_BRAKE=22,GRAB_BRAKE=45,DEAD_AIR=150,DEAD_AIR_CALL=30,HISS_QUIET=45,ROAR_GAP=75,HUNT_GAP=45,LOUD_QUIET=25,SIGHT_QUIET=30;
   const seed=options.seed??7741,brain=createCreatureBrain({random:createRandom(seed),places:options.places}),hostRandom=createRandom(seed*31+7);
   const director=createOpeningDirector({random:createRandom(seed*17+3)});
   if(options.opening===false)director.jump('free');else brain.holdHunting();
@@ -388,8 +402,11 @@ export function createEncounters(
     // that is at once, in view only after a long wait.
     if(speed>.6&&lastMoveSpeed<.05){frozen+=dt;if(frozen>(outsideReady?FROZEN_AFTER:FROZEN_IN_VIEW)){frozen=0;trace(elapsed,{type:'restance',x:root.position.x,z:root.position.z});navigation.replan();}}
     else frozen=Math.max(0,frozen-dt*2);
-    if(elapsed<detourUntil){const a=detourSide*1.1,c=Math.cos(a),s=Math.sin(a),x=movementDirection.x;movementDirection.x=x*c+movementDirection.z*s;movementDirection.z=movementDirection.z*c-x*s;}
-    moveCreature(dt,speed,movementDirection,brake);
+    const detour=elapsed<detourUntil;
+    if(detour){const a=detourSide*1.1,c=Math.cos(a),s=Math.sin(a),x=movementDirection.x;movementDirection.x=x*c+movementDirection.z*s;movementDirection.z=movementDirection.z*c-x*s;}
+    // Navigation is told the place itself, not only the way to it, so that near it the route is planned round whatever
+    // stands between (a trunk the player has stepped behind) instead of straight at it.
+    moveCreature(dt,speed,movementDirection,brake,detour?undefined:target);
     animateCreature(dt,elapsed);
   }
   /** Recoiling from the torch: a short step straight back, facing the light, where there is room. */
@@ -411,9 +428,14 @@ export function createEncounters(
   /** The grab: it holds still, turns to the player, reaches, and opens its jaw. The engine does the rest. */
   function hold(dt:number,elapsed:number,player:THREE.Vector3){
     stunShown='none';strikePose=Math.min(1,strikePose+dt/.25);listener.setStrike(strikePose);
+    // It has them: it stops where it stands (hard: left to coast, a charge carried it on past the player and the last thing
+    // seen was its back) and brings its face round to theirs, quickly but as a turn, not a snap.
     const want=Math.atan2(player.x-root.position.x,player.z-root.position.z),turn=Math.atan2(Math.sin(want-root.rotation.y),Math.cos(want-root.rotation.y));
-    root.rotation.y+=THREE.MathUtils.clamp(turn,-dt*1.6,dt*1.6);
-    moveCreature(dt,0,movementDirection.set(Math.sin(root.rotation.y),0,Math.cos(root.rotation.y)));
+    root.rotation.y+=THREE.MathUtils.clamp(turn*(1-Math.exp(-dt*10)),-dt*5,dt*5);
+    moveCreature(dt,0,movementDirection.set(Math.sin(root.rotation.y),0,Math.cos(root.rotation.y)),GRAB_BRAKE);
+    // Its eyes are on the player's eyes (the camera it is dragging in), not on where their feet were: caught under its
+    // body, it used to look down past the camera and the last thing seen was the top of its head.
+    const view=getView?.();if(view)attentionTarget.copy(view.position);
     animateCreature(dt,elapsed);
   }
   // --- The opening (game/creature-director.ts): a glimpse, then the tree, both harmless, before it may hunt.
@@ -885,6 +907,8 @@ export function createEncounters(
     get grabbing(){return grabbing;},
     /** Its face, for the camera to be wrenched toward. */
     headPosition(out:THREE.Vector3){return eyes(out);},
+    /** The way its body faces, level: the side of its head its face is on. */
+    facing(out:THREE.Vector3){return out.set(Math.sin(root.rotation.y),0,Math.cos(root.rotation.y));},
     /** After the player was taken, under black: move it far from where they wake, unseen, and let it calm down. */
     relocate(origin:THREE.Vector3,elapsed:number){
       if(root.visible&&!blackout&&protectedNow())return false;
@@ -921,9 +945,14 @@ export function createEncounters(
       return c;
     },
     modelStatus(){return sculpt.inspect();},
-    navigationStatus(){return{...navigation.inspect(),position:root.position.toArray(),yaw:root.rotation.y,speed:lastMoveSpeed,feet:listener.feet().map(foot=>({...foot,support:navigation.supportAt(foot.position[0],foot.position[2]),clearance:navigation.footClearance(foot.position[0],foot.position[2])}))};},
+    navigationStatus(){return{...navigation.inspect(),position:root.position.toArray(),yaw:root.rotation.y,speed:lastMoveSpeed,plannedSpeed:plannedMoveSpeed,limitedBy:listener.limitedBy,stepRate:listener.stepRate,stance:navigation.stanceWidth,feet:listener.feet().map(foot=>({...foot,support:navigation.supportAt(foot.position[0],foot.position[2]),clearance:navigation.footClearance(foot.position[0],foot.position[2])}))};},
     preview(x:number,z:number,yaw=0){pendingSpawn=undefined;dismissRequested=false;outsideReady=false;offscreen.reset();const spawn=navigation.safeSpawn(x,z);if(!spawn)return;root.position.set(spawn.x,spawn.y,spawn.z);root.rotation.y=yaw;previewDirection.set(Math.sin(yaw),0,Math.cos(yaw));root.visible=true;listener.root.visible=true;visualTest=true;grabbing=false;strikePending=false;navigation.reset();resetFeet();},
     previewStep(dt:number,time:number,speed:number){moveCreature(dt,speed,previewDirection);animateCreature(dt,time);return listener.feet();},
+    gaitLegs(){return listener.gaitLegs;},
+    /** Steers the preview body: the heading it is asked to travel along from now on. */
+    previewHeading(yaw:number){previewDirection.set(Math.sin(yaw),0,Math.cos(yaw));},
+    /** Drives the preview body at a place, as a hunt drives it at the player. */
+    previewChase(dt:number,time:number,speed:number,x:number,z:number){const dx=x-root.position.x,dz=z-root.position.z,d=Math.hypot(dx,dz)||1;previewDirection.set(dx/d,0,dz/d);moveCreature(dt,speed,previewDirection,undefined,{x,z});animateCreature(dt,time);},
     update(dt:number,elapsed:number,player:THREE.Vector3,forward:THREE.Vector3,darkness:number,hours=16,senses?:CreatureSenses){
       currentDarkness=darkness;blackout=!!senses?.blackout;
       percept.x=player.x;percept.y=player.y;percept.z=player.z;

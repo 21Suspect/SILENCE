@@ -7,7 +7,11 @@ import './helpers/register-ts-hooks.mjs';
 // The rebuilt world only exists behind ?world-v2; game modules read the flag when they load, so it is set before the first import.
 globalThis.location = { search: `?world-v2${process.env.WORLD_SEED ? `&seed=${process.env.WORLD_SEED}` : ''}` };
 const { heightAt, pathX, pathDistance, pathWidth, roadZ, riverX, riverPresence, biomeAt, vegetationExclusion, WORLD_RADIUS } = await import('../game/world.ts');
-const { POI_PLACEMENTS, SCATTER_PLACEMENTS, TRAILS, TRAIL_LINES, MAIN_TRAIL_BOUNDS, placeLocal } = await import('../game/world-layout.ts');
+const { POI_PLACEMENTS, SCATTER_PLACEMENTS, TRAILS, TRAIL_LINES, TRAIL_META, LOOP_INDEX, FORDS, JUNCTIONS, MAIN_TRAIL_BOUNDS, ROAD_ENDS, placeLocal } = await import('../game/world-layout.ts');
+const { roadArc, roadXAtArc } = await import('../game/road-geometry.ts');
+const { coastDistance, lakeDistance, mountainFoot, beachWidth } = await import('../game/coastal-geography.ts');
+const { landSlope } = await import('../game/world-landform.ts');
+const { ROAD } = await import('../game/road-profile.ts');
 const { createPois, seatPlacement, worldColliders, footprintOf, placePoint } = await import('../game/pois.ts');
 const { naturalLayout } = await import('../game/placement.ts');
 const { createCollisionWorld, moveCharacter, solidContact } = await import('../game/collision.ts');
@@ -31,7 +35,7 @@ const LIMITS = {
   stuckS: 2, speed: 1.8, fps: 60,
 };
 const SUNK = /^(rock_|minerock$|tunnelrock$)/; // modelled to sit below the ground: not judged for floating or burying
-const FINDINGS = { 1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 7: [] };
+const FINDINGS = { 1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 7: [], 8: [], 9: [] };
 const NOTES = [];
 const found = (check, text) => FINDINGS[check].push(text);
 const m2 = v => v.toFixed(2), cm = v => `${(v * 100).toFixed(1)} cm`, at = (x, z) => `(${x.toFixed(1)}, ${z.toFixed(1)})`;
@@ -133,7 +137,7 @@ const TRAIL_SEGMENTS = [];
 TRAIL_LINES.forEach((line, li) => { for (let k = 0; k < line.length - 1; k++) TRAIL_SEGMENTS.push({ a: line[k], b: line[k + 1], r: 0, line: li, k }); });
 const entranceOf = e => e.p.entrance ? placeLocal(e.p, e.p.entrance[0], e.p.entrance[1]) : undefined;
 const trailEndAt = (x, z) => { let best = { d: Infinity, line: -1 }; TRAIL_LINES.forEach((line, i) => { const [ex, ez] = line[line.length - 1], d = Math.hypot(ex - x, ez - z); if (d < best.d) best = { d, line: i }; }); return best; };
-const lineName = i => { const end = TRAIL_LINES[i].at(-1), e = entries.find(q => q.p.entrance && Math.hypot(...entranceOf(q).map((v, j) => v - end[j])) < LIMITS.entranceM); return `trail ${i}${e ? ` (to ${e.p.id})` : ''}`; };
+const lineName = i => { const end = TRAIL_LINES[i].at(-1), e = entries.find(q => q.p.entrance && Math.hypot(...entranceOf(q).map((v, j) => v - end[j])) < LIMITS.entranceM); return `trail ${i}${i === LOOP_INDEX ? ' (the hiking loop)' : e ? ` (to ${e.p.id})` : ''}`; };
 /** Nearest trail segment to a shape: [clear distance, segment, nearest point on it]. */
 function trailClearance(shape) {
   let best = [Infinity, undefined, undefined];
@@ -170,7 +174,9 @@ function issuesOf(e, others = entries) {
     const [d, seg, near] = trailClearance(shape);
     if (d >= LIMITS.trailClearM) continue;
     const end = own && trailEndAt(own[0], own[1]);
-    if (own && end.d < LIMITS.entranceM && seg.line === end.line && gap(shape, { a: own, b: own, r: 0 }) <= LIMITS.entranceAreaM) continue;
+    // Any path that ends at this entrance may come up to it (a place can have several: the way in and the way on).
+    const endsAtOwn = own && TRAIL_LINES[seg.line].some((v, k, l) => (k === 0 || k === l.length - 1) && Math.hypot(v[0] - own[0], v[1] - own[1]) <= LIMITS.entranceM);
+    if (own && endsAtOwn && gap(shape, { a: own, b: own, r: 0 }) <= LIMITS.entranceAreaM) continue;
     const c = centreOf(shape);
     issues.push({ check: 5, text: `${label}: ${shape.tag ? `its ${shape.tag}` : 'its collider'} at ${at(c[0], c[1])} is ${d <= 0 ? 'on' : `${cm(d)} from`} ${lineName(seg.line)} (nearest point ${at(...near)}); limit ${cm(LIMITS.trailClearM)}${e.rock ? ' [rock on a trail]' : ''}`, key: `${id}|trail|${seg.line}` });
     break;
@@ -204,7 +210,8 @@ function issuesOf(e, others = entries) {
     if (!e.building) for (const s of e.shapes) { const d = gap(trunk, s); if (d < LIMITS.treeClearM) { issues.push({ check: 6, text: `a tree trunk at ${at(t.x, t.z)} (radius ${m2(treeRadius(t))} m) is ${d <= 0 ? 'inside' : `${cm(d)} from`} ${label}; limit ${cm(LIMITS.treeClearM)}`, key: `${id}|tree|${t.x}|${t.z}`, tree: true }); break; } }
   }
   // 7. in the stream channel
-  if (e.p.asset !== 'guardrail' && e.p.asset !== 'roadbridge') {
+  // The stepping stones of a ford stand in the stream: that is what they are for.
+  if (e.p.asset !== 'guardrail' && e.p.asset !== 'roadbridge' && !e.p.id.startsWith('ford-')) {
     let worst = Infinity, worstAt;
     const probe = (x, z) => { const d = channelGap(x, z); if (d < worst) { worst = d; worstAt = [x, z]; } };
     for (const s of e.shapes) { if (s.poly) { for (const v of s.poly) probe(v[0], v[1]); } else { probe(s.a[0], s.a[1]); probe(s.b[0], s.b[1]); } }
@@ -244,6 +251,95 @@ for (const e of entries) {
   }
 }
 
+
+// 8. nothing stands on the road, and what belongs beside it stands beside it
+// The road is the one thing that runs nearly along z on its mountain legs, so every distance to it is measured across it: the nearest
+// point of the centre line, found by Newton steps (this check does not trust the game's own roadDistance, which it is also testing).
+function roadGapAt(px, pz) {
+  let x = px;
+  for (let k = 0; k < 60; k++) {
+    const z = roadZ(x), m = (roadZ(x + .05) - roadZ(x - .05)) / .1, step = ((x - px) + (z - pz) * m) / (1 + m * m);
+    x -= Math.max(-2, Math.min(2, step)); if (Math.abs(step) < 1e-7) break;
+  }
+  const z = roadZ(x), m = (roadZ(x + .05) - roadZ(x - .05)) / .1;
+  return { gap: Math.hypot(px - x, pz - z), x, z, m, side: Math.sign((pz - z) - m * (px - x)) || 1 };
+}
+const EAST = ROAD_ENDS.find(e => e.side > 0), WEST = ROAD_ENDS.find(e => e.side < 0);
+/** Things that belong on the carriageway: the bridge that carries it, the tunnel mouths and their rock, the barrier across it. */
+const ON_THE_ROAD = /^(road-bridge|tunnel-|tunnel-rock-|gate-)/;
+const FURNITURE = new Set(['pole', 'roadsign', 'streetlight', 'mailbox']);
+const ROAD_MARGIN = .15, FURNITURE_REACH = 3;
+const onRoadCounts = {};
+for (const e of entries) {
+  if (ON_THE_ROAD.test(e.p.id)) continue;
+  const centre = roadGapAt(e.c[0], e.c[1]);
+  if (centre.x < WEST.x - 2 || centre.x > EAST.x + 2 || centre.gap > e.reach + ROAD.level + FURNITURE_REACH + 6) continue;
+  // The nearest any part of it comes to the centre line: its colliders, or the footprint of its building.
+  let nearest = Infinity, nearestAt, what;
+  const consider = (px, pz, r, tag) => { const g = roadGapAt(px, pz).gap - r; if (g < nearest) { nearest = g; nearestAt = [px, pz]; what = tag; } };
+  const edgePoints = poly => { const pts = []; poly.forEach((a, i) => { const b = poly[(i + 1) % poly.length], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / .5)); for (let k = 0; k < n; k++) pts.push([a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n]); }); return pts; };
+  for (const sh of e.shapes) {
+    if (sh.poly) for (const [px, pz] of edgePoints(sh.poly)) consider(px, pz, 0, sh.tag ?? 'collider');
+    else { const n = Math.max(1, Math.ceil(Math.hypot(sh.b[0] - sh.a[0], sh.b[1] - sh.a[1]) / .5)); for (let k = 0; k <= n; k++) consider(sh.a[0] + (sh.b[0] - sh.a[0]) * k / n, sh.a[1] + (sh.b[1] - sh.a[1]) * k / n, sh.r, sh.tag ?? 'collider'); }
+  }
+  if (e.building) for (const [px, pz] of edgePoints(e.building)) consider(px, pz, 0, 'footprint');
+  if (nearest < ROAD.level + ROAD_MARGIN) {
+    onRoadCounts[e.p.asset] = (onRoadCounts[e.p.asset] ?? 0) + 1;
+    found(8, `${e.p.id} (${e.p.asset}) at ${at(e.p.x, e.p.z)}: its ${what} at ${at(...nearestAt)} comes within ${m2(nearest)} m of the road's centre line; the shoulder ends at ${m2(ROAD.level)} m, and ${m2(ROAD.level + ROAD_MARGIN)} m is the least allowed`);
+  }
+  if (FURNITURE.has(e.p.asset)) {
+    const across = centre.gap, yaw = e.p.yaw, fx = Math.sin(yaw), fz = Math.cos(yaw), k = 1 / Math.hypot(1, centre.m), tx = k, tz = centre.m * k;
+    if (across < ROAD.level + .2 || across > ROAD.level + FURNITURE_REACH) found(8, `${e.p.id} (${e.p.asset}) at ${at(e.p.x, e.p.z)} stands ${m2(across)} m from the centre line: roadside furniture stands between the shoulder (${m2(ROAD.level)} m) and ${FURNITURE_REACH} m beyond it`);
+    // A sign, mailbox or lamp faces the road; the power line runs along it.
+    const toRoad = [(centre.x - e.p.x), (centre.z - e.p.z)], tl = Math.hypot(...toRoad) || 1;
+    if (e.p.asset === 'pole') { if (Math.abs(Math.cos(yaw) * tx - Math.sin(yaw) * tz) < .95) found(8, `${e.p.id} (pole) at ${at(e.p.x, e.p.z)} is not in line with the road: its wires run ${(Math.acos(Math.min(1, Math.abs(Math.cos(yaw) * tx - Math.sin(yaw) * tz))) * 180 / Math.PI).toFixed(0)} degrees across it`); }
+    else if ((fx * toRoad[0] + fz * toRoad[1]) / tl < .75) found(8, `${e.p.id} (${e.p.asset}) at ${at(e.p.x, e.p.z)} does not face the road: it turns ${(Math.acos(Math.max(-1, Math.min(1, (fx * toRoad[0] + fz * toRoad[1]) / tl))) * 180 / Math.PI).toFixed(0)} degrees from it`);
+  }
+}
+NOTES.push(`placements on the road, by asset: ${JSON.stringify(onRoadCounts)}`);
+// Plants, sampled as the plant code samples: ground cover grows where exclusion is at most .91, tussocks .7, ferns .48, trees .42. Nothing may grow on the carriageway,
+// along the whole road, mountain legs included, and no trunk may stand on it.
+{
+  let arc = 0, last = WEST.x, clear = 0; const bad = [];
+  for (let x = WEST.x + 4; x <= EAST.x - 1; x += .25) {
+    arc += Math.hypot(.25, roadZ(x) - roadZ(x - .25));
+    if (arc < 1.5) continue; arc = 0;
+    const z = roadZ(x), m = (roadZ(x + .25) - roadZ(x - .25)) / .5, k = 1 / Math.hypot(1, m), nx = -m * k, nz = k;
+    for (let d = -ROAD.half; d <= ROAD.half + 1e-9; d += .5) { const e = vegetationExclusion(x + d * nx, z + d * nz); clear++; if (e < .91) bad.push(`(${(x + d * nx).toFixed(1)}, ${(z + d * nz).toFixed(1)}) exclusion ${e.toFixed(2)}`); }
+  }
+  if (bad.length) found(8, `ground cover, tussocks and ferns may grow on the carriageway at ${bad.length} of ${clear} sampled points, for example ${bad.slice(0, 4).join('; ')}`);
+  let trunks = 0, onRoad = []; arc = 0;
+  for (let x = WEST.x + 4; x <= EAST.x - 1; x += .5) {
+    arc += Math.hypot(.5, roadZ(x) - roadZ(x - .5)); if (arc < 12) continue; arc = 0;
+    for (const t of treesNear(x, roadZ(x), 13)) { trunks++; const g = roadGapAt(t.x, t.z).gap - treeRadius(t); if (g < ROAD.half) onRoad.push(`a trunk at ${at(t.x, t.z)} (radius ${m2(treeRadius(t))} m) is ${m2(g)} m from the centre line`); }
+  }
+  if (onRoad.length) found(8, `${onRoad.length} tree trunks stand on the carriageway, for example ${[...new Set(onRoad)].slice(0, 3).join('; ')}`);
+  NOTES.push(`plants: ${clear} points of the carriageway sampled and ${trunks} trunks looked at along ${(roadZ(0) * 0 + Math.abs(EAST.x - WEST.x)).toFixed(0)} m of x`);
+}
+
+// 9. trails stay on the green: no sample of any footpath (the loop, cross paths, links, spurs, ford approaches) on the sand or the lake's edge
+// The beach is where the shore is nearer than coastDistance < beachWidth; the lake's shore is lakeDistance 0. A trail's centre line keeps SAND_MARGIN metres
+// inland of both, which leaves room for its own width. Round a place's door (16 m) it need only not be on the sand: a door stands where it stands.
+{
+  const SAND_MARGIN = 3, DOOR_REACH = 16;
+  const doorAts = POI_PLACEMENTS.filter(p => p.entrance).map(p => placeLocal(p, p.entrance[0], p.entrance[1]));
+  let worst = Infinity, worstAt, worstLine = -1, samples = 0, nearDoor = 0;
+  TRAIL_LINES.forEach((line, li) => {
+    let reported = false;
+    for (let k = 0; k < line.length - 1 && !reported; k++) {
+      const [ax, az] = line[k], [bx, bz] = line[k + 1], n = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 1.5));
+      for (let t = 0; t <= n; t++) {
+        const x = ax + (bx - ax) * t / n, z = az + (bz - az) * t / n, margin = Math.min(coastDistance(x, z) - beachWidth(x, z), lakeDistance(x, z) - 1);
+        const door = doorAts.some(d => Math.hypot(d[0] - x, d[1] - z) < DOOR_REACH);
+        door ? nearDoor++ : samples++;
+        if (!door && margin < worst) { worst = margin; worstAt = [x, z]; worstLine = li; }
+        if (margin < (door ? 0 : SAND_MARGIN)) { found(9, `${lineName(li)} at ${at(x, z)} is ${m2(margin)} m inland of the sand (beach ${m2(beachWidth(x, z))} m wide, shore ${m2(coastDistance(x, z))} m away, lake edge ${m2(lakeDistance(x, z))} m away); a trail keeps ${SAND_MARGIN} m clear${door ? ' (at a door, only off the sand)' : ''} | fix: close the sand to the router in routePaths`); reported = true; break; }
+      }
+    }
+  });
+  NOTES.push(`worst margin inland of sand over ${samples} samples of ${TRAIL_LINES.length} lines (leaving ${nearDoor} within ${DOOR_REACH} m of a door): ${m2(worst)} m at ${at(...worstAt)} on ${lineName(worstLine)}`);
+}
+
 // 2. a building on a tilted or rumpled pad looks fake
 for (const e of entries) {
   if (!e.p.footprint || e.p.asset === 'tunnel') continue;   // a tunnel mouth is cut into a slope: world.ts shapes the ground for it, and the slope behind is the point
@@ -256,52 +352,77 @@ for (const e of entries) {
     + ` | fix: in POI_PLACEMENTS give '${e.p.id}' pad: { radius: ${Math.ceil(reach + .5)}, falloff: ${Math.max(10, e.p.pad?.falloff ?? 10)} } (the footprint's far corner is ${m2(reach)} m from the origin; the pad is centred on x, z) or move it to ground that is flat under the footprint`);
 }
 
-// 3. every place with an entrance is reached by a trail that starts on the main trail, the road or the bridge
+// 3. the path network: every line has both ends on something walked, the loop closes, every place is on it, and nothing is far from it
 const bridgeEnds = [[riverX(-35) - 12, -35], [riverX(-35) + 12, -35]]; // the footbridge spans riverX(-35) +/- 12 at z = -35 (game/terrain.ts)
-const startsOn = ([x, z]) => {
-  if (z>=MAIN_TRAIL_BOUNDS.south && z<=MAIN_TRAIL_BOUNDS.north && pathDistance(x, z) <= pathWidth(z) + .5) return 'the main trail';
-  if (Math.abs(z - roadZ(x)) <= 2.65) return 'the road'; // the road's graded surface ends 2.65 m from its centre line (rawHeight)
-  if (bridgeEnds.some(b => Math.hypot(b[0] - x, b[1] - z) <= LIMITS.entranceM)) return 'the bridge end';
+const roadPts = [], trailPts = [];
+for (let a = roadArc(WEST.x); a <= roadArc(EAST.x); a += 2) { const x = roadXAtArc(a); roadPts.push([x, roadZ(x)]); }
+for (let z = MAIN_TRAIL_BOUNDS.south; z <= MAIN_TRAIL_BOUNDS.north; z += 2) trailPts.push([pathX(z), z]);
+const doorsOf = POI_PLACEMENTS.filter(p => p.entrance).map(p => ({ id: p.id, at: placeLocal(p, p.entrance[0], p.entrance[1]) }));
+const nearPoint = (q, pts, r) => pts.some(v => Math.hypot(v[0] - q[0], v[1] - q[1]) <= r);
+const nearLine = (q, line, r) => { for (let k = 0; k < line.length - 1; k++) if (pointSeg(q, line[k], line[k + 1]) <= r) return true; return false; };
+const lineName3 = i => `trail ${i} (${TRAIL_META[i].kind}${TRAIL_META[i].from ? ` ${TRAIL_META[i].from}` : ''}${TRAIL_META[i].to ? ` to ${TRAIL_META[i].to}` : ''})`;
+const meets = (q, own) => {
+  if (doorsOf.some(d => Math.hypot(d.at[0] - q[0], d.at[1] - q[1]) <= LIMITS.entranceM)) return 'a door';
+  if (nearPoint(q, trailPts, pathWidth(q[1]) + .9)) return 'the main trail';
+  if (nearPoint(q, roadPts, 2.9)) return 'the road';
+  if (bridgeEnds.some(b => Math.hypot(b[0] - q[0], b[1] - q[1]) <= LIMITS.entranceM)) return 'a bridge end';
+  for (let j = 0; j < TRAIL_LINES.length; j++) if (j !== own && nearLine(q, TRAIL_LINES[j], 1.2)) return `another path (${lineName3(j)})`;
   return undefined;
 };
-/** The nearest point on the main trail, the road or a bridge end, and how far it is. */
-function nearestRoute([x, z]) {
-  let best = { d: Infinity };
-  for (let dz = -12; dz <= 12; dz += .05) { const pz = z + dz, d = Math.hypot(pathX(pz) - x, dz); if (pz>=MAIN_TRAIL_BOUNDS.south && pz<=MAIN_TRAIL_BOUNDS.north && d < best.d) best = { d, x: pathX(pz), z: pz, on: 'the main trail' }; }
-  for (let dx = -12; dx <= 12; dx += .05) { const px = x + dx, d = Math.hypot(dx, roadZ(px) - z); if (d < best.d) best = { d, x: px, z: roadZ(px), on: 'the road centre line' }; }
-  for (const b of bridgeEnds) { const d = Math.hypot(b[0] - x, b[1] - z); if (d < best.d) best = { d, x: b[0], z: b[1], on: 'the bridge end' }; }
-  return best;
-}
-const claimed = new Set();
-for (const e of entries) {
-  if (!e.p.entrance) continue;
-  const [ex, ez] = entranceOf(e), end = trailEndAt(ex, ez);
-  if (end.d > LIMITS.entranceM) {
-    const line = TRAIL_LINES[end.line], [lx, lz] = line[line.length - 1];
-    found(3, `${e.p.id} (${e.p.asset}): its entrance ${at(ex, ez)} is ${m2(end.d)} m from the nearest trail end (${lineName(end.line)} ends at ${at(lx, lz)}); no trail in TRAIL_LINES ends within ${LIMITS.entranceM} m of it | fix: end a TRAILS route at placeLocal('${e.p.id}', ${e.p.entrance.join(', ')}), which is ${at(ex, ez)}`);
-    continue;
+TRAIL_LINES.forEach((line, i) => {
+  if (i === LOOP_INDEX) {
+    const gap = Math.hypot(line[0][0] - line.at(-1)[0], line[0][1] - line.at(-1)[1]);
+    if (gap > .5) found(3, `the hiking loop does not close: it ends ${m2(gap)} m from where it starts | fix: close the ring of waypoints in routePaths`);
+    return;
   }
-  claimed.add(end.line);
-  // A path between two places (a loop) ends at a door that already has its own path: both lead somewhere.
-  TRAIL_LINES.forEach((line, i) => { const [lx, lz] = line[line.length - 1]; if (Math.hypot(lx - ex, lz - ez) <= LIMITS.entranceM) claimed.add(i); });
-  const start = TRAIL_LINES[end.line][0], where = startsOn(start);
-  if (where) continue;
-  const near = nearestRoute(start);
-  // The route may instead begin on another footpath: say so, because the rule asks for the main trail, the road or a bridge end only.
-  let joins; TRAIL_LINES.forEach((l, j) => { if (j !== end.line) for (const v of l) { const d = Math.hypot(v[0] - start[0], v[1] - start[1]); if (d < 8 && (!joins || d < joins.d)) joins = { j, d, v }; } });
-  if (joins && joins.d <= LIMITS.entranceM) continue; // a fork off another footpath is how paths really grow
-  found(3, `${e.p.id} (${e.p.asset}): ${lineName(end.line)} starts at ${at(start[0], start[1])}, which is ${m2(near.d)} m from ${near.on} (nearest point ${at(near.x, near.z)}); it has to start on the main trail, the road or a bridge end`
-    + `${joins ? `; it actually begins ${m2(joins.d)} m from ${lineName(joins.j)} at ${at(...joins.v)}, a junction with another footpath, which this rule does not accept` : ''}`
-    + ` | fix: ${joins && near.d > 12 ? `start TRAIL_LINES[${end.line}] on the main trail, the road or a bridge end (the nearest is ${m2(near.d)} m away, at ${at(near.x, near.z)}), or say that a branch off another footpath is allowed` : `make the first point of TRAIL_LINES[${end.line}] ${at(near.x, near.z)}, on ${near.on}, instead of the grid cell where the route met it`}`);
+  for (const [end, q] of [['start', line[0]], ['end', line.at(-1)]]) if (!meets(q, i)) found(3, `${lineName3(i)} ${end} at ${at(...q)} meets nothing: no door, road, main trail, bridge end or other path within reach | fix: make the line end on something walked`);
+});
+// every place with an entrance has a path ending at its door; the places that used to be dead ends have a second
+for (const d of doorsOf) {
+  const ends = TRAIL_LINES.filter((l, i) => i !== LOOP_INDEX && (Math.hypot(l[0][0] - d.at[0], l[0][1] - d.at[1]) <= LIMITS.entranceM || Math.hypot(l.at(-1)[0] - d.at[0], l.at(-1)[1] - d.at[1]) <= LIMITS.entranceM)).length;
+  if (!ends && !d.id.startsWith('tunnel')) found(3, `${d.id}: no path ends within ${LIMITS.entranceM} m of its entrance ${at(...d.at)}`);
+  if (['hunter-camp', 'lookout', 'hide', 'fold', 'pumphouse', 'mine', 'shrine', 'graves', 'chapel'].includes(d.id) && ends < 2) found(3, `${d.id} is a dead end: only ${ends} path(s) reach its door; a place that stood at the end of a path has a way on to the loop or another path`);
 }
-TRAIL_LINES.forEach((line, i) => { if (!claimed.has(i)) found(3, `trail ${i} ends at ${at(...line.at(-1))}, which is no POI's entrance: a path that leads to nothing | fix: end it at an entrance or remove TRAILS[${i}]`); });
+// from every place you can reach the loop on paths (the road and the main trail are paths too)
+{
+  const items = [...TRAIL_LINES.map((l, i) => ({ name: lineName3(i), pts: l })), { name: 'the road', pts: roadPts }, { name: 'the main trail', pts: trailPts }];
+  const parent = items.map((_, i) => i), find = i => parent[i] === i ? i : (parent[i] = find(parent[i]));
+  const touches = (a, b) => { for (const q of a.pts) if (nearLine(q, b.pts, 2.5)) return true; return false; };
+  for (let i = 0; i < items.length; i++) for (let j = i + 1; j < items.length; j++) if (find(i) !== find(j) && touches(items[i], items[j])) parent[find(i)] = find(j);
+  for (const d of doorsOf) {
+    const on = items.findIndex((it, i) => i < TRAIL_LINES.length && nearPoint(d.at, [it.pts[0], it.pts.at(-1)], LIMITS.entranceM));
+    if (on >= 0 && find(on) !== find(LOOP_INDEX)) found(3, `${d.id}: its path ${items[on].name} does not lead to the hiking loop`);
+  }
+  items.forEach((it, i) => { if (find(i) !== find(LOOP_INDEX)) found(3, `${it.name} is cut off from the loop: no walk joins them`); });
+}
+// no stretch of dry, walkable land below the mountains is left without a path
+const NEAR_PATH_M = 140;   // the worst is the top of the east hill, a gentle knoll with no gentle way up to it
+{
+  const everything = [...roadPts, ...trailPts, ...TRAIL_LINES.flatMap(l => l)];
+  let worst = 0, worstAt;
+  for (let x = -520; x <= 520; x += 12) for (let z = -340; z <= 360; z += 12) {
+    if (coastDistance(x, z) < 12 || lakeDistance(x, z) < 8 || z > mountainFoot(x) || landSlope(x, z, 5) > .5) continue;
+    let d = Infinity; for (const q of everything) { const e = Math.hypot(q[0] - x, q[1] - z); if (e < d) { d = e; if (d < worst) break; } }
+    if (d > worst) { worst = d; worstAt = [x, z]; }
+  }
+  NOTES.push(`furthest dry, gentle land below the mountain foot from any path, trail or road: ${worst.toFixed(0)} m at ${at(...worstAt)}`);
+  if (worst > NEAR_PATH_M) found(3, `dry land at ${at(...worstAt)} is ${worst.toFixed(0)} m from the nearest path; the limit is ${NEAR_PATH_M} m | fix: lay a cross path through it`);
+}
+// the furniture of the network: a waymark at every junction, at every place the loop meets the road and the fords' stones
+for (const j of JUNCTIONS) if (!SCATTER_PLACEMENTS.some(p => p.asset === 'trailmarker' && Math.hypot(p.x - j.x, p.z - j.z) < 8)) found(3, `the junction on ${j.on} at ${at(j.x, j.z)} has no waymark within 8 m`);
+if (!SCATTER_PLACEMENTS.some(p => p.id.startsWith('cairn-loop'))) found(3, 'the loop has no cairn where it tops a rise');
+if (!SCATTER_PLACEMENTS.some(p => p.id.startsWith('bench-loop'))) found(3, 'the loop has no bench');
+FORDS.forEach((f, n) => { if (SCATTER_PLACEMENTS.filter(p => p.id.startsWith(`ford-${n}-`)).length < 5) found(3, `${f.id} at ${at(f.x, f.z)} has no line of stepping stones`); });
 
 // 4. the paths can be walked, with the real moveCharacter
 const ENGINE = { height: 1.69, accel: 6, decel: 10, yDamp: 18 };
 // Every trail starts on the main trail or the road, so those are walked end to end as well (4 m between points, like the trails).
 const along = (n, f, from=-400, to=400) => Array.from({ length: n + 1 }, (_, i) => f(from + i * (to-from) / n));
+const roadWalk = []; for (let a = roadArc(WEST.x) + 30; a <= roadArc(EAST.x) - 30; a += 4) { const x = roadXAtArc(a); roadWalk.push([x, roadZ(x)]); }
+// Every line is walked end to end, the loop included. The audit's moveCharacter has no water in it: wading a ford is slower in the game
+// (see waterDepthAt) and that is allowed there, and only there; everywhere else 1.8 m/s must be enough.
 const ROUTES = [...TRAIL_LINES.map((line, i) => ({ line, name: lineName(i), index: i })),
-  { line: along(200, x => [x, roadZ(x)],-370,370), name: 'the road between the closed tunnel barriers', extra: true }, { line: along(Math.ceil((MAIN_TRAIL_BOUNDS.north-MAIN_TRAIL_BOUNDS.south)/4), z => [pathX(z), z],MAIN_TRAIL_BOUNDS.south,MAIN_TRAIL_BOUNDS.north), name: 'the main trail (dry beach to mountain foothills)', extra: true }];
+  { line: roadWalk, name: 'the road between the closed tunnel barriers', extra: true }, { line: along(Math.ceil((MAIN_TRAIL_BOUNDS.north-MAIN_TRAIL_BOUNDS.south)/4), z => [pathX(z), z],MAIN_TRAIL_BOUNDS.south,MAIN_TRAIL_BOUNDS.north), name: 'the main trail (dry beach to mountain foothills)', extra: true }];
 const solids = createCollisionWorld(), labels = new Map(), treeColliders = [], allProps = [];
 for (const e of entries) for (const [i, c] of e.colliders.entries()) { labels.set(c, `${e.p.id} ${c.tag ?? `collider ${i}`}`); allProps.push(c); }
 {
@@ -356,17 +477,18 @@ for (const { line, name, index, extra } of ROUTES) {
 
 // ---------------------------------------------------------------------------------------------------------------------
 const REPORT = fileURLToPath(new URL('../work/world-review/fit-audit.txt', import.meta.url));
-const TITLES = { 1: 'FLOATING OR BURIED', 2: 'SITS ON A LEDGE', 3: 'NOT REACHABLE BY PATH', 4: 'PATH NOT WALKABLE', 5: 'ON THE PATH', 6: 'INSIDE SOMETHING', 7: 'IN THE WATER' };
+const TITLES = { 1: 'FLOATING OR BURIED', 2: 'SITS ON A LEDGE', 3: 'PATH NETWORK', 4: 'PATH NOT WALKABLE', 5: 'ON THE PATH', 6: 'INSIDE SOMETHING', 7: 'IN THE WATER', 8: 'ON THE ROAD', 9: 'ON THE SAND' };
 const gaps = entries.filter(e => !e.sunk).map(e => ({ id: e.p.id, ...baseGaps(e) }));
 after(() => {
   const total = Object.values(FINDINGS).reduce((n, l) => n + l.length, 0), lines = [
     'WORLD FIT AUDIT: real terrain, POI_PLACEMENTS and SCATTER_PLACEMENTS, WORLD_V2 on, colliders from game/world-assets.json',
+    ...NOTES.filter(n => /^(placements on the road|plants:|furthest|worst margin)/.test(n)),
     `placements audited: ${entries.length} (${entries.filter(e => e.poi).length} POI, ${entries.filter(e => !e.poi).length} scatter)${unlistedAssets.length ? `; skipped, asset not in world-assets.json yet: ${unlistedAssets.join(', ')}` : ''}`,
     `limits: float ${cm(LIMITS.floatM)}, buried ${cm(LIMITS.buriedM)} (small props), ledge ${cm(LIMITS.ledgeM)}, entrance gap ${LIMITS.entranceM} m, trail clearance ${cm(LIMITS.trailClearM)}, tree clearance ${cm(LIMITS.treeClearM)}, stuck ${LIMITS.stuckS} s at ${LIMITS.speed} m/s and ${LIMITS.fps} fps`,
     `worst seated base over all ${gaps.length} placements judged: ${cm(Math.max(0, Math.max(...gaps.map(g => g.float))))} above the ground (${gaps.reduce((a, b) => b.float > a.float ? b : a).id}), ${cm(Math.max(...gaps.map(g => g.bury)))} below it (${gaps.reduce((a, b) => b.bury > a.bury ? b : a).id})`, '',
   ];
-  for (const check of [1, 2, 3, 4, 5, 6, 7]) { lines.push(`${check}. ${TITLES[check]} (${FINDINGS[check].length})`, ...FINDINGS[check].map(t => `  ${t}`), ''); }
-  lines.push('SUMMARY', ...[1, 2, 3, 4, 5, 6, 7].map(c => `  ${c}. ${TITLES[c].toLowerCase().padEnd(24, '.')} ${FINDINGS[c].length}`), `  total ${total}: ${total ? 'FAIL' : 'PASS'}`, '');
+  for (const check of [1, 2, 3, 4, 5, 6, 7, 8, 9]) { lines.push(`${check}. ${TITLES[check]} (${FINDINGS[check].length})`, ...FINDINGS[check].map(t => `  ${t}`), ''); }
+  lines.push('SUMMARY', ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map(c => `  ${c}. ${TITLES[c].toLowerCase().padEnd(24, '.')} ${FINDINGS[c].length}`), `  total ${total}: ${total ? 'FAIL' : 'PASS'}`, '');
   mkdirSync(fileURLToPath(new URL('../work/world-review/', import.meta.url)), { recursive: true });
   writeFileSync(REPORT, lines.join('\n'));
 });
@@ -381,8 +503,10 @@ test('the audit sees exactly what the game builds: createPois seats every placem
 });
 check(1, 'every prop sits on the ground: nothing floats, nothing is buried');
 check(2, 'no building stands on a ledge or a rumpled pad');
-check(3, 'every place with an entrance is reached by a trail from the main trail, the road or the bridge');
+check(3, 'the path network: both ends of every line on something walked, the loop closed, every place on it and none left dead-ended, nothing far from a path, waymarks at the junctions');
 check(4, 'every trail can be walked at 1.8 m/s with the real moveCharacter, trees and props in place');
 check(5, 'nothing stands on a trail');
 check(6, 'nothing stands inside anything else, trees included');
 check(7, 'nothing stands in the stream channel');
+check(9, 'no trail runs on the sand or at the lake\'s edge: every footpath keeps inland of the beach by a margin');
+check(8, 'nothing stands on the road, roadside furniture stands beside it and faces it, and nothing grows on the carriageway');

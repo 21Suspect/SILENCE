@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import './helpers/register-ts-hooks.mjs';
-const { createObjectiveHud, OBJECTIVE_KEY, OBJECTIVE_HOLD, OBJECTIVE_FADE } = await import('../game/objective-hud.ts');
+const { createObjectiveHud, OBJECTIVE_KEY, OBJECTIVE_HINT_SECONDS, OBJECTIVE_FADE } = await import('../game/objective-hud.ts');
 
 // A DOM that records every write, so a frame that should change nothing can be shown to write nothing.
 const fakeDom = () => {
@@ -23,15 +23,18 @@ const fakeDom = () => {
 };
 
 const TITLE = { title: 'Find fuel for the generator', detail: 'Fuses 0/3' };
-// A clock that the test walks forward in milliseconds; each tick is one "frame".
+const NEXT = { title: 'Start the generator', detail: 'Fuses 0/3' };
+// A clock that the test walks forward in milliseconds; each tick is one "frame". With no `enabled` option the HUD keeps its own flag.
 const make = (options = {}) => {
-  const { container, writes } = fakeDom(); let enabled = true, now = 1000;
-  const hud = createObjectiveHud(container, { touch: false, enabled: () => enabled, ...options });
+  const { container, writes } = fakeDom(); let now = 1000;
+  const hud = createObjectiveHud(container, { touch: false, ...options });
   const root = container.children[0];
   const frame = (over = {}) => hud.update({ now, allowed: true, text: TITLE, ...over });
-  const advance = (seconds, over = {}, step = 100) => { for (let t = 0; t < seconds * 1000; t += step) { now += step; frame(over); } };
-  return { hud, root, container, writes, frame, advance, setEnabled: v => { enabled = v; }, clear: () => { writes.length = 0; } };
+  const advance = (seconds, over = {}, step = 100) => { for (let t = 0; t < seconds * 1000 - 1e-6; t += step) { now += step; frame(over); } };
+  return { hud, root, container, writes, frame, advance, clear: () => { writes.length = 0; } };
 };
+// The saved setting as the engine wires it: one flag that the menu checkbox and O both flip, and that the next load reads back.
+const saved = initial => { const store = { on: initial, saves: 0 }; return { store, enabled: () => store.on, setEnabled: v => { store.on = v; store.saves++; } }; };
 
 test('the element is a quiet top-left corner in the interaction prompt\'s type, and starts invisible', () => {
   const { root, container } = make();
@@ -44,37 +47,38 @@ test('the element is a quiet top-left corner in the interaction prompt\'s type, 
   assert.match(css, /text-shadow:0 1px 3px #000,0 0 14px rgba\(0,0,0,\.75\)/, 'the same shadow as the prompt');
   assert.match(css, /max-width:calc\(100% - 96px\)/, 'leaves the corner with the pause button alone on a 375 px screen');
   assert.equal(root.attrs.role, 'status');
-  assert.equal(OBJECTIVE_FADE, .8); assert.equal(OBJECTIVE_HOLD, 7); assert.equal(OBJECTIVE_KEY, 'KeyO');
+  assert.equal(OBJECTIVE_FADE, .8); assert.equal(OBJECTIVE_HINT_SECONDS, 7); assert.equal(OBJECTIVE_KEY, 'KeyO');
 });
 
-test('it fades up when play starts, stays about seven seconds, then fades down; never a pop', () => {
+test('it is shown by default: it fades up when play starts and then simply stays, however long', () => {
   const { hud, root, frame, advance } = make();
   frame({ allowed: false });
   assert.equal(root.style.opacity, undefined, 'nothing yet: the game has not started');
   assert.equal(hud.shown, false);
   advance(.1);
   assert.equal(root.style.opacity, '1'); assert.equal(hud.title, 'Find fuel for the generator'); assert.equal(hud.detail, 'Fuses 0/3');
-  assert.match(root.style.transition, /^opacity 800ms ease$/, 'an 800 ms eased fade in');
-  advance(OBJECTIVE_HOLD - 1);
-  assert.equal(root.style.opacity, '1', 'still up before the seven seconds are over');
-  advance(1.5);
-  assert.equal(root.style.opacity, '0'); assert.equal(hud.shown, false);
-  assert.match(root.style.transition, /^opacity 800ms ease$/, 'fading out is the same eased transition, not a cut');
-  advance(30);
-  assert.equal(root.style.opacity, '0', 'and it stays gone');
+  assert.match(root.style.transition, /^opacity 800ms ease$/, 'an 800 ms eased fade in, not a pop');
+  assert.equal(hud.hidden, false);
+  advance(OBJECTIVE_HINT_SECONDS + 3); assert.equal(root.style.opacity, '1', 'the old seven-second fade is gone');
+  advance(15 * 60, {}, 1000); assert.equal(root.style.opacity, '1', 'a quarter of an hour on, the same steady text');
+  assert.equal(hud.shown, true);
 });
 
-test('a changed step or changed progress brings it back up; the same text does not', () => {
+test('nothing is shown before the first words arrive, whatever the setting says', () => {
+  const { hud, root, advance } = make();
+  advance(2, { text: undefined });
+  assert.equal(root.style.opacity, undefined); assert.equal(hud.shown, false);
+  advance(.2); assert.equal(root.style.opacity, '1');
+});
+
+test('a changed step or changed progress swaps the words and the corner stays up; it never goes away on its own', () => {
   const { hud, root, frame, advance } = make();
-  advance(OBJECTIVE_HOLD + 2);
-  assert.equal(root.style.opacity, '0');
+  advance(.3);
   advance(2, { text: { ...TITLE } });
-  assert.equal(root.style.opacity, '0', 'an equal object is not a change');
-  advance(.2, { text: { title: 'Find fuel for the generator', detail: 'Fuses 1/3' } });
+  assert.equal(root.style.opacity, '1', 'an equal object is not a change');
+  advance(OBJECTIVE_HINT_SECONDS + 2, { text: { title: 'Find fuel for the generator', detail: 'Fuses 1/3' } });
   assert.equal(root.style.opacity, '1'); assert.equal(hud.detail, 'Fuses 1/3');
-  advance(OBJECTIVE_HOLD + 1, { text: { title: 'Find fuel for the generator', detail: 'Fuses 1/3' } });
-  assert.equal(root.style.opacity, '0');
-  advance(.2, { text: { title: 'Start the generator', detail: 'Fuses 1/3' } });
+  advance(.2, { text: NEXT });
   assert.equal(root.style.opacity, '1'); assert.equal(hud.title, 'Start the generator');
   frame({ text: undefined });
   assert.equal(hud.title, 'Start the generator', 'no text yet leaves what is there');
@@ -82,149 +86,140 @@ test('a changed step or changed progress brings it back up; the same text does n
 
 test('the DOM is written only when something changes', () => {
   const { writes, advance, clear, frame } = make();
-  advance(.3); advance(OBJECTIVE_HOLD + 2); clear();
-  advance(20); assert.deepEqual(writes, [], 'a hundred steady frames write nothing');
+  advance(.3); advance(OBJECTIVE_HINT_SECONDS + 2); clear();
+  advance(20); assert.deepEqual(writes, [], 'two hundred steady frames write nothing');
   clear();
-  frame({ text: { title: 'Start the generator', detail: 'Fuses 0/3' } });
+  frame({ text: NEXT });
   assert.deepEqual(writes.filter(w => w.startsWith('text=')), ['text=Start the generator'], 'only the line that differs is rewritten');
-  clear(); advance(3, { text: { title: 'Start the generator', detail: 'Fuses 0/3' } });
+  clear(); advance(3, { text: NEXT });
   assert.deepEqual(writes.filter(w => w.startsWith('text=')), [], 'identical words are not rewritten');
 });
 
 test('a change while it is up swaps the words by dipping them, not by popping', () => {
-  const { hud, root, frame, advance, container } = make();
+  const { hud, root, frame, advance } = make();
   advance(.3);
   const body = root.children[0];
   assert.equal(root.style.opacity, '1');
-  frame({ text: { title: 'Start the generator', detail: 'Fuses 0/3' } });
+  frame({ text: NEXT });
   assert.equal(body.style.opacity, '0'); assert.equal(body.style.transition, 'none'); assert.equal(hud.title, 'Start the generator');
-  frame({ text: { title: 'Start the generator', detail: 'Fuses 0/3' } });
+  frame({ text: NEXT });
   assert.equal(body.style.opacity, '1'); assert.match(body.style.transition, /opacity 450ms/);
   assert.equal(root.style.opacity, '1', 'the corner itself never blinked');
-  void container;
 });
 
-test('O pins it up; O again fades it out and goes back to appearing on its own', () => {
+test('O hides it with a fade, and O again shows it; without a saved setting that is a flag in memory', () => {
   const { hud, root, frame, advance } = make();
-  advance(OBJECTIVE_HOLD + 2);
-  assert.equal(root.style.opacity, '0');
-  assert.equal(hud.toggle(), true); assert.equal(hud.pinned, true);
-  frame(); assert.equal(root.style.opacity, '1');
-  advance(60); assert.equal(root.style.opacity, '1', 'pinned stays however long');
-  assert.equal(hud.toggle(), true); assert.equal(hud.pinned, false);
-  frame(); assert.equal(root.style.opacity, '0', 'unpinning fades it out at once, not after seven seconds');
-  advance(.5, { text: { title: 'Start the generator', detail: 'Fuses 0/3' } });
-  assert.equal(root.style.opacity, '1', 'auto behaviour is back: a new step brings it up');
-  advance(OBJECTIVE_HOLD + 1, { text: { title: 'Start the generator', detail: 'Fuses 0/3' } });
-  assert.equal(root.style.opacity, '0');
+  advance(2);
+  assert.equal(hud.toggle(), true); assert.equal(hud.hidden, true);
+  frame(); assert.equal(root.style.opacity, '0'); assert.equal(hud.shown, false);
+  assert.notEqual(root.style.transition, 'none', 'the player\'s own hide keeps the eased fade from the stylesheet: not a cut');
+  assert.match(root.style.cssText, /transition:opacity 800ms ease/);
+  advance(60); assert.equal(root.style.opacity, '0', 'and it stays hidden however long, whatever the objective does');
+  advance(2, { text: NEXT }); assert.equal(root.style.opacity, '0', 'a changed step does not bring it back by itself');
+  assert.equal(hud.toggle(), true); assert.equal(hud.hidden, false);
+  frame({ text: NEXT }); assert.equal(root.style.opacity, '1'); assert.equal(hud.title, 'Start the generator', 'it shows the current step, not a stale one');
+  assert.notEqual(root.style.transition, 'none');
 });
 
-test('pinning while it is still on its first appearance keeps it; a changed step while pinned keeps it too', () => {
-  const { hud, root, frame, advance } = make();
-  advance(2); hud.toggle(); advance(OBJECTIVE_HOLD + 3);
-  assert.equal(root.style.opacity, '1');
-  advance(.2, { text: { title: 'Start the generator', detail: 'Fuses 0/3' } });
-  assert.equal(root.style.opacity, '1'); assert.equal(hud.title, 'Start the generator');
-  hud.toggle(); frame({ text: { title: 'Start the generator', detail: 'Fuses 0/3' } });
-  assert.equal(root.style.opacity, '0');
+test('the choice is the saved setting: O writes it, and a reload that reads it back starts hidden or shown to match', () => {
+  const s = saved(true);
+  const a = make(s);
+  a.advance(1); assert.equal(a.root.style.opacity, '1', 'on by default');
+  a.hud.toggle(); assert.equal(s.store.on, false, 'O wrote the setting through'); assert.equal(s.store.saves, 1);
+  a.advance(1); assert.equal(a.root.style.opacity, '0');
+  // "Reload": a new HUD built over the same stored value.
+  const b = make(s);
+  b.advance(3); assert.equal(b.root.style.opacity, undefined, 'still hidden after a reload: never written, never shown'); assert.equal(b.hud.hidden, true);
+  b.hud.toggle(); b.advance(1); assert.equal(s.store.on, true); assert.equal(s.store.saves, 2);
+  assert.equal(b.root.style.opacity, '1');
+  const c = make(s); c.advance(1); assert.equal(c.root.style.opacity, '1', 'and shown again after the next reload');
 });
 
-test('the key hint shows only on the first appearance and while pinned', () => {
-  const { hud, root, frame, advance } = make();
-  const hint = root.children[1];
-  advance(.2);
-  assert.equal(hud.hint, 'O to keep', 'the first appearance says what the key is for');
-  assert.equal(hint.style.opacity, '1');
-  hud.toggle(); frame();
-  assert.equal(hud.hint, 'O to hide', 'pinned: how to let it go');
-  hud.toggle(); frame();
-  assert.equal(hud.hint, '', 'let go: no hint');
-  assert.equal(hint.style.opacity, '0'); assert.equal(hint.textContent, 'O to hide', 'the words stay while it fades so they never blink to empty');
-  advance(.5, { text: { title: 'Start the generator', detail: 'Fuses 0/3' } });
-  assert.equal(root.style.opacity, '1'); assert.equal(hud.hint, '', 'a later appearance is quiet');
-  hud.toggle(); frame({ text: { title: 'Start the generator', detail: 'Fuses 0/3' } });
-  assert.equal(hud.hint, 'O to hide', 'but pinning always says how to undo it');
+test('the Settings checkbox and O are the same switch: a change made in the menu is what O flips next', () => {
+  const s = saved(true);
+  const { hud, root, advance } = make(s);
+  advance(1); advance(1, { allowed: false });
+  s.store.on = false;                                  // unticked in the menu
+  advance(1); assert.equal(root.style.opacity, '0', 'back from the menu: hidden, as chosen'); assert.equal(hud.shown, false);
+  assert.equal(hud.toggle(), true); assert.equal(s.store.on, true, 'O now shows it');
+  advance(.2); assert.equal(root.style.opacity, '1');
 });
 
-test('the intro hint goes with the first appearance, whether or not anyone pressed anything', () => {
-  const { hud, advance } = make();
-  advance(.2); assert.equal(hud.hint, 'O to keep');
-  advance(OBJECTIVE_HOLD + 1); assert.equal(hud.hint, '');
-  advance(.2, { text: { title: 'Start the generator' } }); assert.equal(hud.hint, '');
-});
-
-test('with the setting off it never appears, not even when the objective changes; turning it back on shows it once', () => {
-  const { hud, root, frame, advance, setEnabled } = make();
-  setEnabled(false);
+test('with the setting off it never appears, not even when the objective changes, and O is only unavailable behind a menu', () => {
+  const s = saved(false);
+  const { hud, root, advance } = make(s);
   advance(1); assert.equal(root.style.opacity, undefined);
-  advance(1, { text: { title: 'Start the generator', detail: 'Fuses 0/3' } });
+  advance(1, { text: NEXT });
   advance(1, { text: { title: 'Find the last fuse for the relay hut', detail: 'Fuses 2/3' } });
   assert.equal(root.style.opacity, undefined, 'a change does not sneak it up');
-  assert.equal(hud.toggle(), false, 'O does nothing either'); assert.equal(hud.pinned, false);
-  setEnabled(true);
-  advance(.2, { text: { title: 'Find the last fuse for the relay hut', detail: 'Fuses 2/3' } });
+  s.store.on = true; advance(.2, { text: { title: 'Find the last fuse for the relay hut', detail: 'Fuses 2/3' } });
   assert.equal(root.style.opacity, '1', 'the player switched it on in the menu: it answers');
-  advance(OBJECTIVE_HOLD + 1, { text: { title: 'Find the last fuse for the relay hut', detail: 'Fuses 2/3' } });
-  assert.equal(root.style.opacity, '0');
+  assert.equal(hud.title, 'Find the last fuse for the relay hut');
+  s.store.on = false; advance(.2); assert.equal(root.style.opacity, '0');
 });
 
-test('switching it off while pinned lets the pin go', () => {
-  const { hud, root, advance, setEnabled } = make();
-  advance(.2); hud.toggle(); advance(1);
-  setEnabled(false); advance(.2);
-  assert.equal(root.style.opacity, '0'); assert.equal(hud.pinned, false);
-  setEnabled(true); advance(OBJECTIVE_HOLD + 2);
-  assert.equal(root.style.opacity, '0', 'it was shown once on re-enabling, not pinned again');
+test('the key hint says which key hides it for the first seven seconds on screen, then goes; the objective stays', () => {
+  const { hud, root, advance } = make();
+  const hint = root.children[1];
+  advance(.2);
+  assert.equal(hud.hint, 'O to hide'); assert.equal(hint.style.opacity, '1');
+  advance(OBJECTIVE_HINT_SECONDS - 1); assert.equal(hud.hint, 'O to hide');
+  advance(1.5);
+  assert.equal(hud.hint, ''); assert.equal(hint.style.opacity, '0'); assert.equal(hint.textContent, 'O to hide', 'the words stay while it fades so they never blink to empty');
+  assert.equal(root.style.opacity, '1');
+  advance(.5, { text: NEXT }); assert.equal(hud.hint, '', 'a later step is quiet');
 });
 
-test('behind the pause menu, the death card or the loading veil it is gone at once, and its timer waits', () => {
+test('time behind a menu or while hidden does not use up the hint; pressing O does, since that player knows the key', () => {
+  const a = make();
+  a.advance(3); a.advance(600, { allowed: false }, 1000); a.advance(.2);
+  assert.equal(a.hud.hint, 'O to hide', 'a pause does not eat it');
+  a.advance(3.5); assert.equal(a.hud.hint, 'O to hide', 'six of seven seconds used');
+  a.advance(1.2); assert.equal(a.hud.hint, '');
+  const b = make();
+  b.advance(.2); b.hud.toggle(); b.advance(30); b.hud.toggle(); b.advance(.5);
+  assert.equal(b.root.style.opacity, '1'); assert.equal(b.hud.hint, '', 'shown again by O: no instructions');
+});
+
+test('behind the pause menu, the death card or the loading veil it is gone at once, and returns with a fade', () => {
   const { hud, root, frame, advance } = make();
   advance(2);
   assert.equal(root.style.opacity, '1');
   frame({ allowed: false });
   assert.equal(root.style.opacity, '0'); assert.equal(root.style.transition, 'none', 'an immediate cut, so it never shows through a menu');
-  assert.equal(hud.toggle(), false, 'O in a menu does nothing');
+  assert.equal(hud.toggle(), false, 'O in a menu does nothing'); assert.equal(hud.hidden, false);
   advance(60, { allowed: false });
   assert.equal(root.style.opacity, '0');
   advance(.1);
-  assert.equal(root.style.opacity, '1', 'back from the menu with the time it had left (five of its seven seconds)');
+  assert.equal(root.style.opacity, '1', 'back from the menu');
   assert.match(root.style.transition, /opacity 800ms/, 'and it fades back, not cuts');
-  advance(4); assert.equal(root.style.opacity, '1');
-  advance(1.5); assert.equal(root.style.opacity, '0');
 });
 
-test('a pause never counts against the seven seconds, however long it lasts', () => {
-  const { root, advance } = make();
-  advance(3); advance(600, { allowed: false }, 1000);
-  advance(3); assert.equal(root.style.opacity, '1', 'six of seven used');
-  advance(2); assert.equal(root.style.opacity, '0');
-});
-
-test('a pinned element is hidden by a menu too, and returns pinned', () => {
-  const { hud, root, advance } = make();
-  advance(.2); hud.toggle(); advance(1);
+test('a hidden objective stays hidden through a menu, and does not reappear when it closes', () => {
+  const s = saved(true);
+  const { hud, root, advance } = make(s);
+  advance(.5); hud.toggle(); advance(1);
   advance(1, { allowed: false }); assert.equal(root.style.opacity, '0');
-  advance(.2); assert.equal(root.style.opacity, '1'); assert.equal(hud.pinned, true);
+  advance(2); assert.equal(root.style.opacity, '0'); assert.equal(hud.hidden, true);
 });
 
-test('on touch a tap on the corner is the key, the corner takes taps even when faded, and menus give the touch back', () => {
-  const { hud, root, frame, advance } = make({ touch: true });
+test('on touch a tap on the corner is the key, the corner takes taps even while hidden, and menus give the touch back', () => {
+  const s = saved(true);
+  const { hud, root, frame, advance } = make({ touch: true, ...s });
   assert.equal(hud.hint, '');
   advance(.2);
-  assert.equal(root.style.pointerEvents, 'auto'); assert.equal(hud.hint, 'Tap to keep');
+  assert.equal(root.style.pointerEvents, 'auto'); assert.equal(hud.hint, 'Tap to hide');
   assert.ok(root.listeners.click?.length, 'a click handler');
   const stopped = []; const event = type => ({ type, stopPropagation() { stopped.push(type); } });
   root.listeners.click[0](event('click'));
-  assert.equal(hud.pinned, true); assert.deepEqual(stopped, ['click'], 'the tap does not reach the game underneath');
-  frame(); assert.equal(hud.hint, 'Tap to hide');
+  assert.equal(s.store.on, false); assert.deepEqual(stopped, ['click'], 'the tap does not reach the game underneath');
+  frame(); assert.equal(root.style.opacity, '0');
+  assert.equal(root.style.pointerEvents, 'auto', 'hidden but still tappable, or there would be no way to bring it back');
   for (const type of ['touchstart', 'touchend', 'pointerdown', 'mousedown']) { assert.ok(root.listeners[type]?.length, type); root.listeners[type][0](event(type)); }
   assert.ok(stopped.includes('touchstart') && stopped.includes('mousedown'));
-  root.listeners.click[0](event('click')); frame();
-  assert.equal(hud.pinned, false); assert.equal(root.style.opacity, '0');
-  assert.equal(root.style.pointerEvents, 'auto', 'faded out but still tappable, or there would be no way to bring it back');
-  root.listeners.click[0](event('click')); frame(); assert.equal(root.style.opacity, '1');
+  root.listeners.click[0](event('click')); frame(); assert.equal(root.style.opacity, '1'); assert.equal(s.store.on, true);
   frame({ allowed: false }); assert.equal(root.style.pointerEvents, 'none', 'a menu gets every touch');
-  root.listeners.click[0](event('click')); assert.equal(hud.pinned, true, 'unchanged by a tap that a menu should have eaten');
+  root.listeners.click[0](event('click')); assert.equal(s.store.on, true, 'unchanged by a tap that a menu should have eaten');
 });
 
 test('on a mouse device the corner never takes a click', () => {
@@ -234,13 +229,13 @@ test('on a mouse device the corner never takes a click', () => {
 
 test('dispose removes it, and a custom key name is used in the hint', () => {
   const { hud, root, advance } = make({ keyName: 'H' });
-  advance(.2); assert.equal(hud.hint, 'H to keep');
+  advance(.2); assert.equal(hud.hint, 'H to hide');
   hud.dispose(); assert.equal(root.removed, true);
 });
 
-test('a hidden tab or a long stall does not skip the timer past the visible time', () => {
+test('a hidden tab or a long stall does not skip the hint timer past the visible time', () => {
   const { root, hud, frame, advance } = make();
   advance(.2);
   frame({ now: 1e9 }); // a huge jump in the clock counts as a quarter second at most
-  assert.equal(root.style.opacity, '1'); assert.equal(hud.shown, true);
+  assert.equal(root.style.opacity, '1'); assert.equal(hud.shown, true); assert.equal(hud.hint, 'O to hide');
 });

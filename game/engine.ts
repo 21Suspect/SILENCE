@@ -25,11 +25,14 @@ import { heldKind, type ObjectiveEvent } from './objectives';
 import { createObjectiveHud, OBJECTIVE_KEY } from './objective-hud';
 import { objectiveText } from './objective-text';
 import { POI_PLACEMENTS } from './world-layout';
-import { initialLives, loseLife, respawnHours, deathCard, grabTimeline, NIGHT_START_HOURS, type DeathOutcome } from './lives';
+import { initialLives, loseLife, respawnHours, deathCard, grabTimeline, GRAB, NIGHT_START_HOURS, type DeathOutcome } from './lives';
 import { createPerfProbe, drawList, shadowInstanceCulling, textureReport } from './perf-probe';
 import { perfOn, perfSwitches } from './perf-flags';
 import { createGpuWarmup } from './gpu-warmup';
 import { createTextureSlicer } from './texture-slicer';
+import { createStamina, gaitSpeed, sprintFov } from './stamina';
+import { createStaminaHud } from './stamina-hud';
+import { waterDepthAt, wadeSpeedFactor, limitWading } from './water-depth';
 
 // Deep lakes and open sea support a swimming body, rather than a player
 // walking across the bottom with the camera below the water surface.
@@ -48,6 +51,8 @@ export function createGame(container:HTMLElement) {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(69,window.innerWidth/window.innerHeight,.075,1800);
   camera.rotation.order='YXZ';camera.layers.enable(2);
+  // The field of view the settings ask for, eased towards; the sprint widening is added on top of it each frame.
+  let baseFov=camera.fov;
   const renderer=new THREE.WebGLRenderer({antialias:false,powerPreference:'high-performance',alpha:false});
   const renderBudget=createRenderBudget(window.devicePixelRatio);
   let pixelRatio=renderBudget.resize(window.innerWidth,window.innerHeight);
@@ -85,8 +90,12 @@ export function createGame(container:HTMLElement) {
   };
   const flashlight=createFlashlight(scene,camera,heightAt,collisions,()=>{audio.flashlightClick();noise.emit({type:'noise',loudness:FLASHLIGHT_CLICK_LOUDNESS,source:'flashlight',x:player.x,z:player.z});});
   const world2=WORLD_V2?createWorldV2({scene,camera,container,heightAt,collisions,flashlight,water:terrain.water,viewHeight:()=>renderer.domElement.height,riverX,exclusion,interactKey:()=>keyLabel(settings.bindings.interact)}):undefined;
-  // The objective in the top-left corner (rebuilt world only): fades in on its own, O pins it, Settings can switch it off.
-  const objectiveHud=world2?createObjectiveHud(container,{enabled:()=>settings.objectiveHints}):undefined;
+  // The objective in the top-left corner (rebuilt world only): always shown. O hides or shows it, and so does the Settings checkbox;
+  // both are the one saved setting, so the choice is still there after a reload.
+  const saveSettings=()=>{try{localStorage.setItem('silence-settings',JSON.stringify(settings));}catch{}};
+  const objectiveHud=world2?createObjectiveHud(container,{enabled:()=>settings.objectiveHints,setEnabled:on=>{settings.objectiveHints=on;saveSettings();}}):undefined;
+  // Sprint stamina (game/stamina.ts) and its bar, which only shows while stamina is below full (game/stamina-hud.ts).
+  const stamina=createStamina(),staminaHud=createStaminaHud(container);
   const interact=(pickupOnly=false)=>grab?false:world2?world2.activate(pickupOnly)||(!pickupOnly&&flashlight.toggle()):flashlight.interact(pickupOnly);
   const mouseTap=createTapTracker(),touchTap=createTapTracker();
   let touchTapId:number|undefined,lastTouch=-Infinity;
@@ -108,6 +117,8 @@ export function createGame(container:HTMLElement) {
   const creature=scene.getObjectByName('something-between-the-trees')!;
   const velocity=new THREE.Vector3();
   let jumpVelocity=0, airborne=false, jumpRequested=false;
+  // Last frame's measured ground speed and ladder state: the stamina model decides about sprinting before this frame's movement is known.
+  let lastSpeed=0,wasClimbing=false;
   const forward=new THREE.Vector3(0,0,-1);
   const keys=new Set<string>();
   let yaw=Math.atan2(player.x-pathX(player.z-8),8),pitch=-.045,elapsed=0,walkingPhase=0,cameraHeight=1.69;
@@ -120,6 +131,7 @@ export function createGame(container:HTMLElement) {
   const card=document.createElement('div');card.style.cssText='opacity:0;text-align:center;color:#c9ccc2;font:300 15px/1.6 system-ui,sans-serif;letter-spacing:.34em;text-transform:uppercase';
   const cardTitle=document.createElement('div'),cardLine=document.createElement('div');cardLine.style.cssText='margin-top:12px;font-size:11px;letter-spacing:.42em;color:#868d82';
   card.appendChild(cardTitle);card.appendChild(cardLine);blackout.appendChild(card);container.appendChild(blackout);
+  const grabFacing=new THREE.Vector3(),grabFrom=new THREE.Vector3(),grabEnd=new THREE.Vector3();
   function beginGrab(){
     if(grab)return;
     // Whatever was in hand falls where they were taken, and stays there.
@@ -138,7 +150,7 @@ export function createGame(container:HTMLElement) {
     teleport(at.x,at.z);if(!flying)player.y=characterSupportAt(player.x,player.z,player.y+.5,heightAt,collisions);
     yaw=at.yaw;pitch=-.08;lastFoot.copy(player);stride=0;
     if(over)encounters.restart(player,elapsed);else encounters.relocate(player,elapsed);
-    wokeAt=now;shadowDirty=true;
+    wokeAt=now;shadowDirty=true;stamina.reset();
   }
   /** What the creature is told about the player each frame, beyond where they are. */
   const senses=(dt:number,crouch:boolean,hurry:boolean,inWater:boolean,climbing:boolean):CreatureSenses=>({
@@ -161,6 +173,9 @@ export function createGame(container:HTMLElement) {
   const coarse=matchMedia('(pointer: coarse)').matches;
   const touches=new Map<number,{x:number,y:number,startX:number,startY:number,side:'move'|'look'}>();
   const touchMove=new THREE.Vector2();
+  // On touch there is no sprint key: a push on the stick of at least this many pixels asks to sprint (stamina permitting), a lighter one walks.
+  // Once sprinting, the push may ease back to 80% of it before it counts as a walk again, so a thumb resting on the line does not flicker.
+  const TOUCH_SPRINT_PUSH=44;let touchPushed=false;
   const temp=new THREE.Vector3();
   // Dev measurement only (window.__SILENCE__.perf): run the simulation as if the player were playing, with scripted keys and, optionally, the creature.
   let benchActive=false,benchCreature=false;const benchHeld=new Set<Action>(),perfHidden:THREE.Object3D[]=[];
@@ -235,6 +250,7 @@ export function createGame(container:HTMLElement) {
     const rect=renderer.domElement.getBoundingClientRect();
     for(const t of Array.from(e.changedTouches)){
       const side=t.clientX-rect.left<rect.width*.42&&!Array.from(touches.values()).some(t=>t.side==='move')?'move':'look';
+      if(side==='move')touchPushed=false;
       touches.set(t.identifier,{x:t.clientX,y:t.clientY,startX:t.clientX,startY:t.clientY,side});
     }
   };
@@ -244,7 +260,7 @@ export function createGame(container:HTMLElement) {
       const old=touches.get(t.identifier);if(!old)continue;
       if(t.identifier===touchTapId)touchTap.move(Math.hypot(t.clientX-old.x,t.clientY-old.y));
       if(old.side==='look'){const sensitivity=2.2*settings.sensitivity/Math.min(container.clientWidth,container.clientHeight);yaw-=(t.clientX-old.x)*sensitivity;pitch=THREE.MathUtils.clamp(pitch-(t.clientY-old.y)*sensitivity,-1.28,1.32);}
-      else{touchMove.set(t.clientX-old.startX,t.clientY-old.startY);if(touchMove.length()<7)touchMove.set(0,0);else touchMove.normalize();}
+      else{touchMove.set(t.clientX-old.startX,t.clientY-old.startY);const push=touchMove.length();touchPushed=push>=TOUCH_SPRINT_PUSH*(touchPushed?.8:1);if(push<7)touchMove.set(0,0);else touchMove.normalize();}
       old.x=t.clientX;old.y=t.clientY;
     }
   };
@@ -514,13 +530,16 @@ export function createGame(container:HTMLElement) {
     const directionZ=grab?0:(held('forward')?1:0)-(held('back')?1:0)-touchMove.y;
     const directionX=grab?0:(held('right')?1:0)-(held('left')?1:0)+touchMove.x;
     const crouch=!grab&&!flying&&!world2?.climbing&&held('crouch');
-    const hurry=!grab&&(touchMove.lengthSq()>0||held('sprint'));
+    // Asked to sprint: the key, or on touch a firm push on the stick. Whether the player really sprints is up to the stamina model
+    // (game/stamina.ts): it needs breath, movement and no crouching, flying or ladder, and it drives speed, field of view, noise and breathing.
+    const hurry=!grab&&((touchMove.lengthSq()>0&&touchPushed)||held('sprint'));
+    const run=stamina.update(active?dt:0,hurry&&!crouch&&!flying&&!wasClimbing,lastSpeed);
     const waterDistance=WORLD_V2?channelOffset(player.x,player.z):Math.abs(player.x-riverX(player.z));
-    let moveSpeed=crouch?.95:hurry?3.35:1.8;
+    let moveSpeed=crouch?.95:gaitSpeed(run.blend);
     const waterY=riverSurfaceAt(player.x,player.z);
     const inWater=waterY!==undefined&&player.y<waterY+.10;
     const swimming=!flying&&waterY!==undefined&&waterY-heightAt(player.x,player.z)>1.2&&player.y<waterY+.1;
-    if(inWater)moveSpeed*=.55;
+    if(inWater)moveSpeed*=wadeSpeedFactor(waterDepthAt(player.x,player.z));
     // Walking through dense living ground cover gives soft resistance; its thin stems
     // bend rather than behaving like rigid posts. Leaf litter and twigs remain stepable.
     const offTrail=exclusion(player.x,player.z);
@@ -539,6 +558,7 @@ export function createGame(container:HTMLElement) {
     else if(flying)player.addScaledVector(velocity,dt);
     else{
       const next=moveCharacter(player,velocity.x*dt,velocity.z*dt,crouch?1.05:1.69,movementGround,collisions);
+      if(inWater||waterY!==undefined){const wade=limitWading(oldX,oldZ,next.x,next.z);next.x=wade.x;next.z=wade.z;}
       player.x=next.x;player.z=next.z;
       if(jumpRequested&&active&&!airborne&&!crouch&&!swimming){jumpVelocity=4.3;airborne=true;}jumpRequested=false;
       if(airborne||player.y-next.y>.32){
@@ -550,6 +570,7 @@ export function createGame(container:HTMLElement) {
       }else player.y=THREE.MathUtils.damp(player.y,next.y,18,dt);
     }
     const speed=climb?0:Math.hypot(player.x-oldX,player.z-oldZ)/Math.max(dt,.001);
+    lastSpeed=speed;wasClimbing=!!climb;
     // Every footfall goes into the creature's noise stream, as loud as the gait and the ground make it. Wading
     // is left to the rebuilt world's splashes, which are already in the stream.
     if(simulate&&!swimming&&!airborne&&!flying&&!climb&&!grab&&speed>.25&&!(world2&&inWater)){
@@ -557,11 +578,12 @@ export function createGame(container:HTMLElement) {
       if(stride>.82){
         stride%=.82;
         const surface:FootSurface=inWater?'water':(WORLD_V2?roadDistance(player.x,player.z)<ROAD.footstep:Math.abs(player.z-roadZ(player.x))<2.7)?'road':offTrail<.25?'forest':'dirt';
-        const loudness=footstepLoudness({speed,sprinting:hurry&&!crouch,crouching:crouch,surface})*(world2?.indoors(player)?.5:1);
+        const loudness=footstepLoudness({speed,sprinting:run.sprinting,crouching:crouch,surface})*(world2?.indoors(player)?.5:1);
         if(loudness>0)noise.emit({type:'noise',loudness,source:'footstep',x:player.x,z:player.z});
       }
     }
-    walkingPhase+=speed*dt*(crouch?2.7:3.7);
+    // Past a jog the stride rate grows slowly: at a full sprint the head bobs a few times a second, not seven.
+    walkingPhase+=(Math.min(speed,3.4)+Math.max(0,speed-3.4)*.25)*dt*(crouch?2.7:3.7);
     cameraHeight=THREE.MathUtils.damp(cameraHeight,crouch&&!swimming?1.05:1.69,7,dt);
     const motion=flying||swimming||airborne?0:THREE.MathUtils.clamp(speed/1.8,0,1);
     const bob=Math.sin(walkingPhase*2)*.017*motion;
@@ -571,19 +593,38 @@ export function createGame(container:HTMLElement) {
     let jolt=0;
     if(grab&&!grab.respawned){
       encounters.headPosition(head);
-      const dx=head.x-camera.position.x,dy=head.y-camera.position.y,dz=head.z-camera.position.z,toward=Math.atan2(-dx,-dz),k=1-Math.exp(-dt*(grab.t<.35?16:9));
+      // It drags the camera to its face. The camera ends a fixed distance in front of the face, on the side the face is on
+      // (never behind the head or inside the body, wherever the player was standing when caught), and the view is turned
+      // onto the face as it goes. The pull starts gently and is fastest at the end; then the cut to black.
+      encounters.facing(grabFacing);
+      grabFrom.subVectors(camera.position,head).setY(0);
+      if(grabFrom.lengthSq()>1e-6)grabFrom.normalize();
+      // In front of the face, leaning toward where the player's eyes were so the pull is as short and straight as it can be.
+      grabEnd.copy(grabFacing).multiplyScalar(1.3).add(grabFrom).setY(0);
+      if(grabEnd.lengthSq()<1e-6)grabEnd.copy(grabFacing);
+      grabEnd.normalize().multiplyScalar(GRAB.standOff).add(head);grabEnd.y=head.y-.06;
+      const pulled=THREE.MathUtils.clamp((grab.t-GRAB.pullFrom)/(GRAB.black-GRAB.pullFrom),0,1);
+      camera.position.lerp(grabEnd,pulled*pulled*(3-2*pulled)*pulled);
+      // Caught right against it (or under it), the camera starts nearer than that: it is eased out to the same distance
+      // in the first moments, so the view is never from inside its head.
+      grabFrom.subVectors(camera.position,head);
+      const gap=grabFrom.length(),least=GRAB.standOff*THREE.MathUtils.smoothstep(grab.t,0,.18);
+      if(gap<least){if(gap<1e-4)grabFrom.copy(grabFacing);else grabFrom.multiplyScalar(1/gap);camera.position.copy(head).addScaledVector(grabFrom,least);}
+      // The view settles on the middle of the face, a little below the eyes.
+      const dx=head.x-camera.position.x,dy=head.y-.1-camera.position.y,dz=head.z-camera.position.z,toward=Math.atan2(-dx,-dz),k=1-Math.exp(-dt*THREE.MathUtils.lerp(7,20,THREE.MathUtils.clamp(grab.t/GRAB.wrench,0,1)));
       yaw+=Math.atan2(Math.sin(toward-yaw),Math.cos(toward-yaw))*k;
       pitch+=(THREE.MathUtils.clamp(Math.atan2(dy,Math.hypot(dx,dz)),-1.28,1.32)-pitch)*k;
-      jolt=Math.sin(grab.t*47)*.035*(1-THREE.MathUtils.smoothstep(grab.t,.2,1));
+      jolt=Math.sin(grab.t*47)*.03*(1-THREE.MathUtils.smoothstep(grab.t,.15,.8));
     }
     // Eyes open slowly, after loading and after waking at the cabin.
     const awakening=loading?0:Math.min(THREE.MathUtils.smoothstep((now-loadCompleteAt)/1000,0,3.2),THREE.MathUtils.smoothstep((now-wokeAt)/1000,0,3.2));
     camera.rotation.set(THREE.MathUtils.lerp(-1.18,pitch,awakening)+Math.sin(walkingPhase)*.0018*motion+jolt*.5,yaw,Math.cos(walkingPhase)*.003*motion+jolt,'YXZ');
-    const targetFov=settings.fov+(hurry&&speed>2?2:0);
-    if(camera.fov!==targetFov){
-      const fov=THREE.MathUtils.damp(camera.fov,targetFov,2,dt);
-      camera.fov=Math.abs(fov-targetFov)<.001?targetFov:fov;camera.updateProjectionMatrix();
-    }
+    // The settings' field of view eases in as before; sprinting adds a few degrees on top, eased by the stamina model's own blend.
+    // The projection matrix is rebuilt only on a frame where the value really changed.
+    baseFov=Math.abs(baseFov-settings.fov)<.001?settings.fov:THREE.MathUtils.damp(baseFov,settings.fov,2,dt);
+    const targetFov=baseFov+sprintFov(run.blend);
+    if(camera.fov!==targetFov){camera.fov=targetFov;camera.updateProjectionMatrix();}
+    staminaHud.update({allowed:active&&!grab&&!flying,value:run.value,exhausted:run.exhausted});
     camera.getWorldDirection(forward);
     const startTerrain=performance.now(),terrainChanged=terrain.update(elapsed,player,darkness),startForest=performance.now(),forestChanged=forest.update(elapsed,player),endForest=performance.now();
     if(probe){const m=probe.marks;m.terrain0=startTerrain;m.forest0=startForest;m.forest1=endForest;}
@@ -598,7 +639,7 @@ export function createGame(container:HTMLElement) {
     const startEncounter=profile?performance.now():0;
     if(import.meta.env.DEV&&spiderLab&&!loading)spiderLab.update(rawDelta);
     if(simulate&&(!benchActive||benchCreature)){
-      encounters.update(dt,elapsed,player,forward,darkness,hours,senses(dt,crouch,hurry,inWater,!!climb));lastFoot.copy(player);
+      encounters.update(dt,elapsed,player,forward,darkness,hours,senses(dt,crouch,run.sprinting,inWater,!!climb));lastFoot.copy(player);
       if(encounters.takeStrike())beginGrab();
       if(creatureWasVisible||creature.visible)collisions.replace('creature',encounters.solidColliders());
       // Resolve limbs that entered the player during this tick against the new
@@ -625,7 +666,7 @@ export function createGame(container:HTMLElement) {
     renderer.shadowMap.needsUpdate=drawSun||flashlight.light.shadow.needsUpdate;
     shadowDirty=false;
     if(probe)probe.marks.shadow1=performance.now();
-    audio.update(dt,{position:camera.position,direction:forward,speed:active&&!airborne&&!flying&&!climb&&!swimming?speed:0,sprinting:active&&hurry&&!flying&&!crouch,darkness,surface:inWater?'water':world2?.indoors(player)?'wood':(WORLD_V2?roadDistance(player.x,player.z)<ROAD.footstep:Math.abs(player.z-roadZ(player.x))<2.7)?'road':'dirt',riverDistance:waterDistance});
+    audio.update(dt,{position:camera.position,direction:forward,speed:active&&!airborne&&!flying&&!climb&&!swimming?speed:0,sprinting:active&&run.sprinting,stamina:run.value,winded:run.exhausted,darkness,surface:inWater?'water':world2?.indoors(player)?'wood':(WORLD_V2?roadDistance(player.x,player.z)<ROAD.footstep:Math.abs(player.z-roadZ(player.x))<2.7)?'road':'dirt',riverDistance:waterDistance});
     if(probe)probe.marks.audio1=performance.now();
     renderer.info.reset();
     if(texturesDirty){filterTextures();texturesDirty=false;}
@@ -661,7 +702,7 @@ export function createGame(container:HTMLElement) {
     window.removeEventListener('mouseup',mouseUp);window.removeEventListener('mousemove',mouseMove);window.removeEventListener('keydown',keyDown);window.removeEventListener('keyup',keyUp);window.removeEventListener('blur',blur);window.removeEventListener('focus',focus);window.removeEventListener('resize',resize);window.visualViewport?.removeEventListener('resize',resize);window.removeEventListener('orientationchange',clearInput);
     document.removeEventListener('pointerlockchange',lockChange);document.removeEventListener('pointerlockerror',lockError);document.removeEventListener('visibilitychange',visibilityChange);
     renderer.domElement.removeEventListener('mousedown',mouseDown);renderer.domElement.removeEventListener('touchstart',touchStart);renderer.domElement.removeEventListener('touchmove',touchUpdate);renderer.domElement.removeEventListener('touchend',touchEnd);renderer.domElement.removeEventListener('touchcancel',touchEnd);
-    unsubscribeNoise();blackout.remove();objectiveHud?.dispose();world2?.dispose();admin.dispose();flashlight.dispose();sun.shadow.dispose();sky.dispose();audio.dispose();encounters.dispose();forest.dispose();story.dispose();terrain.dispose();atmosphere.dispose();
+    unsubscribeNoise();blackout.remove();objectiveHud?.dispose();staminaHud.dispose();world2?.dispose();admin.dispose();flashlight.dispose();sun.shadow.dispose();sky.dispose();audio.dispose();encounters.dispose();forest.dispose();story.dispose();terrain.dispose();atmosphere.dispose();
     scene.traverse(object=>{if(object instanceof THREE.Mesh){object.geometry.dispose();const mats=Array.isArray(object.material)?object.material:[object.material];for(const mat of mats){for(const v of Object.values(mat))if(v instanceof THREE.Texture)v.dispose();mat.dispose();}}});
     renderer.dispose();renderer.domElement.remove();
   };

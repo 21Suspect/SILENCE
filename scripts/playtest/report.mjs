@@ -12,7 +12,7 @@ export const RULES = {
   presenceGap: 30,
   /** The dead-air rule fires at 150 s; it then has to come and make its sound, which may take a little while. */
   silence: 150 + 45,
-  stun: { slowing: [.5, .72], starting: [1.4, 1.65], held: [.6, 2.6] },
+  stun: { slowing: [.5, .72], starting: [1.3, 1.65], held: [.6, 3.3] },
   /** Sounds per ten minutes of night, all kinds: fewer is dead, more is spam (the median, and the p90 of nights). And the ambient ones alone. */
   soundsPer10: [4, 12], soundsP90Max: 16, presencePer10: [3, 7],
   /** The reactive sounds mean something once: one hiss per stun engagement, one roar per hunt. Seconds. */

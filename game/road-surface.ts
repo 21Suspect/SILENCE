@@ -1,4 +1,4 @@
-import { roadZ } from './world-noise';
+import { roadZ, roadSlope, ROAD_NORM } from './world-noise';
 import { ROAD, roadArcTable } from './road-profile';
 
 /**
@@ -15,23 +15,36 @@ import { ROAD, roadArcTable } from './road-profile';
  * (`fp`, metres) fades the finest detail with distance so nothing shimmers.
  */
 export function roadSurface() {
-  const arc = roadArcTable(roadZ).map(v => v.toFixed(3)).join(',');
+  const arc = roadArcTable(roadZ, roadSlope).map(v => v.toFixed(3)).join(',');
   const functions = `
   const float ROAD_HALF=${ROAD.half.toFixed(2)};
   const float ROAD_ARC[${ROAD.arcCount}]=float[${ROAD.arcCount}](${arc});
   // Arc length of the centre line up to x: the paint is laid out along the road, so it neither stretches nor smears on the diagonals.
-  float roadArc(float x){float u=clamp((x-(${ROAD.arcFrom.toFixed(1)}))/${ROAD.arcStep.toFixed(1)},0.,${(ROAD.arcCount - 1.001).toFixed(3)});int i=int(u);return mix(ROAD_ARC[i],ROAD_ARC[i+1],u-float(i));}
-  // Where a ground point lies on the road: a across from the centre line (towards +z), s along it, t the road's direction. False
+  // The table is uniform in x, so on the steep stretches its nodes lie far apart along the road: a cubic through the length and
+  // the exact rate of growth (sqrt(1+slope^2)) at both ends of the cell, as roadArcAt in road-profile.ts does.
+  float roadArc(float x){
+    float u=clamp((x-(${ROAD.arcFrom.toFixed(1)}))/${ROAD.arcStep.toFixed(1)},0.,${(ROAD.arcCount - 1.001).toFixed(3)});int i=int(u);float t=u-float(i);
+    float d0=length(vec2(1.,roadPlanGen(${ROAD.arcFrom.toFixed(1)}+float(i)*${ROAD.arcStep.toFixed(1)}).y)),d1=length(vec2(1.,roadPlanGen(${ROAD.arcFrom.toFixed(1)}+float(i+1)*${ROAD.arcStep.toFixed(1)}).y));
+    float t2=t*t,t3=t2*t;
+    return (2.*t3-3.*t2+1.)*ROAD_ARC[i]+(t3-2.*t2+t)*${ROAD.arcStep.toFixed(1)}*d0+(3.*t2-2.*t3)*ROAD_ARC[i+1]+(t3-t2)*${ROAD.arcStep.toFixed(1)}*d1;
+  }
+  // Where a ground point lies on the road: a across from the centre line (towards +z), s along it, t the road's direction. The
+  // nearest point of the centre line is found by Gauss-Newton steps from the foot of the perpendicular to the tangent, exactly as
+  // roadFoot does on the CPU, so the painted road and the graded ground cannot disagree even on a steep, curving stretch. False
   // (after one centre-line evaluation) when it cannot be on the road at all.
   bool roadFrame(vec2 p,out float a,out float s,out vec2 t){
     a=0.;s=0.;t=vec2(1.,0.);
     if(roadPresence(p)<.002)return false;
-    float dz=p.y-roadCenter(p.x);
-    if(abs(dz)>${(ROAD.reach * 1.55).toFixed(1)})return false;
-    float m=roadCenter(p.x+.5)-roadCenter(p.x-.5),k=1./(1.+m*m),r=sqrt(k);
-    a=dz*r;
+    vec2 c=roadPlanGen(p.x);
+    float dz=p.y-c.x;
+    if(abs(dz)>${(ROAD.reach * ROAD_NORM).toFixed(1)})return false;
+    float xc=p.x+dz*c.y/(1.+c.y*c.y);
+    for(int k=0;k<3;k++){c=roadPlanGen(xc);xc-=((xc-p.x)+(c.x-p.y)*c.y)/(1.+c.y*c.y);}
+    c=roadPlanGen(xc);
+    float r=inversesqrt(1.+c.y*c.y);
+    a=((p.y-c.x)-c.y*(p.x-xc))*r;
     if(abs(a)>${ROAD.reach.toFixed(1)})return false;
-    t=vec2(1.,m)*r;s=roadArc(p.x+dz*m*k);
+    t=vec2(1.,c.y)*r;s=roadArc(xc);
     return true;
   }
   // How much of [lo,hi] a pixel [x-w,x+w] covers: exact antialiasing for thin paint.

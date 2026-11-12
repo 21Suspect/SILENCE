@@ -33,10 +33,12 @@ export function deathCard(state: LivesState, outcome: DeathOutcome): { title: st
 
 /** Seconds into being taken at which each thing happens. */
 export const GRAB = {
-  /** The camera is wrenched to its face over this long. */
-  wrench: .35,
-  /** Cut to black. */
-  black: 1.05,
+  /** The camera is turned to its face over this long: quick, but a turn the eye can follow. */
+  wrench: .45,
+  /** The camera is dragged in toward its face from pullFrom until the cut, and stops this far short of it (metres). */
+  pullFrom: .3, standOff: .66,
+  /** Hard cut to black, with the face filling the view. */
+  black: 1.0,
   /** While black: drop the player at the cabin and move the creature away. */
   respawn: 1.6,
   /** The card fades in, holds, and fades out. */

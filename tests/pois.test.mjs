@@ -182,7 +182,12 @@ test('a missing GLB is logged once, keeps its colliders, and the rest carries on
     assert.deepEqual(calls.sort(), ['/world/hut.glb', '/world/missing.glb'], 'a failure is not retried');
     assert.equal(logs.length, 2); assert.match(logs[1], /shed/);
     assert.equal(pois.ready(), true);
-    assert.equal(pois.solidColliders.length, 4, 'two hut colliders and two shed posts');
+    // Once a cabin, chapel or hut has loaded, its walls also get a roof collider ('climb roof', above head height) for the creature to
+    // cross: that is the fifth. The shed never loaded, so it keeps only its two posts, and nothing else gains one.
+    assert.equal(pois.solidColliders.length, 5, 'two hut colliders, the hut\'s climb roof and two shed posts');
+    assert.deepEqual(pois.solidColliders.map(c => c.tag).sort(), ['climb roof', 'rail', undefined, undefined, 'wall'].sort());
+    const roof = pois.solidColliders.find(c => c.tag === 'climb roof');
+    assert.ok(roof.minY >= 2.5 && roof.minY > 1.69, 'the roof starts above the wall tops, over a walker\'s head');
     assert.ok(pois.object('h'), 'the model that did load is placed');
     assert.equal(pois.object('s1'), undefined);
     assert.equal(pois.stats().failed, 1);

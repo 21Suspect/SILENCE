@@ -15,7 +15,7 @@ const assets = (await import('../game/world-assets.json')).default;
  */
 
 // What game/engine.ts does each frame. The first test below reads engine.ts and collision.ts to keep these honest.
-const ENGINE = { height: 1.69, radius: .24, yDamp: 18, accel: 6, decel: 10, walk: 1.8, hurry: 3.35 };
+const ENGINE = { height: 1.69, radius: .24, yDamp: 18, accel: 6, decel: 10, walk: 1.8, hurry: 5.6 };
 const SPEEDS = [ENGINE.walk, ENGINE.hurry], FRAME_RATES = [60, 30];
 const flat = () => 0;
 // The model at its own origin, and the model placed somewhere with a yaw, as world-layout places it.
@@ -121,7 +121,10 @@ function noProblems(problems) {
 test('the traversal simulation uses the movement constants game/engine.ts and game/collision.ts really have', () => {
   const engine = readFileSync(new URL('../game/engine.ts', import.meta.url), 'utf8'), collision = readFileSync(new URL('../game/collision.ts', import.meta.url), 'utf8');
   const number = (source, pattern, what) => { const m = source.match(pattern); assert.ok(m, `no longer found: ${what}; update ENGINE in tests/traversal.test.mjs`); return m.slice(1).map(Number); };
-  assert.deepEqual(number(engine, /moveSpeed=crouch\?[\d.]+:hurry\?([\d.]+):([\d.]+)/, 'the hurry and walking speeds'), [ENGINE.hurry, ENGINE.walk]);
+  // The walking and sprint speeds live in the stamina model (game/stamina.ts); the engine steers between them with its blend.
+  const stamina = readFileSync(new URL('../game/stamina.ts', import.meta.url), 'utf8');
+  assert.deepEqual(number(stamina, /walkSpeed: ([\d.]+),\s*sprintSpeed: ([\d.]+)/, 'the walking and sprint speeds'), [ENGINE.walk, ENGINE.hurry]);
+  assert.ok(/moveSpeed=crouch\?[\d.]+:gaitSpeed\(run\.blend\)/.test(engine), 'the engine no longer takes its ground speed from the stamina model; update this test');
   assert.deepEqual(number(engine, /moveCharacter\(player,velocity\.x\*dt,velocity\.z\*dt,crouch\?[\d.]+:([\d.]+),movementGround,collisions\)/, 'the standing height passed to moveCharacter'), [ENGINE.height]);
   assert.deepEqual(number(engine, /damp\(player\.y,next\.y,(\d+),dt\)/, 'the height damping'), [ENGINE.yDamp]);
   assert.deepEqual(number(engine, /Math\.exp\(-dt\*\(temp\.lengthSq\(\)>0\?([\d.]+):([\d.]+)\)\)/, 'the velocity easing'), [ENGINE.accel, ENGINE.decel]);

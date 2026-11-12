@@ -162,6 +162,12 @@ export function createListener(scene: THREE.Scene, heightAt: (x: number, z: numb
     root,
     get ready() { return rig.ready; },
     movementAllowance: gait.movementAllowance,
+    get limitedBy() { return gait.limitedBy; },
+    get stepRate() { return gait.frequency; },
+    /** The fastest the legs can carry the body right now, metres per second. */
+    get legCapacity() { return gait.capacity; },
+    /** The gait's own record of each leg, for probes and tests. */
+    get gaitLegs() { return gait.legs; },
     shoulders(left: THREE.Vector3, right: THREE.Vector3) {
       body.localToWorld(left.copy(gait.legs[0].hip));
       body.localToWorld(right.copy(gait.legs[4].hip));

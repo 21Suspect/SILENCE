@@ -6,6 +6,7 @@ import { createRiver } from './river';
 import { textureVariationGLSL } from './texture-variation';
 import { createRockGeometry, createRockMaterial, createWeatheredWoodMaterial } from './surfaces';
 import { roadSurface } from './road-surface';
+import { roadMarkerSpot } from './road-geometry';
 import { coastalGLSL } from './coastal-geography';
 import { coastalMaterialGLSL } from './coastal-material';
 
@@ -353,7 +354,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
   markerMat.color.set(0xb9b5a4);
   const markerGeometries:THREE.BufferGeometry[]=[];
   for(let i=0;i<13;i++){
-    const x=-99+i*16.5,z=roadZ(x)+(i%2?3.6:-3.6);if(Math.abs(x-riverX(z))<9)continue;
+    const {x,z}=roadMarkerSpot(i);if(Math.abs(x-riverX(z))<9)continue;
     const geo=new THREE.CylinderGeometry(.105,.14,.69,18,12,false);
     const p=geo.attributes.position;
     const colors=new Float32Array(p.count*3);

@@ -55,18 +55,19 @@ test('rounded S-route keeps moving through turns with bounded heading rate',()=>
   assert.ok(turningFrames>80,'test must contain sustained turns');assert.equal(slowTurning,0,'ordinary corners must never introduce low-speed stop/pivot phases');assert.ok(minSpeed>1.65);assert.ok(maxTurn<2.5,'yaw must turn continuously rather than snap at a waypoint');assert.ok(p.z>30);
 });
 
-test('creature crosses graded river on its water surface without following the submerged bed',()=>{
+// It wades: its body follows the river bed and its legs stand in the water. It used to be carried on the water's surface.
+test('creature wades a graded river on its bed, never standing on the water',()=>{
   const terrain=(x,z)=>Math.abs(x)<4?-.65+z*.01:Math.min(.2,(Math.abs(x)-4)*.2)+z*.01;
   const water=(x,z)=>Math.abs(x)<4?z*.01:undefined;
   const nav=createCreatureNavigation(terrain,undefined,water);let p={x:-6,y:.2,z:0},wet=0;
-  for(let i=0;i<900;i++){p=nav.move(p,1,0,1,1/60);if(Math.abs(p.x)<3.9){wet++;assert.ok(p.y>=water(p.x,p.z)-1e-8);assert.ok(Math.abs(nav.supportAt(p.x,p.z)-water(p.x,p.z))<1e-8);}}
+  for(let i=0;i<900;i++){p=nav.move(p,1,0,1,1/60);if(Math.abs(p.x)<3.9){wet++;assert.ok(Math.abs(nav.supportAt(p.x,p.z)-terrain(p.x,p.z))<1e-8,'its footing is the bed');if(Math.abs(p.x)<2.5)assert.ok(p.y<water(p.x,p.z)-.2,`rides at ${p.y.toFixed(2)} with the water at ${water(p.x,p.z).toFixed(2)}`);}}
   assert.ok(wet>300);assert.ok(p.x>7);
 });
-test('creature navigates a real underpass on water without selecting the overhead bridge deck',()=>{
+test('creature wades a real underpass without selecting the overhead bridge deck',()=>{
   const world=createCollisionWorld(),deck={kind:'box',x:0,z:0,halfX:12,halfZ:.9,yaw:0,minY:4.05,maxY:4.3,tag:'bridge deck',surfaceHeight:(x,z)=>Math.abs(x)<12&&Math.abs(z)<.9?4.3:undefined};
   world.replace('bridge',[deck,{kind:'capsule',ax:5.1,az:0,bx:5.1,bz:0,radius:.15,minY:-1,maxY:4,tag:'bridge support'},{kind:'capsule',ax:-5.1,az:0,bx:-5.1,bz:0,radius:.15,minY:-1,maxY:4,tag:'bridge support'}]);
   const nav=createCreatureNavigation(()=>-.65,world,()=>0);let p={x:0,y:0,z:-6},overhead=0;
-  for(let i=0;i<900;i++){p=nav.move(p,0,1,1,1/60);assert.ok(p.y<.01);if(Math.abs(p.z)<1){overhead++;assert.equal(nav.supportAt(p.x,p.z),0);assert.ok(nav.ceilingAt(p.x,p.z)<4.1);}}
+  for(let i=0;i<900;i++){p=nav.move(p,0,1,1,1/60);assert.ok(p.y<.01);if(Math.abs(p.z)<1){overhead++;assert.equal(nav.supportAt(p.x,p.z),-.65);assert.ok(nav.ceilingAt(p.x,p.z)<4.1);}}
   assert.ok(overhead>50);assert.ok(p.z>7);
 });
 
@@ -123,4 +124,22 @@ test('with no route at all and trunks close ahead, a body still moving brakes to
   assert.ok(p.z-start<.8,`it ran on ${(p.z-start).toFixed(2)} m, then stopped`);
   assert.ok(Math.abs(last)<.3);
   assert.ok(worst<1,`braked as hard as the stopping distance needs, but not in one step (the biggest drop in a frame was ${worst.toFixed(2)} m/s)`);
+});
+
+test('water it is told is closed (the lake, the sea) is never entered: the route goes round, or stops at the shore',()=>{
+  // A pond 8 m across straight ahead, open ground either side.
+  const pond=(x,z)=>Math.hypot(x,z-12)<4;
+  const nav=createCreatureNavigation(flat,undefined,undefined,1,pond);let p={x:0,y:0,z:0};
+  for(let i=0;i<1500;i++){p=nav.move(p,0,1,3,1/60);assert.ok(!pond(p.x,p.z),`in the water at ${p.x.toFixed(1)}, ${p.z.toFixed(1)}`);}
+  assert.ok(p.z>20,`went round the pond: z=${p.z.toFixed(1)}`);
+  // Aimed at someone standing in the middle of it, it comes to the edge and no further.
+  const shore=createCreatureNavigation(flat,undefined,undefined,1,pond);let q={x:0,y:0,z:0};
+  for(let i=0;i<900;i++){q=shore.move(q,0,1,3,1/60,undefined,{x:0,z:12});assert.ok(!pond(q.x,q.z));}
+  assert.ok(Math.hypot(q.x,q.z-12)<7.5,`waits at the shore, ${Math.hypot(q.x,q.z-12).toFixed(1)} m from the middle`);
+});
+test('a player who steps behind a trunk is reached round it, at once',()=>{
+  const world=createCollisionWorld();world.replace('forest',[tree(0,10,.6)]);
+  const nav=createCreatureNavigation(flat,world);let p={x:0,y:0,z:0},still=0,reached=-1;const hidden={x:0,z:11.3};
+  for(let i=0;i<600&&reached<0;i++){const m=nav.move(p,hidden.x-p.x,hidden.z-p.z,5,1/60,undefined,hidden);if(i>40&&m.speed<.3)still++;p=m;assert.ok(obstacleClearance(world.nearby(0,10,3)[0],p.x,p.z)>.84,'never into the bark');if(Math.hypot(p.x-hidden.x,p.z-hidden.z)<3.2)reached=i/60;}
+  assert.ok(reached>0&&reached<4.5,`reached in ${reached.toFixed(1)} s`);assert.ok(still<12,`stood still for ${still} frames`);
 });

@@ -1,5 +1,6 @@
 /** Pure value noise and the seeded road and river courses. Only depends on the flags, so any module can load it first. */
 import { WORLD_SEED, WORLD_V2 } from './world-flags';
+import { buildRoadPlan, planAt, planGLSL, PLAN_DX, type LegSpec, type RoadPlan } from './road-plan';
 export { WORLD_SEED };
 export function hash(x:number,z:number) {
   const n=Math.sin(x*127.1+z*311.7)*43758.5453;
@@ -52,12 +53,47 @@ export const RIVER_BASE=(()=>{
 export const riverX=(z:number)=>RIVER_BASE+riverShape(z);
 const ROAD_AT_RIVER=riverX(ROAD_BASE);
 const roadBend=(x:number)=>.25+.75*smooth(Math.sin(x*.0079+BEND[7])+.5*Math.sin(x*.019+BEND[8]),-.4,.7);
-export const roadZ=(x:number)=>{
-  if(!WORLD_SEED)return ROAD_BASE+Math.sin(x*.013+COURSE[6])*29+Math.sin(x*.041+COURSE[7])*6.2+Math.sin(x*.087+COURSE[8])*1.3;
+/** The southern course: the road as it runs through the valley, past the bridge, the trailhead, the water tower and the chapel. */
+const roadSouth=(x:number)=>{
   // Roads hold their line across a bridge.
   const a=smooth(Math.abs(x-ROAD_AT_RIVER),32,95);
-  return (WORLD_V2?(500+50*(1-smooth(x,-100,100)))*smooth(Math.abs(x),180,440):0)+ROAD_BASE+Math.sin(x*.013+COURSE[6])*29+a*(Math.sin(x*.103+COURSE[8])*1.35+Math.sin(x*.057+COURSE[7])*2.1+Math.sin(x*.041+COURSE[7])*6.2+Math.sin(x*.087+COURSE[8])*1.3+roadBend(x)*(Math.sin(x*.0063+BEND[9])*16+Math.sin(x*.027+BEND[10])*6));
+  return ROAD_BASE+Math.sin(x*.013+COURSE[6])*29+a*(Math.sin(x*.103+COURSE[8])*1.35+Math.sin(x*.057+COURSE[7])*2.1+Math.sin(x*.041+COURSE[7])*6.2+Math.sin(x*.087+COURSE[8])*1.3+roadBend(x)*(Math.sin(x*.0063+BEND[9])*16+Math.sin(x*.027+BEND[10])*6));
 };
+const DEG=Math.PI/180;
+/** How each end climbs into the mountains. Seeded, and different at the two ends: never a ruled line and never a mirror image. */
+const legSpec=(i:number,side:number):LegSpec=>{
+  const r=(k:number)=>rnd(i+k);
+  const wave=95+55*r(5);
+  // The foothills run along z = 385..410 at both ends; the east mouth lies a little further north and further in than the west one.
+  return {targetX:side>0?388+14*r(0):420+14*r(0),targetZ:side>0?402+8*r(4):380+8*r(4),turnIn:100+40*r(1),
+    swing:(7.5+2*r(6))*DEG,wave,phase:r(7)*Math.PI*2,swing2:(2+1*r(8))*DEG,wave2:wave*(.46+.12*r(9)),phase2:r(10)*Math.PI*2};
+};
+/** The road in the rebuilt world: a table of z along x, built once. */
+export const ROAD_PLAN:RoadPlan|undefined=WORLD_V2&&WORLD_SEED?buildRoadPlan(roadSouth,legSpec(50,1),legSpec(70,-1)):undefined;
+const planScratch={z:0,m:0};
+export const roadZ=(x:number)=>{
+  if(!WORLD_SEED)return ROAD_BASE+Math.sin(x*.013+COURSE[6])*29+Math.sin(x*.041+COURSE[7])*6.2+Math.sin(x*.087+COURSE[8])*1.3;
+  if(ROAD_PLAN)return planAt(ROAD_PLAN.z,x,planScratch).z;
+  const a=smooth(Math.abs(x-ROAD_AT_RIVER),32,95);
+  return ROAD_BASE+Math.sin(x*.013+COURSE[6])*29+a*(Math.sin(x*.103+COURSE[8])*1.35+Math.sin(x*.057+COURSE[7])*2.1+Math.sin(x*.041+COURSE[7])*6.2+Math.sin(x*.087+COURSE[8])*1.3+roadBend(x)*(Math.sin(x*.0063+BEND[9])*16+Math.sin(x*.027+BEND[10])*6));
+};
+/** dz/dx of the road, from the same curve as {@link roadZ}: exact for the rebuilt world, a short difference otherwise. */
+export const roadSlope=(x:number)=>ROAD_PLAN?planAt(ROAD_PLAN.z,x,planScratch).m:(roadZ(x+.25)-roadZ(x-.25))/.5;
+/** The steepest dz/dx anywhere on the road, as sqrt(1 + m^2): a point further than d * ROAD_NORM away in z is further than d away. */
+export const ROAD_NORM=(()=>{let m=1.5;if(ROAD_PLAN)for(let i=1;i<ROAD_PLAN.z.length-1;i++)m=Math.max(m,Math.abs(ROAD_PLAN.z[i+1]-ROAD_PLAN.z[i-1])/(2*PLAN_DX));return Math.hypot(1,m*1.08);})();
+/** The point of the centre line nearest to a ground point: x and z of it, the slope there, and metres across (positive on the +z side). */
+export interface RoadFoot{x:number;z:number;m:number;across:number}
+const footScratch={z:0,m:0};
+export function roadFoot(px:number,pz:number,out:RoadFoot):RoadFoot{
+  const point=(x:number)=>ROAD_PLAN?planAt(ROAD_PLAN.z,x,footScratch):(footScratch.z=roadZ(x),footScratch.m=roadSlope(x),footScratch);
+  let p=point(px),x=px+(pz-p.z)*p.m/(1+p.m*p.m);
+  // The foot of the perpendicular is where the distance is least. Gauss-Newton settles on it in a couple of steps even on a
+  // steep, curving stretch, where the first-order guess along the tangent is out by tens of centimetres.
+  for(let k=0;k<3;k++){p=point(x);x-=((x-px)+(p.z-pz)*p.m)/(1+p.m*p.m);}
+  p=point(x);
+  out.x=x;out.z=p.z;out.m=p.m;out.across=((pz-p.z)-p.m*(px-x))/Math.hypot(1,p.m);
+  return out;
+}
 
 /** A side channel: a braid leaves the stream and rejoins it round an island, a tributary comes in from the hills. */
 export type RiverBranch={kind:'braid'|'tributary';z0:number;z1:number;side:number;reach:number;phase:number};
@@ -149,8 +185,7 @@ export const courseGLSL=WORLD_SEED?`
   float trailXGen(float z){return sin(z*.31+${f(COURSE[1])})*.65+sin(z*.117+${f(COURSE[2])})*1.4+sin(z*.021+${f(COURSE[0])})*18.+sin(z*.069+${f(COURSE[1])})*6.+sin(z*.15+${f(COURSE[2])})*1.8+${trailBendGLSL}*(sin(z*.0107+${f(BEND[2])})*15.+sin(z*.038+${f(BEND[3])})*6.);}
   float streamBendGen(float z){return (.12+.88*smoothstep(55.,125.,abs(z-(${ROAD_BASE.toFixed(5)}))))*(.3+.7*smoothstep(-.5,.75,sin(z*.0113+${f(BEND[4])})+.5*sin(z*.0293+${f(BEND[5])})));}
   float streamXGen(float z){float e=streamBendGen(z);return ${RIVER_BASE.toFixed(5)}+sin(z*.0082+${f(COURSE[5])})*24.+sin(z*.021+${f(COURSE[3])})*20.*e+sin(z*.047+${f(COURSE[4])})*13.*e+sin(z*.11+${f(BEND[6])})*2.6*e;}
-  float roadBendGen(float x){return .25+.75*smoothstep(-.4,.7,sin(x*.0079+${f(BEND[7])})+.5*sin(x*.019+${f(BEND[8])}));}
-  float roadZGen(float x){float a=smoothstep(32.,95.,abs(x-(${ROAD_AT_RIVER.toFixed(5)})));return ${WORLD_V2?'(500.+50.*(1.-smoothstep(-100.,100.,x)))*smoothstep(180.,440.,abs(x))+':''}${ROAD_BASE.toFixed(5)}+sin(x*.013+${f(COURSE[6])})*29.+a*(sin(x*.103+${f(COURSE[8])})*1.35+sin(x*.057+${f(COURSE[7])})*2.1+sin(x*.041+${f(COURSE[7])})*6.2+sin(x*.087+${f(COURSE[8])})*1.3+roadBendGen(x)*(sin(x*.0063+${f(BEND[9])})*16.+sin(x*.027+${f(BEND[10])})*6.));}
+  ${planGLSL(ROAD_PLAN!.z)}
   ${BRANCHES.map((b,i)=>`float streamBranch${i}(float z){return streamXGen(z)+${branchOffsetGLSL(b)};}`).join('\n  ')}
   float streamOffset(vec2 p){
     float z=p.y,s=(streamXGen(z+.6)-streamXGen(z-.6))/1.2,d=abs(p.x-streamXGen(z))/sqrt(1.+s*s);

@@ -41,7 +41,11 @@ export function createSurfaceClimb(hull:Box,start:Point,dx:number,dz:number,grou
   const lengths=[0];for(let i=1;i<points.length;i++)lengths.push(lengths[i-1]+distance(points[i-1],points[i]));
   const total=lengths[lengths.length-1];let progress=0;
   function sample(s:number){s=clamp(s,0,total);let i=1;while(i<lengths.length-1&&lengths[i]<s)i++;const t=(s-lengths[i-1])/Math.max(1e-7,lengths[i]-lengths[i-1]),a=points[i-1],b=points[i];return{x:mix(a.x,b.x,t),y:mix(a.y,b.y,t),z:mix(a.z,b.z,t)};}
-  function frame(){const a=sample(progress-.32),b=sample(progress+.32),l=distance(a,b)||1;const forward={x:(b.x-a.x)/l,y:(b.y-a.y)/l,z:(b.z-a.z)/l};return{forward,up:{x:-dx*forward.y,y:Math.hypot(forward.x,forward.z),z:-dz*forward.y}};}
+  // The body lies along the line from where its rear is on the path to where its front is, a body length apart. So at the
+  // foot of a wall the front rises first and the tilt comes on over the whole approach, legs leading, the body following
+  // them up: measured over a hand's breadth (as it was) the whole animal snapped to the wall's angle in a few frames.
+  const BODY_HALF=1.7;
+  function frame(){const a=sample(progress-BODY_HALF),b=sample(progress+BODY_HALF),l=distance(a,b)||1;const forward={x:(b.x-a.x)/l,y:(b.y-a.y)/l,z:(b.z-a.z)/l};return{forward,up:{x:-dx*forward.y,y:Math.hypot(forward.x,forward.z),z:-dz*forward.y}};}
   /** Nearest contact among the roof, four walls and surrounding ground. This
    * lets front and rear feet occupy different faces during an edge transition. */
   function contact(target:Point){

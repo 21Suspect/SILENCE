@@ -178,7 +178,7 @@ function measured(frame, clearance) {
 }
 // A trunk 2.4 m beside the line of travel; the body walks past with the narrowed stance it uses near trunks.
 const CLAW_SINK = .075; // planted claws are drawn pressed into the surface
-const TRUNK = { x: 2.4, z: 3, radius: .5 }, NARROW = .57;
+const TRUNK = { x: 1.9, z: 3, radius: .5 }, NARROW = .57;
 const PHASES = [2.6, 2.8, 3.0, 3.2, 3.4, 3.6]; // where along the route the trunk stands, so it meets every part of the stride
 function passTrunk({ speed, z, avoid, seconds = 8, start = -4 }) {
   const clearance = trunkClearance({ ...TRUNK, z });
@@ -339,3 +339,103 @@ test('standing still among trunks, every leg settles and then stays down', () =>
   const slow=peak(.6), walk=peak(2.5), run=peak(6.5);
   assert.ok(slow<walk && walk<run, `lift must grow with speed: ${slow}, ${walk}, ${run}`);
  });
+
+// ---------------------------------------------------------------- the legs never hold the body back
+// The body's mover asks the gait each frame how much of its step the planted legs allow. Steps are planned from the room
+// each leg really has (its reach, and not folding in under its own hip), so on open ground the answer must always be
+// "all of it", at any speed and in any stance. Before, a narrow stance or a fast run left legs with nowhere to go and the
+// body was stopped dead for whole frames, many times a second.
+function travel({ speed, width = 1, seconds = 8, turn = 0, ride }) {
+  const stage = createStage({ width });
+  if (ride) stage.command.ride = ride;
+  let z = 0, x = 0, yaw = 0, pace = 0, worst = 1, stretched = 0, lowest = 8, most = 0; const held = [];
+  const frames = Math.round(seconds / DT);
+  for (let i = 0; i < frames; i++) {
+    const t = (i + 1) * DT;
+    pace = Math.min(speed, pace + 8.5 * DT);                 // gathers speed as the real body does
+    const dYaw = turn * DT, dx = Math.sin(yaw) * pace * DT, dz = Math.cos(yaw) * pace * DT;
+    const allowed = i ? stage.gait.movementAllowance(dx, 0, dz, dYaw) : 1;
+    if (allowed < worst) worst = allowed;
+    if (allowed < 1) held.push(t);
+    x += dx; z += dz; yaw += dYaw;
+    stage.anchor.set(x, 0, z); stage.forward.set(Math.sin(yaw), 0, Math.cos(yaw)); stage.command.pace = pace;
+    stage.update(t);
+    const down = stage.gait.legs.filter(l => !l.swinging).length;
+    if (t > 1) { lowest = Math.min(lowest, down); most = Math.max(most, 8 - down); }
+    for (const leg of stage.gait.legs) stretched = Math.max(stretched, leg.reachRatio);
+  }
+  return { worst, held, stretched, lowest, most, rate: stage.gait.frequency, gait: stage.gait };
+}
+
+test('on open ground the planted legs never hold the body back, from a creep to a full charge', () => {
+  for (const speed of [.6, 1.5, 3, 5, 7.5, 10, 13.5]) {
+    const run = travel({ speed });
+    assert.equal(run.held.length, 0, `${speed} m/s: the legs held the body in ${run.held.length} frames (worst ${run.worst.toFixed(2)}), first at t=${run.held[0]?.toFixed(2)}`);
+    assert.ok(run.stretched < .97, `${speed} m/s: a leg was stretched to ${(run.stretched * 100).toFixed(0)}% of its length`);
+    assert.ok(run.lowest >= 3, `${speed} m/s: only ${run.lowest} feet on the ground`);
+  }
+});
+
+test('squeezed to its narrowest stance the legs still never hold the body back', () => {
+  for (const width of [.88, .57, .4]) for (const speed of [1.5, 5, 9, 13.5]) {
+    const run = travel({ speed, width });
+    assert.equal(run.held.length, 0, `width ${width}, ${speed} m/s: the legs held the body in ${run.held.length} frames (worst ${run.worst.toFixed(2)})`);
+    assert.ok(run.stretched < .97, `width ${width}, ${speed} m/s: a leg was stretched to ${(run.stretched * 100).toFixed(0)}% of its length`);
+  }
+});
+
+test('riding tall (slow, reared) or low (a run) the stride is fitted to the reach the legs have left', () => {
+  for (const ride of [1.56 * S, 1.9 * S, 2.1 * S]) for (const speed of [2, 6, 11]) {
+    const run = travel({ speed, ride });
+    assert.equal(run.held.length, 0, `ride ${(ride / S).toFixed(2)}, ${speed} m/s: held in ${run.held.length} frames`);
+  }
+});
+
+test('a steady turn while travelling does not hold the body either', () => {
+  for (const [speed, turn] of [[3, .8], [6, .8], [9, .6], [2, 1.6]]) {
+    const run = travel({ speed, turn, seconds: 10 });
+    assert.ok(run.held.length <= 2, `${speed} m/s turning ${turn} rad/s: held in ${run.held.length} frames (worst ${run.worst.toFixed(2)})`);
+  }
+});
+
+test('the step rate rises with speed and stays a rate legs this long could keep', () => {
+  let last = 0;
+  for (const speed of [1.5, 4, 8, 13.5]) {
+    const { rate } = travel({ speed });
+    assert.ok(rate >= last - .05, `step rate fell from ${last.toFixed(2)} to ${rate.toFixed(2)} Hz at ${speed} m/s`);
+    assert.ok(rate < 6.3, `${speed} m/s: ${rate.toFixed(2)} steps a second`);
+    last = rate;
+  }
+  assert.ok(last > 2.5 && last < 5, `at a full charge the legs cycle ${last.toFixed(2)} times a second`);
+});
+
+test('a narrow stance folds the legs fore and aft: the feet stand close beside the body and each leg keeps its length', () => {
+  const wide = createStage({ width: 1 }), narrow = createStage({ width: .4 });
+  wide.update(DT); narrow.update(DT);
+  for (let i = 0; i < LEG_COUNT; i++) {
+    const a = wide.gait.legs[i], b = narrow.gait.legs[i];
+    assert.ok(Math.abs(b.foot.x) < 1.15 * S, `leg ${b.label} stands ${Math.abs(b.foot.x).toFixed(2)} m out`);
+    assert.ok(Math.abs(b.foot.x) < Math.abs(a.foot.x) - .9, `leg ${b.label} is no narrower than in the wide stance`);
+    // Front pairs reach forward and rear pairs back, as far from their hips as they stood before.
+    assert.equal(Math.sign(b.foot.z - b.hip.z * S), i % 4 < 2 ? 1 : -1, `leg ${b.label} points the wrong way along the body`);
+    const hip = new THREE.Vector3(b.hip.x, 0, b.hip.z).multiplyScalar(S);
+    assert.ok(Math.abs(hip.distanceTo(b.foot.clone().setY(0)) - hip.distanceTo(a.foot.clone().setY(0))) < .05, `leg ${b.label} changed length`);
+  }
+});
+
+test('the thorax pitches and rolls about its own middle, so a change of slope does not swing the body fore and aft', () => {
+  // A ramp that starts 6 m ahead: the feet climb onto it one pair after another and the body tilts to follow.
+  const ramp = (target, out) => { const y = Math.max(0, target.z - 6) * .35; out.point.set(target.x, y, target.z); out.normal.set(0, 1, -.35).normalize(); if (target.z < 6) out.normal.set(0, 1, 0); };
+  const stage = createStage({ surface: ramp });
+  const middle = new THREE.Vector3(), expect = new THREE.Vector3(); let worst = 0, tilted = 0, z = 0;
+  for (let i = 0; i < 6 / DT; i++) {
+    z += 2.5 * DT; stage.anchor.set(0, Math.max(0, z - 6) * .35, z); stage.update((i + 1) * DT);
+    // The point midway between the hips, in the world, against where it would be with no tilt at all.
+    middle.set(0, 0, 0); for (const leg of stage.gait.legs) middle.add(stage.body.localToWorld(leg.hip.clone())); middle.multiplyScalar(1 / LEG_COUNT);
+    expect.set(0, 0, 0); for (const leg of stage.gait.legs) expect.add(leg.hip); expect.multiplyScalar(S / LEG_COUNT);
+    worst = Math.max(worst, Math.abs(middle.z - stage.anchor.z - expect.z), Math.abs(middle.x - expect.x));
+    tilted = Math.max(tilted, Math.abs(stage.body.rotation.x));
+  }
+  assert.ok(tilted > .12, `the body should tilt onto the ramp, tilted ${tilted.toFixed(3)} rad`);
+  assert.ok(worst < .02, `the middle of the thorax swung ${worst.toFixed(3)} m off its line`);
+});

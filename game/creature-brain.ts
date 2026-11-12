@@ -65,6 +65,8 @@ export type BrainEvent =
   | { type: 'strike' }
   /** It lost them: `from` is the behaviour that ended (a hunt lost is a chase that got away; a shadow lost is nothing much). */
   | { type: 'lost-player'; from: string }
+  /** It has decided to get ahead of the player and wait on their way. */
+  | { type: 'ambush' }
   /** The torch has pinned it: it begins to slow to a halt and will be held for `seconds` if the beam stays on it. */
   | { type: 'flinch'; seconds: number }
   /** The stun moves on: held (it has stopped), starting (it is getting going again, `seconds` it was held), over. */
@@ -122,12 +124,12 @@ export const CREATURE_TUNING = {
   /** How long after losing sight it can still shadow from memory. */
   shadowMemory: 7,
   /** How long a hunt runs on toward where the player was heading after losing sight. */
-  huntPersist: 9,
+  huntPersist: 6,
 
   // --- Boldness: night does most of it, the length of the evening the rest.
   boldNight: .85, boldElapsed: .15, boldElapsedFrom: 90, boldElapsedTo: 600,
   /** Free-roam playtime also builds courage, even after the sun comes up. */
-  pressureFrom: 120, pressureFull: 300, pressureBoldness: .88,
+  pressureFrom: 120, pressureFull: 300, pressureBoldness: .72,
   /** Boldness where hunting starts to be possible, and where it is a certainty. */
   huntBoldnessMin: .5, huntBoldnessFull: .8,
   /**
@@ -135,34 +137,45 @@ export const CREATURE_TUNING = {
    * seconds; then the drive rises from huntPermitFloor to its full strength over huntPermitRamp: rare at first, certain
    * later.
    */
-  huntPermitDelay: 20, huntPermitFloor: .25, huntPermitRamp: 55,
+  huntPermitDelay: 90, huntPermitFloor: .12, huntPermitRamp: 90,
   /**
    * A hunt that has run this long without a grab is broken off (it loses the scent, or its nerve): it withdraws, and for
    * huntCooldown seconds after any hunt ends (lost, broken off, timed out) it will not take one up again.
    */
-  huntLimit: 35, huntCooldown: 25,
+  huntLimit: 20, huntCooldown: 90,
   /** Seconds of continuous sight before it commits to a hunt, when bold and when timid. */
-  huntSight: .7, huntSightTimid: 1.8,
+  huntSight: 1, huntSightTimid: 2.4,
   /** After a death it is calm for a while (boldness scaled down); after losing a chase, briefly. */
-  calmAfterDeath: 130, calmScale: .25, calmAfterLoss: 25, calmLossScale: .7,
+  calmAfterDeath: 200, calmScale: .25, calmAfterLoss: 60, calmLossScale: .5,
   /** Developer "hunt" spawn: boldness 1 for this long. */
   provokeSeconds: 90,
 
   // --- Movement.
   roamSpeed: 1.8, roamFarSpeed: 4.5, roamFar: 110,
-  investigateSpeed: 2.2, investigateUrgent: 5, investigateArrive: 4, investigateGiveUp: 40, searchSeconds: 4.5,
+  investigateSpeed: 2.2, investigateUrgent: 4, investigateArrive: 4, investigateGiveUp: 40, searchSeconds: 4.5,
   /** Shadowing distance when timid and when bold (closer at night). */
-  shadowFar: 28, shadowNear: 16, shadowMin: 10, shadowMaxSpeed: 6.4,
+  shadowFar: 28, shadowNear: 16, shadowMin: 10, shadowMaxSpeed: 5,
   /** Shadowing distance multipliers in full daylight and full dark: about 28 m by day, so it is there to be seen. */
   shadowDaylight: 1, shadowDark: .75,
   /** Roam waypoints near the player's area keep at least this far off when timid, this far when bold. */
-  roamOffTimid: 55, roamOffBold: 30,
-  huntApproach: 6.5, huntCharge: 13.5, huntChargeDistance: 24,
+  roamOffTimid: 75, roamOffBold: 45,
+  /**
+   * It does not follow the player about. After pacing them for paceBudget seconds (a number drawn afresh each time) it
+   * either gets ahead of them (ambushChance, if they are walking somewhere) or goes away. Away, for the seconds given,
+   * it roams elsewhere and only a noise of recallSalience or louder brings it back.
+   */
+  paceBudget: [8, 20], ambushChance: .55,
+  awayAfterPace: [50, 100], awayAfterSearch: [45, 90], awayAfterHunt: [70, 120], awayAfterWithdraw: [35, 70], recallSalience: .55,
+  /** The ambush: how far ahead on the player's way it waits, how wide it swings to get there, its pace, how long it waits, and how near they must come. */
+  ambushAhead: 62, ambushWide: 40, ambushSpeed: 6.2, ambushWait: 55, ambushMeet: 24,
+  // A sprinting player covers 3.35 m/s: it is still far faster, but a charge can now be seen coming and answered (the torch,
+  // a door, the water). At 13.5 m/s it crossed its whole charge distance in under two seconds.
+  huntApproach: 4.6, huntCharge: 8.5, huntChargeDistance: 20,
   /** It rears for this long when a hunt starts (and screeches) before it runs. */
-  huntWindup: .85,
+  huntWindup: 1.2,
   /** Seconds of the player's velocity it leads them by. */
   huntLead: .45,
-  withdrawSpeed: 7.6, withdrawDistance: 42, withdrawSeconds: 12,
+  withdrawSpeed: 6.5, withdrawDistance: 42, withdrawSeconds: 12,
 
   // --- The grab: metres from its head to the player's chest.
   grabReach: 2.2,
@@ -173,15 +186,15 @@ export const CREATURE_TUNING = {
   /** Seconds it takes to slow from whatever it was doing to a standstill (an eased stop, not a hard brake). */
   stunSlow: .58,
   /** Seconds it is held, first use onward. It stops shrinking at the last: never immune. */
-  stunHeld: [2.5, 1.8, 1.2, .7],
+  stunHeld: [3.2, 2.6, 2, 1.5],
   /** The beam must stay on it: off its face during the held phase, it is released this much later. */
   stunRelease: .6,
   /** Seconds from a walk back up to full pace, and the walk it restarts at. */
-  stunStart: .8, stunStartSpeed: 2.8,
+  stunStart: 1.4, stunStartSpeed: 2,
   /** Seconds out of the beam for full strength again (a step of strength back every third of it). */
-  stunRecharge: 90,
+  stunRecharge: 60,
   /** A short recovery window lets it advance before the beam can pin it again. */
-  stunGrace: 3,
+  stunGrace: 1.2,
   /** The step back: seconds and top speed, early in the held phase. */
   stunBack: .7, stunBackSpeed: .8,
   /** For this long after a stun a timid creature prefers to withdraw. */
@@ -190,9 +203,9 @@ export const CREATURE_TUNING = {
    * A hunt the torch has held may be broken off when it gets going again: the chance is this times how far it is
    * from its full hunting drive. Early in the night the light can save you; deep in it, it only buys a moment.
    */
-  stunBreakOff: .7,
+  stunBreakOff: .9,
   /** How much of its hunting drive shields a hunt from being broken off by the torch: at full drive the chance is stunBreakOff x (1 - this). */
-  stunBreakDrive: .85,
+  stunBreakDrive: .25,
 
   // --- Being watched: seconds the player can stare before a timid / bold creature melts back.
   watchTolerance: 1.6, watchToleranceBold: 3.5,
@@ -290,6 +303,15 @@ export type BrainContext = {
   /** The side (+1/-1) it shadows from; Withdraw flips it so it comes back from the other side. */
   flank: number;
   current: string; inCurrent: number;
+  /** It has had enough of the player for now (a lost chase, a search that found nothing, a long look): it is off elsewhere. */
+  away: boolean;
+  /** Seconds it has spent pacing the player since it last went away, and how many it allows itself. */
+  paced: number; paceBudget: number;
+  /** A place ahead of the player it has decided to get to and wait at, by way of a point well off to one side. */
+  ambush?: { via: Vec2; at: Vec2; from: Vec2; until: number; reached: boolean };
+  /** Go away for a while (seconds), dropping what it was following. */
+  leave(seconds: number): void;
+  endAmbush(): void;
   /** True distance to the player. Only for pacing (how fast to travel while far); never for finding them. */
   distanceToPlayer: number;
   places: readonly Vec2[];
@@ -331,7 +353,8 @@ export const roam: Behaviour = {
   score: () => .2,
   act(c) {
     const s = c.state, t = c.tuning;
-    if (!s.waypoint || dist(c.self, s.waypoint) < 6 || c.now > s.until) { s.waypoint = pickWaypoint(c); s.until = c.now + 40 + c.random() * 30; }
+    // Having turned away from the player it picks somewhere new at once, well away from them.
+    if (!s.waypoint || dist(c.self, s.waypoint) < 6 || c.now > s.until || s.away !== c.away) { s.away = c.away; s.waypoint = c.away ? pickFarWaypoint(c) : pickWaypoint(c); s.until = c.now + 40 + c.random() * 30; }
     return { intent: { target: s.waypoint, speed: c.distanceToPlayer > t.roamFar ? t.roamFarSpeed : t.roamSpeed, arrive: 3 }, gaze: ahead(c.self, s.waypoint) };
   },
 };
@@ -350,6 +373,15 @@ function pickWaypoint(c: BrainContext): Vec2 {
   return { x: q.x + Math.sin(a) * d, z: q.z + Math.cos(a) * d };
 }
 
+/** Somewhere to be that is not where the player is: one of its places a good way off, or just off into the forest. */
+function pickFarWaypoint(c: BrainContext): Vec2 {
+  const p = c.input.player, r = c.random, far = c.places.filter(q => dist(q, p) > 110 && dist(q, p) < 320);
+  if (far.length && r() < .7) { const q = far[Math.floor(r() * far.length)], a = r() * Math.PI * 2, d = 4 + r() * 10; return { x: q.x + Math.sin(a) * d, z: q.z + Math.cos(a) * d }; }
+  // Onward the way it is already going from them, not back across them.
+  const out = Math.atan2(c.self.x - p.x, c.self.z - p.z) + (r() - .5) * 1.6, d = 130 + r() * 70;
+  return { x: p.x + Math.sin(out) * d, z: p.z + Math.cos(out) * d };
+}
+
 /** Goes to a noise or a last sighting, slowly, then stands and sweeps its head. */
 export const investigate: Behaviour = {
   id: 'investigate', commit: 2,
@@ -357,6 +389,8 @@ export const investigate: Behaviour = {
     // With the player in sight there is nothing to go and look for: shadowing, hunting or withdrawing decide.
     const lead = c.lead; if (!lead || lead.investigated || c.sees) return 0;
     const fresh = 1 - c.leadAge / c.tuning.leadMemory; if (fresh <= 0) return 0;
+    // Gone off elsewhere, only a real noise brings it back: not the memory of where it last saw them.
+    if (c.away && (lead.kind === 'sight' || lead.salience < c.tuning.recallSalience)) return 0;
     // A sighting is not worth walking to the moment it is lost: for a few seconds it paces them from memory.
     return (.3 + .45 * fresh * Math.min(1, lead.salience)) * (lead.kind === 'sight' ? smoothstep(c.leadAge, 1, 4) : 1);
   },
@@ -372,7 +406,10 @@ export const investigate: Behaviour = {
         if (!s.probe && lead.uncertainty > 6) {
           const a = c.random() * Math.PI * 2, d = lead.uncertainty * (.4 + c.random() * .5);
           s.probe = { x: lead.x + Math.sin(a) * d, z: lead.z + Math.cos(a) * d }; s.search = undefined;
-        } else lead.investigated = true;
+        } else {
+          // It looked, they were not there: it loses interest and goes elsewhere. A player who hid has got away.
+          lead.investigated = true; c.leave(t.awayAfterSearch[0] + c.random() * (t.awayAfterSearch[1] - t.awayAfterSearch[0]));
+        }
       }
       const a = s.sweep + Math.sin(searching * 1.4) * 1.3;
       return { intent: { target: goal, speed: 0 }, gaze: { x: c.self.x + Math.sin(a) * 9, z: c.self.z + Math.cos(a) * 9 } };
@@ -392,6 +429,9 @@ export const shadow: Behaviour = {
     if (c.input.player.untouchable) return 0;
     const t = c.tuning;
     if (!c.sees && !(c.lastSeen && c.lastSeenAge < t.shadowMemory)) return 0;
+    // It does not trail the player all evening: a spell of pacing them, then it does something else (see `tick`). Gone
+    // away it does not pace them at all, and a player who has gone indoors out of its sight is not paced round the walls.
+    if (c.away || c.ambush || c.paced >= c.paceBudget || (c.input.player.indoors && !c.sees)) return 0;
     let s = .5 + .15 * (1 - c.huntDrive);
     if (!c.sees) s *= 1 - .5 * c.lastSeenAge / t.shadowMemory;
     if (c.watched > watchTolerance(c)) s -= .45;
@@ -451,6 +491,30 @@ export const strike: Behaviour = {
   act(c) { return { intent: { speed: 0 }, gaze: playerEstimate(c) }; },
 };
 
+/**
+ * Gets ahead of the player. Having watched which way they are walking it swings wide, out of sight, to a place on their
+ * way, and stands there facing them until they walk up to it. It goes by what it last saw: a player who turns aside
+ * is not met, and it gives up waiting.
+ */
+export const ambush: Behaviour = {
+  id: 'ambush', commit: 3,
+  score(c) {
+    const plan = c.ambush; if (!plan || c.away || c.input.player.untouchable) return 0;
+    // Met: from here it is a hunt, or a retreat. Never both waiting and seen up close.
+    if (c.sees && dist(c.self, c.input.player) < c.tuning.ambushMeet) return 0;
+    return c.now < plan.until ? .62 : 0;
+  },
+  exit(c) { if (c.ambush && (c.now >= c.ambush.until || (c.sees && dist(c.self, c.input.player) < c.tuning.ambushMeet))) c.endAmbush(); },
+  act(c) {
+    const plan = c.ambush!, t = c.tuning;
+    if (c.now >= plan.until) { c.endAmbush(); c.leave(t.awayAfterSearch[0] + c.random() * (t.awayAfterSearch[1] - t.awayAfterSearch[0])); return { intent: { speed: 0 } }; }
+    if (!plan.reached && dist(c.self, plan.via) < 8) plan.reached = true;
+    const goal = plan.reached ? plan.at : plan.via, waiting = plan.reached && dist(c.self, plan.at) < 4;
+    // Standing in their way it looks back along it, toward where they will come from.
+    return { intent: { target: goal, speed: waiting ? 0 : t.ambushSpeed, arrive: 2.5 }, gaze: waiting ? { x: plan.from.x, y: 1.5, z: plan.from.z } : ahead(c.self, goal) };
+  },
+};
+
 /** Breaks off and circles away; afterwards it returns from the other side. */
 export const withdraw: Behaviour = {
   id: 'withdraw', commit: 4,
@@ -466,7 +530,7 @@ export const withdraw: Behaviour = {
     return score;
   },
   enter(c) { const s = c.state, t = c.tuning; s.side = c.random() < .5 ? -1 : 1; s.until = c.now + t.withdrawSeconds * (.7 + c.random() * .5); s.done = false; },
-  exit(c) { c.setFlank(-c.stateOf('withdraw').side || 1); c.clearDismissed(); },
+  exit(c) { c.setFlank(-c.stateOf('withdraw').side || 1); c.clearDismissed(); if (!c.sees) c.leave(c.tuning.awayAfterWithdraw[0] + c.random() * (c.tuning.awayAfterWithdraw[1] - c.tuning.awayAfterWithdraw[0])); },
   act(c) {
     const s = c.state, t = c.tuning, p = c.input.player;
     if (s.side === undefined) withdraw.enter!(c);
@@ -483,7 +547,7 @@ export const withdraw: Behaviour = {
 };
 
 /** Stage 1's repertoire. Stage 2 adds entries here (or passes its own list); the selector needs no change. */
-export const STAGE_ONE_BEHAVIOURS: readonly Behaviour[] = [roam, investigate, shadow, hunt, strike, withdraw];
+export const STAGE_ONE_BEHAVIOURS: readonly Behaviour[] = [roam, investigate, shadow, ambush, hunt, strike, withdraw];
 
 // ------------------------------------------------------------------------------------------------------------
 
@@ -507,6 +571,10 @@ export function createCreatureBrain(options: CreatureBrainOptions) {
   // left its face lets it go, how many uses have worn it down, and the pace it was slowing from.
   let stunPhase: StunPhase = 'none', stunT = 0, stunHeldFor = 0, stunRelease = Infinity, stunSpent = 0, stunFrom = 0, outOfBeam = 0, beamTime = 0, flinchEnded = -Infinity;
   let calmUntil = -Infinity, calmScale = 1, provokedUntil = -Infinity, dismissed = false, shaken = false, flank = 1, huntAllowed = true, huntAllowedAt = -Infinity, huntCooldownUntil = -Infinity;
+  let awayUntil = -Infinity, paced = 0, paceBudget = (tuning.paceBudget[0] + tuning.paceBudget[1]) / 2, ambushPlan: BrainContext['ambush'];
+  const between = (range: readonly number[]) => range[0] + random() * (range[1] - range[0]);
+  /** Off elsewhere for a while: nothing it was following is kept, and its next spell of pacing them is drawn afresh. */
+  const leave = (seconds: number) => { awayUntil = Math.max(awayUntil, now + seconds); paced = 0; paceBudget = between(tuning.paceBudget); ambushPlan = undefined; if (lead && lead.kind === 'sight') lead.investigated = true; decideIn = 0; };
   let scores: Record<string, number> = {}, last: BrainOutput | undefined, lastInput: BrainInput | undefined, boldness = 0, huntDrive = 0, creature = { x: 0, z: 0, yaw: 0 };
 
   const stateOf = (id: string) => (states[id] ??= {});
@@ -618,6 +686,7 @@ export function createCreatureBrain(options: CreatureBrainOptions) {
       boldness, huntDrive, watched,
       flinching: stunning(), sinceFlinch: stunning() ? 0 : now - flinchEnded,
       dismissed, shaken, flank, current, inCurrent: now - enteredAt,
+      away: now < awayUntil, paced, paceBudget, ambush: ambushPlan, leave, endAmbush: () => { ambushPlan = undefined; },
       distanceToPlayer: dist(input.creature, input.player), places,
       state: stateOf(id), stateOf,
       setFlank: side => { flank = side; }, clearDismissed: () => { dismissed = false; shaken = false; },
@@ -628,7 +697,7 @@ export function createCreatureBrain(options: CreatureBrainOptions) {
   function switchTo(id: string, input: BrainInput, events: BrainEvent[]) {
     const from = current;
     byId.get(from)?.exit?.(context(input, events, from));
-    if (from === 'hunt' && id !== 'strike') huntCooldownUntil = now + tuning.huntCooldown;
+    if (from === 'hunt' && id !== 'strike') { huntCooldownUntil = now + tuning.huntCooldown; if (!sees || shaken) leave(between(tuning.awayAfterHunt)); }
     if ((from === 'hunt' && id !== 'strike') || (from === 'shadow' && (id === 'investigate' || id === 'roam'))) {
       if (!sees) {
         events.push({ type: 'lost-player', from });
@@ -673,6 +742,24 @@ export function createCreatureBrain(options: CreatureBrainOptions) {
       stun(input, events);
       // A hunt that has gone on too long is given up: it withdraws, and the cooldown (set as it ends) keeps it from starting another straight away.
       if (current === 'hunt' && !shaken && now >= provokedUntil && now - enteredAt > tuning.huntLimit && !stunning()) { shaken = true; decideIn = 0; }
+      // A loud noise calls it back from wherever it had gone.
+      if (now < awayUntil && lead && !lead.investigated && lead.kind === 'sound' && lead.salience >= tuning.recallSalience && lead.at > awayUntil - 400 && now - lead.at < 1) awayUntil = now;
+      // Its spell of pacing the player runs out: it gets ahead of them if they are going somewhere, or it goes away.
+      if (current === 'shadow') {
+        paced += dt;
+        if (paced >= paceBudget && !stunning()) {
+          const seen = lastSeen, pace = seen ? Math.hypot(seen.vx, seen.vz) : 0;
+          if (seen && pace > .8 && !input.player.indoors && random() < tuning.ambushChance) {
+            const hx = seen.vx / pace, hz = seen.vz / pace, side = flank || 1, reach = tuning.ambushAhead + pace * 14;
+            ambushPlan = {
+              from: { x: seen.x, z: seen.z },
+              via: { x: seen.x + hx * reach * .45 + hz * side * tuning.ambushWide, z: seen.z + hz * reach * .45 - hx * side * tuning.ambushWide },
+              at: { x: seen.x + hx * reach, z: seen.z + hz * reach }, until: now + tuning.ambushWait, reached: false,
+            };
+            events.push({ type: 'ambush' }); decideIn = 0;
+          } else leave(between(tuning.awayAfterPace));
+        }
+      }
       decideIn -= dt;
       // A grab cannot wait for the next decision tick.
       const reachable = current === 'hunt' && input.reach < tuning.grabReach;
@@ -697,6 +784,7 @@ export function createCreatureBrain(options: CreatureBrainOptions) {
     struck() {
       forget(); beamTime = 0; stunPhase = 'none'; stunT = 0;
       calmUntil = now + tuning.calmAfterDeath; calmScale = tuning.calmScale; provokedUntil = -Infinity; dismissed = false; huntCooldownUntil = -Infinity;
+      awayUntil = now + between(tuning.awayAfterHunt); paced = 0; ambushPlan = undefined;
       current = 'roam'; enteredAt = now; states = {}; decideIn = 0;
     },
     /** The host moved the body (a spawn or relocation): drop half-finished plans, keep what it knows. */
@@ -707,7 +795,7 @@ export function createCreatureBrain(options: CreatureBrainOptions) {
     forget,
     /** Developer hunt: full courage, and it knows exactly where the player is. */
     provoke(player: PlayerPercept) {
-      provokedUntil = now + tuning.provokeSeconds; calmUntil = -Infinity; dismissed = false;
+      provokedUntil = now + tuning.provokeSeconds; calmUntil = -Infinity; dismissed = false; awayUntil = -Infinity; paced = 0;
       lastSeen = { x: player.x, y: player.y, z: player.z, vx: 0, vz: 0, at: now };
       exposure = 1; sightTime = tuning.huntSightTimid;
       lead = { id: ++leadIds, kind: 'sight', source: 'sight', x: player.x, y: player.y + 1.5, z: player.z, uncertainty: 1, salience: 1.2, at: now, investigated: false };
@@ -715,6 +803,7 @@ export function createCreatureBrain(options: CreatureBrainOptions) {
     },
     /** Give it something to investigate (a developer "natural" spawn hands it the player's rough position). */
     alert(at: Vec2, uncertainty = 8) {
+      awayUntil = -Infinity;
       lead = { id: ++leadIds, kind: 'sound', source: 'alert', x: at.x, z: at.z, uncertainty, salience: .8, at: now, investigated: false };
       decideIn = 0;
     },
@@ -732,6 +821,7 @@ export function createCreatureBrain(options: CreatureBrainOptions) {
       stunPhase = 'none'; stunT = stunHeldFor = stunSpent = stunFrom = outOfBeam = beamTime = 0; stunRelease = Infinity; flinchEnded = -Infinity;
       calmUntil = provokedUntil = -Infinity; calmScale = 1; dismissed = shaken = false; flank = 1; scores = {}; last = undefined;
       huntAllowed = true; huntAllowedAt = -Infinity; huntCooldownUntil = -Infinity;
+      awayUntil = -Infinity; paced = 0; ambushPlan = undefined;
     },
     inspect() {
       return {
@@ -739,6 +829,7 @@ export function createCreatureBrain(options: CreatureBrainOptions) {
         sees, exposure, sightTime, watched, creature: { ...creature },
         lastSeen: lastSeen && { ...lastSeen, age: now - lastSeen.at }, lead: lead && { ...lead, age: now - lead.at },
         flinch: { active: stunning(), phase: stunPhase, inPhase: stunT, held: stunHeldFor, spent: stunSpent, nextHeld: tuning.stunHeld[Math.min(stunSpent, tuning.stunHeld.length - 1)], outOfBeam },
+        away: Math.max(0, awayUntil - now), paced, paceBudget, ambush: ambushPlan && { ...ambushPlan },
         calm: Math.max(0, calmUntil - now), cooldown: Math.max(0, huntCooldownUntil - now), provoked: Math.max(0, provokedUntil - now), dismissed, shaken, flank,
         intent: last?.intent,
       };

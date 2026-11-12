@@ -11,6 +11,8 @@
  */
 import * as THREE from 'three';
 import { game, heightAt, darknessAt, createHeadlessWorld } from './world.mjs';
+// The player's real stamina: the bot gets out of breath exactly as a player does (9 s of sprint, then a walk).
+const { createStamina, gaitSpeed } = await import('../../game/stamina.ts');
 
 const W = game.world, L = game.layout, V = game.v2, B = game.brain, LV = game.lives, VIS = game.visibility;
 const ENGINE = { walk: 1.8, hurry: 3.35, crouch: .95, wading: .55, offTrail: .88, stand: 1.69, low: 1.05, stride: .82 };
@@ -241,7 +243,8 @@ export async function playNight({ style, seed, minutes = 15, untilDawn = true, o
   let torch = false, lives = LV.initialLives(), grab, ended, heardIndex = 0, wantedSpeed = 0, moved = 0;
   const unsubscribe = world2.noise.subscribe(e => { if (e.x !== undefined && e.z !== undefined) encounters.hear({ loudness: e.loudness, source: e.source, x: e.x, z: e.z }); });
   const log = { style, seed, frames: 0, sightings: [], deaths: [], grabs: [], visibilityPops: [], stuns: [], hunts: [], sounds: [], transitions: [], behaviours: [], opening: [], deadAir: [], timeline: [], samples: [] };
-  let sighting, lastVisible = false, lastStun = 'none', stun, lastBehaviour, indoorsSeconds = 0;
+  let sighting, lastVisible = false, lastStun = 'none', stun, lastBehaviour, indoorsSeconds = 0, lastGroundSpeed = 0;
+  const stamina = createStamina();
   const head = new THREE.Vector3();
   const endAt = minutes * 60;
 
@@ -259,9 +262,9 @@ export async function playNight({ style, seed, minutes = 15, untilDawn = true, o
     // --- The engine's frame (game/engine.ts animate), for one player.
     yaw = intent.yaw ?? yaw; pitch = THREE.MathUtils.clamp(intent.pitch ?? 0, -1.28, 1.32);
     if (!grab && intent.torch !== undefined && intent.torch !== torch) { torch = intent.torch; world2.noise.emit({ type: 'noise', loudness: B.FLASHLIGHT_CLICK_LOUDNESS, source: 'flashlight', x: player.x, z: player.z }); }
-    const crouch = !grab && !!intent.crouch, hurry = !grab && !!intent.sprint;
+    const crouch = !grab && !!intent.crouch, run = stamina.update(dt, !grab && !!intent.sprint && !crouch, lastGroundSpeed), hurry = run.sprinting;
     const waterY = W.riverSurfaceAt(player.x, player.z), inWater = waterY !== undefined && player.y < waterY + .10;
-    let moveSpeed = crouch ? ENGINE.crouch : hurry ? ENGINE.hurry : ENGINE.walk;
+    let moveSpeed = crouch ? ENGINE.crouch : gaitSpeed(run.blend);
     if (inWater) moveSpeed *= ENGINE.wading;
     const offTrail = W.vegetationExclusion(player.x, player.z);
     if (offTrail < .25) moveSpeed *= ENGINE.offTrail;
@@ -291,6 +294,7 @@ export async function playNight({ style, seed, minutes = 15, untilDawn = true, o
     if (world.streamForest(player)) {}
     world2.update({ dt, time: elapsed, player, darkness, active: !grab, simulate: true });
     const teleported = Math.hypot(player.x - lastFoot.x, player.z - lastFoot.z) > dt * 12;
+    lastGroundSpeed = teleported ? 0 : Math.hypot(player.x - lastFoot.x, player.z - lastFoot.z) / dt;
     const senses = { vx: teleported ? 0 : (player.x - lastFoot.x) / dt, vz: teleported ? 0 : (player.z - lastFoot.z) / dt, sprinting: hurry && !crouch, crouching: crouch, flashlightOn: torch, inWater, onLadder: false, indoors, untouchable: !!grab, blackout: !!grab && LV.grabTimeline(grab.t).black >= 1 };
     const wasVisible = probe.visible;
     encounters.update(dt, elapsed, player, forward, darkness, hours, senses); lastFoot.copy(player);

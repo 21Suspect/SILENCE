@@ -12,8 +12,10 @@ const percept = (o = {}) => ({ x: 0, y: 0, z: 0, vx: 0, vz: 0, sprinting: false,
  * A tiny stand-in for the host: the creature walks straight where the brain asks; line of sight, the beam and the
  * player's position are whatever the test says. Reach is the distance from a head ~1.1 m ahead of the body.
  */
-function world({ seed = 1, hours = 23.5, darkness = 1, at = { x: 0, z: 40, yaw: Math.PI }, places } = {}) {
-  const brain = createCreatureBrain({ random: createRandom(seed), places });
+/** For tests of the pacing itself: no limit on how long it paces the player before it does something else. */
+const PATIENT = { paceBudget: [1e6, 1e6] };
+function world({ seed = 1, hours = 23.5, darkness = 1, at = { x: 0, z: 40, yaw: Math.PI }, places, tuning } = {}) {
+  const brain = createCreatureBrain({ random: createRandom(seed), places, tuning });
   const self = { ...at };
   let player = percept();
   const step = (o = {}) => {
@@ -142,7 +144,7 @@ test('sustained sight at night starts a hunt; the same sight in early evening on
   r = night.run(.5, { los: true });
   assert.ok(r.out.intent.speed >= T.huntApproach, 'it runs at the player');
 
-  const evening = world({ hours: 17, darkness: .15, at: { x: 0, z: 25, yaw: Math.PI } });
+  const evening = world({ hours: 17, darkness: .15, at: { x: 0, z: 25, yaw: Math.PI }, tuning: PATIENT });
   evening.player = { x: 0, z: 0, flashlightOn: true };
   r = evening.run(30, { los: true });
   assert.ok(!r.behaviours.includes('hunt'), `early evening: ${r.behaviours.join(' > ')}`);
@@ -151,7 +153,7 @@ test('sustained sight at night starts a hunt; the same sight in early evening on
 });
 
 test('shadowing: it settles at its distance and stops when the player stands, and paces them when they walk', () => {
-  const w = world({ hours: 18.5, darkness: .25, at: { x: 0, z: 22, yaw: Math.PI } });
+  const w = world({ hours: 18.5, darkness: .25, at: { x: 0, z: 22, yaw: Math.PI }, tuning: PATIENT });
   w.player = { x: 0, z: 0 };
   w.run(3, { los: true });
   const bearing = () => Math.atan2(w.self.x - w.player.x, w.self.z - w.player.z);
@@ -217,15 +219,16 @@ test('the generator pulls a shadowing creature away once it has lost sight of th
   assert.ok(dist(lead, generator) < dist(lead, w.player), 'it went to the generator, not to where it lost the player');
 });
 
-test('stared at too long in early evening, it melts back; it returns from the other side', () => {
-  const w = world({ hours: 18, darkness: .2, at: { x: 0, z: 28, yaw: Math.PI } });
+test('stared at too long in early evening, it melts back and stays away for a while', () => {
+  const w = world({ hours: 18, darkness: .2, at: { x: 0, z: 28, yaw: Math.PI }, tuning: PATIENT });
   w.player = { x: 0, z: 0 };
   const r = w.run(20, { los: true, looking: true });
   assert.ok(r.behaviours.includes('withdraw'), r.behaviours.join(' > '));
   assert.ok(dist(w.self, w.player) > 30, `it backed off to ${dist(w.self, w.player).toFixed(1)} m`);
-  // Once it is no longer stared at, it comes back to pace the player.
-  const back = w.run(30, { los: true, looking: false });
-  assert.ok(back.behaviours.includes('shadow'), back.behaviours.join(' > '));
+  // It does not come straight back to pace the player the moment they look away: it has gone, for now.
+  const after = w.run(25, { los: true, looking: false });
+  assert.ok(!after.behaviours.includes('shadow'), after.behaviours.join(' > '));
+  assert.ok(w.brain.inspect().away > 0, 'gone for a while');
 });
 
 test('the selector does not flicker in a steady situation', () => {
@@ -289,7 +292,7 @@ function charging(seed = 1) {
 test('the torch stun: an eased slow to a halt, a held stand with a step back, an eased restart from a walk', () => {
   const w = charging(), before = w.step({ los: true, move: false, reach: 10 }).intent.speed;
   assert.ok(before >= T.huntApproach, `charging at ${before} m/s`);
-  const frames = pinned(w, { seconds: 5.4 });
+  const frames = pinned(w, { seconds: T.stunPin + T.stunSlow + T.stunHeld[0] + T.stunStart + .8 });
   const flinch = frames.find(f => f.events.some(e => e.type === 'flinch'));
   assert.ok(flinch && Math.abs(flinch.t - T.stunPin) < .11, 'it takes after the beam holds on it for stunPin');
   const { sequence, slowing, held, starting } = firstStun(frames);
@@ -329,7 +332,7 @@ test('the torch stun: the slow to a halt is about 0.58 s on a smooth curve, from
   assert.ok(held[0].speed === 0 && slowing.at(-1).speed < before * .1, 'it is at a standstill when the held phase begins');
 });
 
-test('the torch stun: held 2.5, 1.8, 1.2, then 0.7 s for good (never immune); full strength again after 90 s out of the beam', () => {
+test('the torch stun: held a little less each time down to a floor (never immune); full strength again after stunRecharge out of the beam', () => {
   const w = charging(), helds = [];
   for (let use = 0; use < 6; use++) {
     // Let the recovery window finish; the next use still stuns, with diminishing duration.
@@ -338,14 +341,14 @@ test('the torch stun: held 2.5, 1.8, 1.2, then 0.7 s for good (never immune); fu
     assert.ok(frames.flatMap(f => f.events).some(e => e.type === 'flinch'), `stun ${use + 1} took`);
     helds.push(firstStun(frames).held.length * .05);
   }
-  const expected = [2.5, 1.8, 1.2, .7, .7, .7];
+  const expected = [...T.stunHeld, T.stunHeld[3], T.stunHeld[3]];
   assert.ok(helds.every((h, i) => Math.abs(h - expected[i]) < .11), `held ${helds.map(h => h.toFixed(2)).join(', ')} s`);
   // Out of the beam, its nerve comes back a step at a time.
-  for (let t = 0; t < 60; t += .05) w.step({ los: false, beam: false, move: false, reach: 10 });
-  assert.ok(w.brain.inspect().flinch.nextHeld < T.stunHeld[0], 'not yet after a minute');
-  // (The last stun is still getting going for a second or so: about 90 s from its end.)
-  for (let t = 0; t < 33; t += .05) w.step({ los: false, beam: false, move: false, reach: 10 });
-  assert.equal(w.brain.inspect().flinch.nextHeld, T.stunHeld[0], 'full strength after about 90 s');
+  for (let t = 0; t < T.stunRecharge * .6; t += .05) w.step({ los: false, beam: false, move: false, reach: 10 });
+  assert.ok(w.brain.inspect().flinch.nextHeld < T.stunHeld[0], 'not yet after most of the recharge');
+  // (The last stun is still getting going for a second or so: about stunRecharge from its end.)
+  for (let t = 0; t < T.stunRecharge * .4 + 4; t += .05) w.step({ los: false, beam: false, move: false, reach: 10 });
+  assert.equal(w.brain.inspect().flinch.nextHeld, T.stunHeld[0], 'full strength after about stunRecharge');
 });
 
 test('the torch stun: the beam must stay on it; off its face during the held phase, it is released 0.6 s later', () => {
@@ -372,7 +375,9 @@ test('a hunt that has gone on too long is given up, and no new one is taken up f
   assert.ok(!next || next.t - end.t >= T.huntCooldown - .5, `the next hunt began ${next && (next.t - end.t).toFixed(1)} s after (cooldown ${T.huntCooldown})`);
 });
 
-test('the torch breaks a hunt off more readily early in the night, but rarely interrupts a committed late-night hunt', () => {
+// The torch is the player's answer to a hunt at any hour (it was once nearly useless late at night, and a hunt was a death
+// sentence). Deep in the night it still fails sometimes, and more often than early on.
+test('the torch breaks a hunt off more readily early in the night, and usually but not always deep in it', () => {
   const broke = (hours, seed) => {
     const w = world({ seed, hours, darkness: 1, at: { x: 0, z: 22, yaw: Math.PI } });
     w.player = { x: 0, z: 0, flashlightOn: true };
@@ -385,7 +390,7 @@ test('the torch breaks a hunt off more readily early in the night, but rarely in
   const rate = hours => { let n = 0, hunts = 0; for (let seed = 1; seed <= 60; seed++) { const r = broke(hours, seed); if (r !== undefined) { hunts++; if (r) n++; } } return { n, hunts }; };
   const deep = rate(23.5), early = rate(21.2);
   assert.ok(deep.hunts > 30 && early.hunts > 10, `hunts ${deep.hunts} deep, ${early.hunts} early`);
-  assert.ok(deep.n / deep.hunts > 0 && deep.n / deep.hunts < .2, `deep in the night the torch still breaks a hunt off ${deep.n}/${deep.hunts}`);
+  assert.ok(deep.n / deep.hunts > 0 && deep.n / deep.hunts < .9, `deep in the night the torch still breaks a hunt off ${deep.n}/${deep.hunts}`);
   assert.ok(early.n / early.hunts > deep.n / deep.hunts, `and early in it more readily (${early.n}/${early.hunts})`);
 });
 
@@ -489,7 +494,7 @@ test('after five minutes of free roam, daylight and staring cannot keep it passi
     w.brain.holdHunting(); w.brain.permitHunting();
     w.run(300, { los: false, move: false, reach: Infinity });
     w.player = { flashlightOn: true };
-    const result = w.run(15, { los: true, looking: true });
+    const result = w.run(22, { los: true, looking: true });
     assert.ok(result.events.some(e => e.type === 'hunt-started'), `hunts at ${hours}:00`);
     assert.ok(result.events.some(e => e.type === 'strike'), `reaches and attacks at ${hours}:00`);
   }
@@ -510,4 +515,72 @@ test('a continuous beam buys time but allows movement between stuns', () => {
   const w = charging();
   const frames = pinned(w, { seconds: 15 });
   assert.ok(frames.filter(f => f.phase === 'none' && f.speed >= T.huntApproach).length > 10);
+});
+
+// --- It does not follow the player about ------------------------------------------------------------------------
+
+test('it paces a standing player for a spell, then goes away; it does not trail them all evening', () => {
+  const w = world({ hours: 18.5, darkness: .25, at: { x: 0, z: 24, yaw: Math.PI } });
+  w.player = { x: 0, z: 0 };
+  const r = w.run(40, { los: true });
+  assert.ok(r.behaviours.includes('shadow'), r.behaviours.join(' > '));
+  assert.equal(r.out.behaviour, 'roam', `after its spell: ${r.behaviours.join(' > ')}`);
+  assert.ok(w.brain.inspect().away > 20, 'gone for a while');
+  // Away, it keeps going: a minute on it is far off and still not pacing them, though they are in plain sight all along.
+  const later = w.run(40, { los: true });
+  assert.ok(!later.behaviours.includes('shadow'), later.behaviours.join(' > '));
+  assert.ok(dist(w.self, w.player) > 60, `it went ${dist(w.self, w.player).toFixed(0)} m off`);
+});
+
+test('a walking player it has paced is, some of the time, met from the front: it swings wide and waits on their way', () => {
+  let ambushes = 0, met = 0;
+  for (let seed = 1; seed <= 24; seed++) {
+    const w = world({ seed, hours: 18.5, darkness: .25, at: { x: 22, z: 0, yaw: -Math.PI / 2 } });
+    let ambushing = false, ahead = false;
+    for (let i = 0; i < 2400; i++) {
+      const z = i * .05 * 1.8;
+      w.player = { x: 0, z, vz: 1.8 };
+      // It is seen only when near and not behind them: swinging wide it is out of sight.
+      const d = dist(w.self, w.player), out = w.step({ los: d < 30 });
+      if (out.behaviour === 'ambush') { ambushing = true; if (w.self.z > z + 8 && Math.abs(w.self.x) < 12 && out.intent.speed === 0) ahead = true; }
+      if (out.events.some(e => e.type === 'strike')) break;
+    }
+    if (ambushing) ambushes++;
+    if (ahead) met++;
+  }
+  assert.ok(ambushes >= 6 && ambushes <= 20, `it chose to get ahead in ${ambushes} of 24 evenings`);
+  assert.ok(met >= ambushes * .6, `and was standing ahead on their way in ${met} of those ${ambushes}`);
+});
+
+test('a player who gets out of sight is searched for where they were last seen, and then given up', () => {
+  const w = world({ hours: 19, darkness: .4, at: { x: 0, z: 24, yaw: Math.PI } });
+  w.player = { x: 0, z: 0 };
+  w.run(4, { los: true });
+  // They step out of sight (a door shut, a rock): nothing more is seen or heard of them.
+  const r = w.run(60, { los: false });
+  assert.ok(r.behaviours.includes('investigate'), r.behaviours.join(' > '));
+  assert.equal(r.out.behaviour, 'roam');
+  assert.ok(w.brain.inspect().away > 0, 'it has gone elsewhere');
+  const further = w.run(30, { los: false });
+  assert.deepEqual(further.behaviours, ['roam'], 'and does not come back to stand at the door');
+  assert.ok(dist(w.self, w.player) > 45, `${dist(w.self, w.player).toFixed(0)} m away`);
+});
+
+test('gone away, a quiet footstep does not bring it back but a loud noise does', () => {
+  const gone = () => { const w = world({ hours: 19, darkness: .4, at: { x: 0, z: 24, yaw: Math.PI } }); w.player = { x: 0, z: 0 }; w.run(4, { los: true }); w.run(60, { los: false }); return w; };
+  const quiet = gone(); quiet.brain.hear({ loudness: .12, source: 'footstep', x: 0, z: 0 });
+  assert.deepEqual(quiet.run(8, { los: false }).behaviours, ['roam']);
+  const loud = gone(); loud.brain.hear({ loudness: .95, source: 'generator', x: 0, z: 0 });
+  const r = loud.run(8, { los: false });
+  assert.ok(r.behaviours.includes('investigate'), r.behaviours.join(' > '));
+  assert.equal(loud.brain.inspect().away, 0);
+});
+
+test('indoors and out of its sight the player is not paced round the walls', () => {
+  const w = world({ hours: 19, darkness: .4, at: { x: 0, z: 24, yaw: Math.PI } });
+  w.player = { x: 0, z: 0 };
+  w.run(3, { los: true });
+  w.player = { x: 0, z: 0, indoors: true };
+  const r = w.run(12, { los: false });
+  assert.ok(!r.behaviours.slice(1).includes('shadow'), r.behaviours.join(' > '));
 });

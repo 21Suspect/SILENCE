@@ -37,6 +37,16 @@ type Leg = {
   index: number; side: number; label: string; hip: V3; rest: V3; outward: V3; inward: V3; azimuth: number; offset: number; seedLift: number;
   foot: V3; from: V3; to: V3; normal: V3; fromNormal: V3; toNormal: V3;
   swinging: boolean; pending: boolean; t: number; duration: number; lift: number; phase: number; liftPriority: number; joints: LegJoints;
+  /** Where this leg stands now, thorax units in the body's own horizontal plane, and the unit direction from hip to there. */
+  restNow: { x: number; z: number }; outNow: V3; azimuthNow: number;
+  /** The leg's own direction when its planted foot came down. A foot is judged against the stance it was placed for, not one the body has changed to since. */
+  outPlant: V3;
+  /** How far ahead of (hi) and behind (lo) that stance point a planted foot may be before the leg runs out, along the line of travel. */
+  windowLo: number; windowHi: number; centre: number;
+  /** The way the ground passes under this leg, in the body's frame (unit), and how fast in metres per second. */
+  dirX: number; dirZ: number; drive: number;
+  /** Seconds since this foot came down, and whether its next lift is one it cannot wait for. */
+  planted: number; urgent: boolean;
   cooldown: number; settled: boolean; hover: number; hoverAllowed: number; hoverPoint: V3; clear: number; pole: V3; poleYaw: number; lean: number; leanSide: number; tip: V3; reachRatio: number; clearPart: number; smoothUp: V3; upReady: boolean;
 };
 
@@ -51,6 +61,22 @@ const CLAW_SINK = .075;
 const CLEAR_MARGIN = .42;          // metres a limb's plan line must keep from solids
 const SECTOR = .45;               // radians a foot may stray from its leg's own direction
 const NEAREST = 1.15, FARTHEST = 5.0;   // hip-to-foot limits in thorax units
+/**
+ * Stride planning, thorax units. A planted foot is carried backwards under the moving body until its leg runs out: either
+ * the hip-to-foot distance reaches PLAN_REACH of the leg's length, or the foot comes within PLAN_INSIDE of passing under
+ * the hip. Every step is planned to use at most WINDOW_USE of the room between those two, so in ordinary travel no leg
+ * ever reaches a limit and the body never has to wait for one. Past HARD_REACH / HARD_INSIDE the body is held (gently).
+ */
+const PLAN_REACH = .86, PLAN_INSIDE = .95, WINDOW_USE = .78;
+/** A planted leg stretched past URGENT lifts at once, whatever the rhythm says. From SOFT to HARD the body is eased to a halt. */
+const URGENT_REACH = .905, SOFT_REACH = .935, HARD_REACH = .985;
+const URGENT_INSIDE = .7, SOFT_INSIDE = .5, HARD_INSIDE = .15;
+/** The last joint before the claw stands this far in toward the hip and above the claw's tip (see solveSpiderLeg). */
+const CLAW_IN = .33, CLAW_UP = .18;
+/** The middle of the thorax, between the eight hips, in its own units: what the body pitches and rolls about. */
+const PIVOT = SPIDER_LEGS.reduce((sum, l) => sum.addScaledVector(l.hip, 1 / SPIDER_LEGS.length), new THREE.Vector3()).setX(0);
+/** Fastest the legs will cycle. Beyond what that carries, the body is asked to go no faster (see `capacity`). */
+const MAX_STEP_RATE = 6.2;
 
 /** Clearances and lifts were tuned when the creature stood at 0.8 scale; they grow with it. */
 const K = S / .8;
@@ -74,6 +100,8 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
       seedLift: fract(Math.sin(i * 91.7) * 43758.5453),
       foot: new THREE.Vector3(), from: new THREE.Vector3(), to: new THREE.Vector3(), normal: new THREE.Vector3(0, 1, 0), fromNormal: new THREE.Vector3(0, 1, 0), toNormal: new THREE.Vector3(0, 1, 0),
       swinging: false, pending: false, t: 1, duration: .3, lift: .4, phase: 0, liftPriority: 0, joints: { knee: new THREE.Vector3(), ankle: new THREE.Vector3(), tarsal: new THREE.Vector3() },
+      restNow: { x: l.foot.x, z: l.foot.z }, outNow: outward.clone(), outPlant: outward.clone(), azimuthNow: Math.atan2(outward.x, outward.z), windowLo: -1, windowHi: 1, centre: 0,
+      dirX: 0, dirZ: 1, drive: 0, planted: 1, urgent: false,
       cooldown: 0, settled: false, hover: 0, hoverAllowed: 1, hoverPoint: new THREE.Vector3(), clear: Infinity, pole: new THREE.Vector3(), poleYaw: 0, lean: 0, leanSide: 0, tip: new THREE.Vector3(), reachRatio: 0, clearPart: 0, smoothUp: new THREE.Vector3(0, 1, 0), upReady: false,
     };
   });
@@ -81,11 +109,13 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
   const prevAnchor = new THREE.Vector3(), velocity = new THREE.Vector3(), right = new THREE.Vector3(), basisF = new THREE.Vector3(), basisU = new THREE.Vector3(), mat = new THREE.Matrix4();
   const target = new THREE.Vector3(), ideal = new THREE.Vector3(), predicted = new THREE.Vector3(), localFoot = new THREE.Vector3(), localUp = new THREE.Vector3(), pole = new THREE.Vector3(), plan = new THREE.Vector3(), tmp = new THREE.Vector3(), shift = new THREE.Vector3();
   const hipW = new THREE.Vector3(), kneeW = new THREE.Vector3(), ankleW = new THREE.Vector3(), tarsalW = new THREE.Vector3(), rendered = new THREE.Vector3();
-  const trunkPole = new THREE.Vector3(), foreAft = new THREE.Vector3();
+  const trunkPole = new THREE.Vector3(), foreAft = new THREE.Vector3(), pivot = new THREE.Vector3();
   const stepFrom = new THREE.Vector3(), stepTo = new THREE.Vector3(), forwardFrom = new THREE.Vector3(), forwardTo = new THREE.Vector3(), upFrom = new THREE.Vector3(), upTo = new THREE.Vector3();
   const invRoot = new THREE.Quaternion(), worldQ = new THREE.Quaternion(), bodyQ = new THREE.Quaternion(), turn_ = new THREE.Quaternion(), none = new THREE.Quaternion();
   let ready = false, phase = 0, speed = 0, smoothSpeed = 0, yawRate = 0, prevForwardAngle = 0, frequency = 0, nextIdleStep = 0, idleCursor = 0;
-  let pitch = 0, roll = 0, rise = 0, heave = 0, sprint = 0, currentPace = 0;
+  let pitch = 0, roll = 0, rise = 0, heave = 0, sprint = 0, currentPace = 0, capacity = 30, wasMoving = false;
+  /** Which planted leg last held the body back, and why: for diagnosis and tests. */
+  let limitedBy: { leg: string; why: 'reach' | 'inward'; value: number; pending: boolean; cooldown: number } | undefined;
   const idleOrder = [0, 5, 2, 7, 4, 1, 6, 3];
   const due: Leg[] = [];
   const liftOrder = (a: Leg, b: Leg) => b.liftPriority - a.liftPriority;
@@ -100,10 +130,47 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
     mat.makeBasis(right, basisU, basisF);
     root.quaternion.setFromRotationMatrix(mat);
   }
+  /**
+   * Where each leg stands for this stance width. A narrow stance (squeezing between trunks) is not the wide one with its
+   * feet pulled in under the body: that leaves a leg nowhere to go, and the first step forward folds it under its own hip.
+   * The legs swing fore and aft instead, front pairs forward and rear pairs back, staying as long as they were.
+   */
+  function poseStance(cmd: SpiderCommand) {
+    const long = cmd.length * (1 + sprint * .14);
+    for (let i = 0; i < legs.length; i++) {
+      const leg = legs[i], base = SPIDER_LEGS[i], dx = base.foot.x - leg.hip.x, dz = base.foot.z - leg.hip.z, r = Math.hypot(dx, dz);
+      const widest = Math.abs(base.foot.x), allowed = widest * Math.min(1, cmd.width);
+      let x = base.foot.x, z = base.foot.z;
+      if (allowed < widest - 1e-4) {
+        const sine = clamp((allowed - Math.abs(leg.hip.x)) / r, .04, 1), cosine = Math.sqrt(1 - sine * sine);
+        x = leg.hip.x + leg.side * r * sine; z = leg.hip.z + (leg.index < 2 ? 1 : -1) * r * cosine;
+      }
+      leg.restNow.x = x; leg.restNow.z = z * long;
+      const ox = leg.restNow.x - leg.hip.x, oz = leg.restNow.z - leg.hip.z, ol = Math.hypot(ox, oz) || 1;
+      leg.outNow.set(ox / ol, 0, oz / ol); leg.azimuthNow = Math.atan2(ox, oz);
+    }
+  }
+  /** How stretched a leg is: its hip-to-last-joint distance over the longest it can be. Offsets are in the body's frame, thorax units. */
+  const strain = (across: number, down: number) => Math.hypot(Math.max(0, across - CLAW_IN), Math.max(0, down - CLAW_UP)) / LEG_MAX_TARSAL;
+  /**
+   * The room a leg has along the line its foot is carried (leg.dirX, leg.dirZ), with its hip `hipLift` above rest height:
+   * how far ahead of its stance point a foot may land (windowHi) and how far behind it may trail (windowLo) before the leg
+   * is too stretched or folds in under its own hip.
+   */
+  function legWindow(leg: Leg, hipLift: number) {
+    const px = leg.restNow.x - leg.hip.x, pz = leg.restNow.z - leg.hip.z, down = Math.max(.1, leg.hip.y + hipLift - CLAW_UP);
+    const far = LEG_MAX_TARSAL * PLAN_REACH, radius = far > down ? CLAW_IN + Math.sqrt(far * far - down * down) : 0;
+    const b = px * leg.dirX + pz * leg.dirZ, c = px * px + pz * pz - radius * radius, room = px * leg.outNow.x + pz * leg.outNow.z - PLAN_INSIDE;
+    if (c >= 0 || room <= 0) { leg.windowLo = leg.windowHi = 0; return; }
+    const root_ = Math.sqrt(b * b - c), turn = leg.outNow.x * leg.dirX + leg.outNow.z * leg.dirZ;
+    let lo = -b - root_, hi = -b + root_;
+    if (turn > 1e-3) lo = Math.max(lo, -room / turn); else if (turn < -1e-3) hi = Math.min(hi, room / -turn);
+    leg.windowLo = lo; leg.windowHi = hi;
+  }
   function restWorld(leg: Leg, anchor: V3, cmd: SpiderCommand, yawAhead: number, out: V3) {
     if (cmd.rest) { cmd.rest(leg, anchor, right, basisF, yawAhead, out); return out; }
     const co = Math.cos(yawAhead), si = Math.sin(yawAhead);
-    const x = leg.rest.x * cmd.width, z = leg.rest.z * cmd.length * (1 + sprint * .14);
+    const x = leg.restNow.x * S, z = leg.restNow.z * S;
     return out.copy(anchor).addScaledVector(right, x * co + z * si).addScaledVector(basisF, z * co - x * si);
   }
   /** Knees rise in the vertical plane through hip and foot. Nothing else moves them. */
@@ -113,10 +180,10 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
     // Opposing direction vectors can cancel and flip the knee plane in one frame.
     // Turn within the leg's sector at a bounded rate while keeping the foot planted.
     plan.multiplyScalar(1 / Math.max(reach, 1e-4));
-    const angle = Math.atan2(leg.outward.z * plan.x - leg.outward.x * plan.z, leg.outward.dot(plan));
+    const angle = Math.atan2(leg.outNow.z * plan.x - leg.outNow.x * plan.z, leg.outNow.dot(plan));
     const wanted = clamp(angle, -.9, .9) * .5 * sstep(reach, .55, 1.4);
     leg.poleYaw += clamp((wanted - leg.poleYaw) * (1 - Math.exp(-dt * 9)), -dt * 2.4, dt * 2.4);
-    plan.copy(leg.outward).applyAxisAngle(THREE.Object3D.DEFAULT_UP, leg.poleYaw);
+    plan.copy(leg.outNow).applyAxisAngle(THREE.Object3D.DEFAULT_UP, leg.poleYaw);
     // Squeezing between trunks: front knees fold forward and rear knees back, along
     // the body, so nothing sticks out sideways into the trees on either side.
     const squeeze = clamp((1 - cmd.width) / .6, 0, 1);
@@ -182,7 +249,7 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
     shift.copy(velocity).multiplyScalar(lead);
     localFoot.copy(foot).sub(shift); body.worldToLocal(localFoot);
     const dx = localFoot.x - leg.hip.x, dz = localFoot.z - leg.hip.z, r = Math.hypot(dx, dz);
-    return r > NEAREST && r < FARTHEST && Math.abs(wrap(Math.atan2(dx, dz) - leg.azimuth)) < SECTOR;
+    return r > NEAREST && r < FARTHEST && Math.abs(wrap(Math.atan2(dx, dz) - leg.azimuthNow)) < SECTOR;
   }
   function chooseFoothold(leg: Leg, cmd: SpiderCommand, landing: number, stance: number) {
     cmd.surface(target, contact, leg.foot);
@@ -209,6 +276,8 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
     const lead = swing + stance * .5;
     predicted.copy(cmd.anchor).addScaledVector(velocity, lead);
     restWorld(leg, predicted, cmd, yawRate * lead, target);
+    // Mid-stance is where the leg's room is centred, which is not always its stance point (a rear leg has more room behind).
+    if (!cmd.rest) target.addScaledVector(right, leg.dirX * leg.centre * S).addScaledVector(basisF, leg.dirZ * leg.centre * S);
     chooseFoothold(leg, cmd, swing, stance);
     leg.from.copy(leg.foot); leg.fromNormal.copy(leg.normal);
     leg.to.copy(contact.point); leg.toNormal.copy(contact.normal);
@@ -218,6 +287,7 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
       // An unhurried reach must aim where the hip will be when it arrives, not when it set off.
       predicted.copy(cmd.anchor).addScaledVector(velocity, duration + stance * .5);
       restWorld(leg, predicted, cmd, yawRate * lead, target);
+      if (!cmd.rest) target.addScaledVector(right, leg.dirX * leg.centre * S).addScaledVector(basisF, leg.dirZ * leg.centre * S);
       cmd.surface(target, contact, leg.foot);
       leg.to.copy(contact.point); leg.toNormal.copy(contact.normal);
       span = leg.from.distanceTo(leg.to);
@@ -225,7 +295,7 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
     // Standing still, a step that would land where the foot already is (a trunk leaves it no better place) is
     // not taken: otherwise that leg lifts and sets down again for ever.
     if (resting && span < .32 * K) { leg.pending = false; leg.settled = true; leg.cooldown = 1.5; return false; }
-    leg.swinging = true; leg.pending = false; leg.t = 0; leg.duration = duration; leg.cooldown = .4; leg.settled = false;
+    leg.swinging = true; leg.pending = false; leg.urgent = false; leg.t = 0; leg.duration = duration; leg.cooldown = .4; leg.settled = false;
     let need = 0;
     // Clear what is underneath, allowing for how low the arc is at each point.
     // Sampled every 12 cm or so: a longer stride must not step over a narrow ridge unseen.
@@ -254,35 +324,48 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
       restWorld(leg, cmd.anchor, cmd, 0, target);
       cmd.surface(target, contact);
       leg.foot.copy(contact.point); leg.normal.copy(contact.normal); leg.from.copy(contact.point); leg.to.copy(contact.point);
-      leg.fromNormal.copy(contact.normal); leg.toNormal.copy(contact.normal); leg.swinging = false; leg.pending = false; leg.t = 1;
+      leg.fromNormal.copy(contact.normal); leg.toNormal.copy(contact.normal); leg.swinging = false; leg.pending = false; leg.t = 1; leg.planted = 1; leg.outPlant.copy(leg.outNow);
     }
   }
   return {
     legs,
     get speed() { return smoothSpeed; },
+    get limitedBy() { return limitedBy; },
+    get frequency() { return frequency; },
+    /** The fastest the body can travel in a straight line with the legs it has room to swing now, metres per second. */
+    get capacity() { return capacity; },
     reset() {
-      ready = false; phase = speed = smoothSpeed = yawRate = frequency = currentPace = 0;
+      ready = false; phase = speed = smoothSpeed = yawRate = frequency = currentPace = 0; capacity = 30; wasMoving = false;
       pitch = roll = rise = heave = sprint = 0;
       for (const leg of legs) { leg.pending = false; leg.poleYaw = leg.lean = leg.leanSide = 0; leg.upReady = false; leg.settled = false; }
     },
-    /** Limit this frame's body motion using the eight visible, planted contacts. */
+    /**
+     * How much of this frame's body motion the planted legs allow, 0 to 1. Steps are planned so that this is 1: it is the
+     * safety for what planning cannot see (a shove, a sudden turn). A leg past SOFT slows the body progressively and it
+     * stops only at HARD, so the answer changes smoothly from frame to frame instead of snapping to zero.
+     */
     movementAllowance(dx: number, dy: number, dz: number, turn: number) {
       if (!ready) return 1;
       let fraction = 1;
-      const co = Math.cos(turn), si = Math.sin(turn), limit = LEG_MAX_TARSAL * S * .9;
+      limitedBy = undefined;
+      const co = Math.cos(turn), si = Math.sin(turn);
       for (const leg of legs) {
         if (leg.swinging) continue;
-        hipW.copy(leg.hip); body.localToWorld(hipW);
-        tarsalW.copy(leg.joints.tarsal); body.localToWorld(tarsalW);
-        const before = hipW.distanceTo(tarsalW), x = hipW.x - root.position.x, z = hipW.z - root.position.z;
-        plan.copy(leg.outward).transformDirection(body.matrixWorld);
-        const outwardBefore = tmp.subVectors(leg.foot, hipW).dot(plan);
-        const outX = plan.x * co + plan.z * si, outZ = plan.z * co - plan.x * si;
-        hipW.set(root.position.x + x * co + z * si + dx, hipW.y + dy, root.position.z + z * co - x * si + dz);
-        const after = hipW.distanceTo(tarsalW);
-        if (after > limit && after > before) fraction = Math.min(fraction, clamp((limit - before) / (after - before), 0, 1));
-        const outwardAfter = (leg.foot.x - hipW.x) * outX + (leg.foot.y - hipW.y) * plan.y + (leg.foot.z - hipW.z) * outZ;
-        if (outwardAfter < .4 * S && outwardAfter < outwardBefore) fraction = Math.min(fraction, clamp((outwardBefore - .4 * S) / (outwardBefore - outwardAfter), 0, 1));
+        // Measured in the body's own frame, exactly as the lift rule measures it, so the two can never disagree.
+        localFoot.copy(leg.foot); body.worldToLocal(localFoot).sub(leg.hip);
+        const before = strain(Math.hypot(localFoot.x, localFoot.z), -localFoot.y), insideBefore = localFoot.x * leg.outPlant.x + localFoot.z * leg.outPlant.z;
+        // The body moving by (dx, dy, dz) and turning is the foot moving the other way about it.
+        const x = leg.foot.x - root.position.x - dx, z = leg.foot.z - root.position.z - dz;
+        localFoot.set(root.position.x + x * co - z * si, leg.foot.y - dy, root.position.z + z * co + x * si); body.worldToLocal(localFoot).sub(leg.hip);
+        const after = strain(Math.hypot(localFoot.x, localFoot.z), -localFoot.y), insideAfter = localFoot.x * leg.outPlant.x + localFoot.z * leg.outPlant.z;
+        if (after > SOFT_REACH && after > before + 1e-6) {
+          const f = Math.min(clamp((HARD_REACH - after) / (HARD_REACH - SOFT_REACH), 0, 1), clamp((HARD_REACH - before) / (after - before), 0, 1));
+          if (f < fraction) { fraction = f; limitedBy = { leg: leg.label, why: 'reach', value: after, pending: leg.pending, cooldown: leg.cooldown }; }
+        }
+        if (insideAfter < SOFT_INSIDE && insideAfter < insideBefore - 1e-6) {
+          const f = Math.min(clamp((insideAfter - HARD_INSIDE) / (SOFT_INSIDE - HARD_INSIDE), 0, 1), clamp((insideBefore - HARD_INSIDE) / (insideBefore - insideAfter), 0, 1));
+          if (f < fraction) { fraction = f; limitedBy = { leg: leg.label, why: 'inward', value: insideAfter, pending: leg.pending, cooldown: leg.cooldown }; }
+        }
       }
       return fraction;
     },
@@ -309,7 +392,7 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
         return;
       }
       setFrame(cmd);
-      if (!ready) { placeAll(cmd); prevAnchor.copy(cmd.anchor); ready = true; prevForwardAngle = Math.atan2(basisF.x, basisF.z); frequency = 0; }
+      if (!ready) { poseStance(cmd); placeAll(cmd); prevAnchor.copy(cmd.anchor); ready = true; prevForwardAngle = Math.atan2(basisF.x, basisF.z); frequency = 0; }
       dt = Math.max(dt, 1e-4);
       velocity.subVectors(cmd.anchor, prevAnchor).divideScalar(dt);
       prevAnchor.copy(cmd.anchor);
@@ -327,18 +410,51 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
       // Scale: long, slow strides at speed. Each foot covers ground, not vibrates.
       const pace = Math.max(plannedPace, smoothSpeed);
       currentPace = pace;
-      const run = sstep(pace, 1.4, 6.5);
-      sprint = damp(sprint, run, 5, dt);
-      const stride = lerp(1.15, 3.4, run);
+      sprint = damp(sprint, sstep(pace, 1.4, 6.5), 5, dt);
       const moving = smoothSpeed > .14 || speed > .3 || Math.abs(yawRate) > .3;
       resting = !moving;
       if (moving) for (const leg of legs) leg.settled = false;
-      const wanted = moving ? Math.max(.5, Math.max(pace, Math.abs(yawRate) * 1.5) / stride) : 0;
+
+      // What the ground does under each leg: the body's own travel, plus its turning about the thorax. A leg on the outside
+      // of a turn is carried faster than the body moves, and it is the fastest-carried leg that sets the rhythm.
+      poseStance(cmd);
+      const planned = !cmd.rest, vx = velocity.dot(right), vz = velocity.dot(basisF);
+      let carried = pace;
+      for (const leg of legs) {
+        const lx = vx + yawRate * leg.restNow.z * S, lz = vz - yawRate * leg.restNow.x * S, l = Math.hypot(lx, lz);
+        leg.drive = Math.max(l, 0);
+        if (l > .05) { leg.dirX = lx / l; leg.dirZ = lz / l; } else { leg.dirX = 0; leg.dirZ = 1; }
+        carried = Math.max(carried, l);
+      }
+      const run = sstep(carried, 1.4, 6.5);
+      const stride = lerp(1.15, 3.4, run);
+      const duty = lerp(.78, .56, sstep(carried, .8, 6)) - .06 * sstep(carried, 6, 13);
+      // Each leg carries its foot `travel` metres back under the body per step. The stride asks for stride * duty; a leg
+      // with less room than that (a tall ride, a turn that sweeps it sideways) takes shorter, quicker steps instead of
+      // running out of leg.
+      const hipLift = (cmd.ride - (cmd.crouch ?? 0)) / S - 1.9, travel = stride * duty;
+      let wanted = 0, limit = 30;
+      for (const leg of legs) {
+        if (planned) legWindow(leg, hipLift); else { leg.windowLo = -4; leg.windowHi = 4; }
+        const room = (leg.windowHi - leg.windowLo) * S * WINDOW_USE;
+        wanted = Math.max(wanted, leg.drive * duty / Math.max(.05, Math.min(travel, room)));
+        limit = Math.min(limit, MAX_STEP_RATE * Math.max(.05, Math.min(3.4 * .5, room)) / .5);
+      }
+      capacity = limit;
+      wanted = moving ? clamp(wanted, .5, MAX_STEP_RATE) : 0;
+      // Setting off, the first tetrapod steps at once rather than after most of a cycle.
+      if (moving && !wasMoving) phase = Math.ceil(phase) + duty - .01;
+      wasMoving = moving;
       frequency = damp(frequency, wanted, wanted > frequency ? 16 : 5, dt);
-      const duty = lerp(.78, .56, sstep(pace, .8, 6)) - .06 * sstep(pace, 6, 13);
       const wave = lerp(.1, .02, run);
       const beat = Math.max(frequency, .45);
-      const stance = duty / beat, swing = clamp((1 - duty) / beat, lerp(.2, .10, sstep(pace, 5, 13)), lerp(.5, .28, sstep(pace, .8, 6)));
+      const stance = duty / beat, swing = clamp((1 - duty) / beat * .94, lerp(.16, .085, sstep(pace, 5, 13)), lerp(.5, .28, sstep(pace, .8, 6)));
+      for (const leg of legs) {
+        // Sit the step in the middle of the leg's room when it fits about the stance point, else as near to it as fits.
+        const used = leg.drive * stance / S, room = leg.windowHi - leg.windowLo, slack = room - used;
+        if (slack <= 0) leg.centre = (leg.windowLo + leg.windowHi) / 2;
+        else { const margin = Math.min(slack / 2, .12 * room); leg.centre = clamp(0, leg.windowLo + used / 2 + margin, leg.windowHi - used / 2 - margin); }
+      }
       const previous = phase;
       phase += frequency * dt;
 
@@ -348,38 +464,38 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
       worldQ.copy(body.getWorldQuaternion(bodyQ)).invert();
 
       for (const leg of legs) leg.cooldown -= dt;
-      // The rhythm calls each leg; a leg waits if a neighbour is still in the air.
+      // The rhythm calls each leg. A call that finds the foot in the air, or only just down, is passed over.
       for (const leg of legs) {
         const shift_ = leg.offset + leg.index * wave * (leg.side > 0 ? 1 : .96);
         const b = fract(phase + shift_);
         leg.phase = b;
-        if (frequency > .05 && Math.floor(previous + shift_ - duty) < Math.floor(phase + shift_ - duty)) leg.pending = true;
+        if (!leg.swinging) leg.planted += dt;
+        if (frequency > .05 && Math.floor(previous + shift_ - duty) < Math.floor(phase + shift_ - duty) && !leg.swinging && leg.planted > stance * .25) leg.pending = true;
       }
       let airborne = legs.filter(l => l.swinging).length;
       due.length = 0;
       for (const leg of legs) {
         if (leg.swinging || leg.hover > .01) continue;
-        tmp.copy(leg.hip); body.localToWorld(tmp);
-        const reach = tmp.distanceTo(leg.foot) / (LEG_REACH * S);
-        localFoot.copy(leg.foot); body.worldToLocal(localFoot);
-        const outward = localFoot.sub(leg.hip).dot(leg.outward);
-        let lift = leg.pending || reach > .9 || outward < .75;
-        if (!lift && airborne < 4 && !neighbourSwinging(leg) && leg.cooldown <= 0) {
-          lift = reach > .82;
-          if (!lift && cmd.clearance && !cmd.rest && leg.clear < 1) {
-            // Look a moment ahead: step before the moving body drags this limb into a trunk.
-            shift.copy(velocity).multiplyScalar(.28);
-            hipW.copy(leg.hip); body.localToWorld(hipW).add(shift);
-            lift = cmd.clearance(hipW, tmp.copy(hipW).lerp(leg.foot, .96)) < .14;
-          }
+        hipW.copy(leg.hip); body.localToWorld(hipW);
+        localFoot.copy(leg.foot); body.worldToLocal(localFoot).sub(leg.hip);
+        // Judged a frame and a half ahead, so a fast body cannot carry a leg from fine to overstretched between two looks.
+        const ahead = leg.drive * dt * 1.5 / S;
+        localFoot.x -= leg.dirX * ahead; localFoot.z -= leg.dirZ * ahead;
+        const stretch = strain(Math.hypot(localFoot.x, localFoot.z), -localFoot.y), inside = localFoot.x * leg.outPlant.x + localFoot.z * leg.outPlant.z;
+        leg.urgent = stretch > URGENT_REACH || inside < URGENT_INSIDE;
+        let lift = leg.pending || leg.urgent;
+        if (!lift && airborne < 4 && !neighbourSwinging(leg) && leg.cooldown <= 0 && cmd.clearance && !cmd.rest && leg.clear < 1) {
+          // Look a moment ahead: step before the moving body drags this limb into a trunk.
+          shift.copy(velocity).multiplyScalar(.28);
+          hipW.add(shift);
+          lift = cmd.clearance(hipW, tmp.copy(hipW).lerp(leg.foot, .96)) < .14;
         }
-        if (lift) { leg.liftPriority = Math.max(reach + (leg.pending ? .08 : 0), outward < .75 ? 1 + (.75 - outward) / .75 : 0); due.push(leg); }
+        if (lift) { leg.liftPriority = (leg.urgent ? 2 : 0) + stretch + (leg.pending ? .08 : 0) + Math.max(0, URGENT_INSIDE - inside); due.push(leg); }
       }
-      // A fixed iteration order can starve the rear legs at high speed.
-      // Give the most extended support leg the next free swing slot.
+      // The most stretched leg steps first. Four in the air is the rule; a leg that cannot wait may join them, down to two on the ground.
       due.sort(liftOrder);
       for (const leg of due) {
-        if (airborne >= 4) break;
+        if (airborne >= (leg.urgent ? 6 : 4)) continue;
         if (startSwing(leg, cmd, swing, stance)) airborne++;
       }
       // Coming to rest: settle slowly, one foot at a time, and only if it needs to.
@@ -421,7 +537,7 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
             cmd.surface(target, contact, leg.foot);
             leg.to.copy(contact.point); leg.toNormal.copy(contact.normal);
           }
-          leg.foot.copy(leg.to); leg.normal.copy(leg.toNormal); leg.swinging = false;
+          leg.foot.copy(leg.to); leg.normal.copy(leg.toNormal); leg.swinging = false; leg.planted = 0; leg.outPlant.copy(leg.outNow);
         }
       }
 
@@ -440,8 +556,11 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
       rise = damp(rise, avg, 4.5, dt);
       heave = damp(heave, Math.sin(phase * Math.PI * 4) * (.4 + run * .6) * sstep(frequency, .3, 1), 14, dt);
       const breath = Math.sin(time * 1.1) * .007 * (1 - run);
-      body.position.set(0, (cmd.ride - 1.9 * S + rise + heave * .018 * S + breath - (cmd.crouch ?? 0)) / S, 0);
       body.rotation.set(-pitch + run * .035, 0, -roll + heave * .006, 'YXZ');
+      // The thorax tilts about its own middle, between the hips. Tilting it about the ground underneath swung the whole
+      // body fore and aft (and side to side) by most of a metre every time the slope under the feet changed.
+      pivot.copy(PIVOT).applyEuler(body.rotation);
+      body.position.set(PIVOT.x - pivot.x, (cmd.ride - 1.9 * S + rise + heave * .018 * S + breath - (cmd.crouch ?? 0)) / S + PIVOT.y - pivot.y, PIVOT.z - pivot.z);
       root.updateMatrixWorld(true);
       body.updateWorldMatrix(true, false);
       worldQ.copy(body.getWorldQuaternion(bodyQ)).invert();

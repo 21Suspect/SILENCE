@@ -1,5 +1,5 @@
 import type * as THREE from 'three';
-import {createBreathing} from './breathing';
+import {createBreathing, type Breath} from './breathing';
 import { riverX, waterHeightAt } from './world';
 import { coastDistance, SEA_LEVEL } from './coastal-geography';
 import { WORLD_V2 } from './world-flags';
@@ -11,6 +11,9 @@ export type ForestAudioFrame = {
   direction: THREE.Vector3;
   speed: number;
   sprinting: boolean;
+  /** The player's stamina, 1 full .. 0 empty, and whether they are locked out of sprinting: this is what the breathing follows. */
+  stamina?: number;
+  winded?: boolean;
   darkness: number;
   surface: Surface;
   riverDistance: number;
@@ -257,22 +260,34 @@ export class ForestAudio {
     source.stop(at + options.duration + 0.02);
   }
 
-  /** Head-local airflow: rounded inhale, softer throat resonance, longer exhale.
-   * New envelopes are scheduled only once per breath; no per-frame nodes. */
-  private playerBreath(effort:number){
-    if(!this.context||!this.noise||!this.master)return;
-    const c=this.context,now=c.currentTime,pace=1-effort*.24;
-    for(let phase=0;phase<2;phase++){
-      const source=c.createBufferSource(),high=c.createBiquadFilter(),low=c.createBiquadFilter(),envelope=c.createGain();
-      source.buffer=this.noise;source.playbackRate.value=.74+Math.random()*.12;
-      high.type='highpass';high.frequency.value=phase?170:260;high.Q.value=.5;
-      low.type='lowpass';low.frequency.setValueAtTime(phase?900:1500,now);low.Q.value=.55;
-      const start=now+(phase?.71*pace:0),duration=(phase?.91:.62)*pace;
-      const curve=new Float32Array(48),level=(phase?.105:.078)*effort;
-      for(let i=0;i<48;i++){const t=i/47;curve[i]=Math.pow(Math.sin(Math.PI*t),phase?1.7:1.25)*level*(.93+Math.sin(t*23)*.07);}
-      envelope.gain.value=0;envelope.gain.setValueCurveAtTime(curve,start,duration);
-      source.connect(high).connect(low).connect(envelope).connect(this.master);
-      this.track(source,[high,low,envelope]);source.start(start,Math.random()*5);source.stop(start+duration+.02);
+  /**
+   * The player's own breath: an inhale and an exhale of band-passed noise, shaped by game/breathing.ts (which decides the
+   * timing, the colour of each half and the little differences between breaths). It is head-local, with no panner, and it
+   * feeds the master bus like the footsteps, so only the master slider moves it. Nothing here is an oscillator, so it cannot
+   * whistle. Both halves are scheduled at once, one set of nodes per half, and the nodes are dropped when the noise ends.
+   */
+  private playerBreath(breath:Breath){
+    if(!this.context||!this.noise||!this.master||this.context.state!=='running')return;
+    const c=this.context,now=c.currentTime+.02;
+    for(const part of [breath.inhale,breath.exhale]){
+      const start=now+part.delay,end=start+part.duration;
+      const source=c.createBufferSource(),high=c.createBiquadFilter(),envelope=c.createGain();
+      source.buffer=this.noise;
+      high.type='highpass';high.frequency.value=part.highpass;high.Q.value=.5;
+      source.connect(high);
+      const nodes:AudioNode[]=[high,envelope];
+      for(const band of part.bands){
+        const filter=c.createBiquadFilter(),gain=c.createGain();
+        filter.type='bandpass';filter.Q.value=band.q;
+        // The colour glides over the breath: an inhale brightens, an exhale sinks as the air runs out.
+        filter.frequency.setValueAtTime(band.frequency,start);filter.frequency.exponentialRampToValueAtTime(band.frequency*part.sweep,end);
+        gain.gain.value=band.gain;
+        high.connect(filter).connect(gain).connect(envelope);nodes.push(filter,gain);
+      }
+      envelope.gain.value=0;envelope.gain.setValueCurveAtTime(part.curve,start,part.duration);
+      envelope.connect(this.master);
+      // The noise buffer is 8 s long; start somewhere in its first five seconds so the segment (at most about two seconds) never runs off the end.
+      this.track(source,nodes);source.start(start,Math.random()*5);source.stop(end+.05);
     }
   }
 
@@ -388,8 +403,8 @@ export class ForestAudio {
       pan.positionZ.value=info.position.z+offset.z;
     }
     if(this.revealPanner&&this.revealPoint){const p=this.revealPoint;this.revealPanner.positionX.setTargetAtTime(p.x,now,.04);this.revealPanner.positionY.setTargetAtTime(p.y,now,.04);this.revealPanner.positionZ.setTargetAtTime(p.z,now,.04);}
-    const breath=this.breathing.update(dt,info.sprinting&&info.speed>.65);
-    if(breath.breathe)this.playerBreath(breath.level);
+    const breath=this.breathing.update(dt,{stamina:info.stamina??1,winded:info.winded??false});
+    if(breath.breath)this.playerBreath(breath.breath);
     // Project onto the curved stream, rather than pinning its sound to one ear.
     let riverZ = info.position.z;
     for (let i = 0; i < 3; i++) {

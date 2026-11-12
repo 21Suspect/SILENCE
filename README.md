@@ -10,7 +10,7 @@ Click anywhere in the forest to capture the mouse and enable audio. Use headphon
 
 - **W A S D** — walk
 - **Mouse** — look
-- **Shift** — hurry
+- **Shift** — sprint (about 9 seconds from full stamina; it refills while you walk or stand, and after running dry you walk until a quarter has come back)
 - **Control** — crouch
 - **E** or **left click** — interact with a nearby object; the flashlight rests on the cabin porch bench
 - **Left click** — toggle the flashlight after pickup
@@ -18,9 +18,10 @@ Click anywhere in the forest to capture the mouse and enable audio. Use headphon
 - **F** — fullscreen
 - **Escape** — pause menu / resume
 - **Q** — drop the carried objective item
+- **O** — hide or show the objective in the top-left corner (remembered between sessions; also in Settings)
 - **Space** — release a ladder (or fly up in noclip)
 
-Click again to resume. When pointer lock is unavailable in an embedded browser, hold the mouse button and drag to look. On phones, play in portrait. Drag the left side to sprint and the right side to look; there are no visible joysticks. A short stationary tap anywhere picks up or toggles the flashlight. Holds, drags, cancelled touches and multitouch gestures cannot toggle it.
+Click again to resume. When pointer lock is unavailable in an embedded browser, hold the mouse button and drag to look. On phones, play in portrait. Drag the left side to move (a light push walks, a push of about 44 px sprints, using the same stamina) and the right side to look; there are no visible joysticks. A short stationary tap anywhere picks up or toggles the flashlight. Holds, drags, cancelled touches and multitouch gestures cannot toggle it.
 
 The game begins at 16:00 and completes one day/night cycle every 24 minutes of active play. The original HDR illumination, calibrated blue sky gradient, moving clouds and resolved stars follow the rotating sun. Night retains a small visibility floor. Time and sound pause when the page loses focus. Sightings are rare and intentionally unpredictable, and there is no combat, score, inventory, death screen, or ending.
 
