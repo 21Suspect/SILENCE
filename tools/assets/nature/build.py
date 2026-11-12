@@ -1,13 +1,13 @@
 """
 Nature scatter for SILENCE: CC0 photogrammetry from Poly Haven's pine forest collection, cut down for instancing.
 
-  python3 tools/assets/nature/build.py fetch          # downloads the 1K glTFs into work/gfx/ph/models (git-ignored)
+  python3 tools/assets/nature/build.py fetch          # downloads the glTFs (RES, else 1K) into work/gfx/ph/models (git-ignored)
   blender --background --factory-startup --python tools/assets/nature/build.py   # builds public/world/nature/*.glb
   blender ... --python tools/assets/nature/build.py -- pebbles_01 pebbles_02        # builds only the named outputs
 
 Each set is split into its pieces (one variant per piece), every variant is put on the ground at the origin (lowest point at
 y = 0, centred), decimated to a budget that suits how close and how often it is seen, and exported as one GLB per asset with
-the scans' own 1K textures (colour, normal, AO/roughness). Attribution: public/world/nature/attribution.json.
+the scans' own textures (colour, normal, AO/roughness) at RES, else 1K. Attribution: public/world/nature/attribution.json.
 """
 import json, os, sys, urllib.request
 
@@ -24,20 +24,26 @@ BUDGET = {
 # Cheap cuts of the same scans: output -> (source asset, triangles per variant). Exported without textures; the game gives
 # them the source set's material (the UVs are kept), so a dense layer of pebbles costs geometry only.
 CUTS = {'pebbles_02': ('rock_moss_set_02', 70)}
+# Texture resolution per asset (default 1k). The rock set's seven stones share one atlas: at 1K a 1.5 m boulder had 125 px
+# per metre against the 393 the screen resolves at 2 m (work/gfx/research/texture-audit.md); at 2K it has twice that.
+RES = {'rock_moss_set_02': '2k'}
 
 def fetch():
     agent = {'User-Agent': 'silence-game-asset-download'}
     def get(url):
         with urllib.request.urlopen(urllib.request.Request(url, headers=agent)) as r: return r.read()
     for a in BUDGET:
-        files = json.loads(get(f'https://api.polyhaven.com/files/{a}'))['gltf']['1k']['gltf']
+        res = RES.get(a, '1k')
+        old = os.path.join(CACHE, a, 'source.json')
+        if os.path.exists(old) and json.load(open(old)).get('res', '1k') == res: continue
+        files = json.loads(get(f'https://api.polyhaven.com/files/{a}'))['gltf'][res]['gltf']
         info = json.loads(get(f'https://api.polyhaven.com/info/{a}'))
         d = os.path.join(CACHE, a); os.makedirs(d, exist_ok=True)
         open(os.path.join(d, f'{a}.gltf'), 'wb').write(get(files['url']))
         for rel, inc in files.get('include', {}).items():
             os.makedirs(os.path.dirname(os.path.join(d, rel)), exist_ok=True)
             open(os.path.join(d, rel), 'wb').write(get(inc['url']))
-        json.dump({'asset': a, 'authors': list(info.get('authors', {})), 'license': 'CC0-1.0', 'source': f'https://polyhaven.com/a/{a}', 'files': files}, open(os.path.join(d, 'source.json'), 'w'), indent=1)
+        json.dump({'asset': a, 'res': res, 'authors': list(info.get('authors', {})), 'license': 'CC0-1.0', 'source': f'https://polyhaven.com/a/{a}', 'files': files}, open(os.path.join(d, 'source.json'), 'w'), indent=1)
         print('fetched', a)
 
 def build():
