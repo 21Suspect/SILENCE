@@ -58,6 +58,9 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
   };
   const layout=naturalLayout({heightAt,exclusion,biomeAt,riverX,riverPresence,roadZ,radius:WORLD_RADIUS});
   const nearCenter=new THREE.Vector2(),nearCoverage={value:DETAIL_RADIUS};
+  // Parallax occlusion on the near ground (1 on, 0 off): a uniform, so it can be switched and measured without a recompile.
+  const parallax={value:1};
+  const zenith=new THREE.Vector3(0,1,0),sunDirection={get value(){return (scene.userData.sunDirection as THREE.Vector3|undefined)??zenith;}};
   const distantTint=new THREE.Color(horizonColor);
   // The forest floor: seven scanned layers in two texture arrays (colour + height, normal + roughness); see ground-layers.ts.
   const groundLayers=createGroundLayers(renderer);textures.push(groundLayers.color,groundLayers.surface);
@@ -77,6 +80,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
     shader.uniforms.uRoadMap={value:roadMap};shader.uniforms.uRoadNormal={value:roadNormal};
     shader.uniforms.uStoneMap={value:stoneMap};
     shader.uniforms.uGroundColor={value:groundLayers.color};shader.uniforms.uGroundSurface={value:groundLayers.surface};
+    shader.uniforms.uParallax=parallax;shader.uniforms.uSunDirection=sunDirection;
     shader.uniforms.uCoastalMap={value:coastalMap};shader.uniforms.uCoastalNormal={value:coastalNormal};
     shader.uniforms.uBedMap={value:riverbedMap};shader.uniforms.uBedNormal={value:riverbedNormal};
     shader.vertexShader = `uniform vec2 uNearCenter;uniform float uNearCoverage;attribute float horizonY;attribute float treeGround;attribute vec4 biome;varying float vTreeGround;varying vec4 vBiome;varying vec3 vGroundPosition;\n${shader.vertexShader}`.replace('#include <begin_vertex>', `
@@ -87,8 +91,20 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
     shader.fragmentShader = `varying vec3 vGroundPosition;varying vec4 vBiome;varying float vTreeGround;
       uniform sampler2D uBedMap,uBedNormal,uRoadMap,uRoadNormal,uStoneMap;
       uniform sampler2DArray uGroundColor,uGroundSurface;
-      uniform vec2 uNearCenter;uniform float uNearCoverage;uniform vec3 uDistantTint;
+      uniform vec2 uNearCenter;uniform float uNearCoverage;uniform vec3 uDistantTint;uniform float uParallax;uniform vec3 uSunDirection;
       ${textureVariationGLSL}
+      // Where each ground layer's patches sit (offset in xy) and how large its scan is (1/size in z), as the layer reads
+      // below, and how deep its relief is in metres (w): the depth its height map spans.
+      vec4 groundLayerFrame(int layer){
+        // The scans' height maps use a narrow band of their range (standard deviation .06 to .17), so these depths put the
+        // typical relief at 1.5 to 2.5 cm, with the tallest needle mats, roots and stones at 10 to 20 cm.
+        if(layer==1)return vec4(57.,9.,1./3.,.14);
+        if(layer==2)return vec4(13.,71.,1./1.67,.13);
+        if(layer==3)return vec4(91.,37.,1./1.5,.1);
+        if(layer==4)return vec4(29.,5.,1./2.17,.2);
+        if(layer==5)return vec4(63.,44.,1./2.,.22);
+        return vec4(0.,0.,1./2.5,.16);
+      }
       ${worldGeographyGLSL}
       ${coastalMaterialGLSL}
       ${horizonTextureGLSL}
@@ -121,7 +137,9 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
       TexturePatch stoneX=groundTexturePatch(vGroundPosition.zy/2.+vec2(21.,48.));
       TexturePatch stoneY=groundTexturePatch(vGroundPosition.xz/2.+vec2(21.,48.));
       TexturePatch stoneZ=groundTexturePatch(vGroundPosition.xy/2.+vec2(21.,48.));
-      float rootBlend=smoothstep(.025,.96,vTreeGround)*(.84+surfaceNoise(p*3.1+19.)*.16);
+      // vTreeGround is stored per terrain vertex, so on its own its edge follows the mesh's triangles: a straight-sided ring
+      // round every trunk. Moving the threshold by noise at the pixel lets the root mat fray out into the floor instead.
+      float rootBlend=smoothstep(.02,.9,vTreeGround+(surfaceNoise(p*1.7+5.)-.5)*.32+(surfaceNoise(p*6.1)-.5)*.14)*(.84+surfaceNoise(p*3.1+19.)*.16);
       float leafBlend=clamp(max(vBiome.y+vBiome.z*.55,rootBlend*.68),0.,1.);
       float stoneBlend=clamp(vBiome.w+vBiome.z*.24+(1.-slopeNormal.y)*vBiome.w*.3,0.,1.);
       TexturePatch roadPatch=groundTexturePatch(groundUv/2.+vec2(47.,13.));
@@ -146,19 +164,75 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
       // the pale scan read as a dry gravel verge.
       float wRocky=(stoneBlend*(1.-steep)*.9+worn*(1.-worn)*.45)*ground;
       float wPath=dirtCoverage;
-      float wRoots=rootBlend*.9*ground*(1.-dirtCoverage);
+      float wRoots=rootBlend*.7*ground*(1.-dirtCoverage);
       // The base floor is a damp conifer floor: moss mats with lanes of needles between them. Broadleaf groves drop leaves
       // over it, and wherever the ground is level and holds water, the moss closes into a carpet.
       float wLitter=clamp(leafBlend*(.62+.38*surfaceNoise(p*.08+12.)),0.,1.)*ground*(1.-dirtCoverage*.7);
       float level=smoothstep(.7,.93,slopeNormal.y);
-      float wMoss=smoothstep(.3,.66,damp*.75+surfaceNoise(p*.31+77.)*.25)*level*(1.-vBiome.w)*ground*(1.-dirtCoverage)*(1.-leafBlend*.45);
+      // Moss is never a whole carpet with an outline: a broken mask over several scales, held below full cover, so the height
+      // blend lets it fill the hollows between the needle mats first and the floor shows through its edges.
+      float mossField=damp*.55+surfaceNoise(p*.31+77.)*.2+surfaceNoise(p*1.3+11.)*.15+surfaceNoise(p*4.7)*.1;
+      float wMoss=.72*smoothstep(.22,.78,mossField)*level*(1.-vBiome.w)*ground*(1.-dirtCoverage)*(1.-leafBlend*.45);
       float wFloor=max(.08,1.-max(max(max(wRock,wRocky),max(wPath,wRoots)),max(wLitter,wMoss)));
+      // ---- Parallax occlusion on the near ground. The view ray is marched down into the leading layer's height (the colour's
+      // alpha), and every layer is then read where the ray meets that relief: needle mats, roots and stones stand above the
+      // soil and hide what lies behind them as the view moves. One texture read a step (the patch's strongest tap: its
+      // weights are sharpened, so most of a patch is one tap), ten steps, faded out between 6 and 10 m, where the relief is
+      // smaller than a pixel. The masks above stay where they were: only what each layer shows moves.
+      float parallaxHeight=1.,reliefShade=1.;
+      if(uParallax>0.){
+        vec3 toEye=cameraPosition-vGroundPosition;float eyeDistance=length(toEye);
+        float reach=uParallax*(1.-smoothstep(6.,10.,eyeDistance))*(1.-steep)*ground*(1.-distantBlend);
+        if(reach>.01){
+          int lead=0;float strongest=wFloor;
+          if(wLitter>strongest){lead=1;strongest=wLitter;}
+          if(wRoots>strongest){lead=2;strongest=wRoots;}
+          if(wMoss>strongest){lead=3;strongest=wMoss;}
+          if(wPath>strongest){lead=4;strongest=wPath;}
+          if(wRocky>strongest){lead=5;strongest=wRocky;}
+          vec4 frame=groundLayerFrame(lead);
+          TexturePatch hp=groundTexturePatch(groundUv*frame.z+frame.xy);
+          vec2 tapUv=hp.a,tapTurn=hp.ra;
+          if(hp.w.y>hp.w.x&&hp.w.y>=hp.w.z){tapUv=hp.b;tapTurn=hp.rb;}else if(hp.w.z>hp.w.x&&hp.w.z>hp.w.y){tapUv=hp.c;tapTurn=hp.rc;}
+          vec2 gx=patchRotate(hp.dx,tapTurn),gy=patchRotate(hp.dy,tapTurn);
+          vec3 view=toEye/eyeDistance;
+          // Shift of the read point (in this layer's texture units) per tenth of the relief's depth, as the ray descends.
+          vec2 stepUv=-view.xz/max(view.y,.3)*frame.w*reach*vec2(1.,-1.)*frame.z*.1;
+          vec2 shift=vec2(0.);float depth=0.,h=textureGrad(uGroundColor,vec3(tapUv,float(lead)),gx,gy).a,lastH=h,lastDepth=0.;
+          for(int i=0;i<10;i++){
+            if(1.-h<=depth)break;
+            lastH=h;lastDepth=depth;shift+=stepUv;depth+=.1;
+            h=textureGrad(uGroundColor,vec3(tapUv+patchRotate(shift,tapTurn),float(lead)),gx,gy).a;
+          }
+          // Between the last step above the relief and the first below it, where the two lines cross.
+          float below=depth-(1.-h),above=(1.-lastH)-lastDepth,t=above/max(above+below,1e-4);
+          vec2 hit=depth>0.?shift-stepUv*(1.-t):vec2(0.);
+          groundUv+=hit/frame.z;
+          float hitH=mix(lastH,h,t);
+          parallaxHeight=mix(1.,hitH,reach);
+          // Relief shadows: from where the view ray met the relief, toward the sun. A ridge between the point and the sun
+          // that stands above the sunbeam shades it, softly by how far above; this is what makes relief read in a still.
+          vec3 sun=normalize(uSunDirection);
+          if(sun.y>.05){
+            vec2 toward=normalize(sun.xz+1e-5)*vec2(1.,-1.);
+            float rise=sun.y/max(length(sun.xz),.05);
+            vec2 at=tapUv+patchRotate(hit,tapTurn);float blocked=0.;
+            for(int i=1;i<=6;i++){
+              float run=.012*float(i*i)/3.;   // 4 mm to 12 cm out, closer steps near the point
+              float hs=textureGrad(uGroundColor,vec3(at+patchRotate(toward*run*frame.z,tapTurn),float(lead)),gx,gy).a;
+              blocked=max(blocked,(hs-hitH)*frame.w-run*rise);
+            }
+            reliefShade=1.-reach*smoothstep(0.,.025,blocked)*.85;
+          }
+        }
+      }
       TexturePatch floorP=groundTexturePatch(groundUv/2.5),litterP=groundTexturePatch(groundUv/3.+vec2(57.,9.)),rootsP=groundTexturePatch(groundUv/1.67+vec2(13.,71.));
       TexturePatch mossP=groundTexturePatch(groundUv/1.5+vec2(91.,37.)),pathP=groundTexturePatch(groundUv/2.17+vec2(29.,5.)),rockyP=groundTexturePatch(groundUv/2.+vec2(63.,44.));
       vec4 cFloor=samplePatchLayer(uGroundColor,floorP,0.);
       vec4 cLitter=cFloor,cRoots=cFloor,cMoss=cFloor,cPath=cFloor,cRocky=cFloor,cRock=cFloor;
       if(wLitter>.02||road>.001)cLitter=samplePatchLayer(uGroundColor,litterP,1.);
-      if(wRoots>.02)cRoots=samplePatchLayer(uGroundColor,rootsP,2.);
+      // The roots scan is pale, dry dirt; on this floor the soil round a trunk is dark and damp.
+      if(wRoots>.02){cRoots=samplePatchLayer(uGroundColor,rootsP,2.);cRoots.rgb*=vec3(.74,.72,.68);}
       if(wMoss>.02)cMoss=samplePatchLayer(uGroundColor,mossP,3.);
       if(wPath>.02||road>.001)cPath=samplePatchLayer(uGroundColor,pathP,4.);
       if(wRocky>.02){cRocky=samplePatchLayer(uGroundColor,rockyP,5.);cRocky.rgb*=vec3(.66,.66,.64);}
@@ -268,9 +342,14 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
         surfaceNormal=normalize(mix(surfaceNormal,stoneDetail,stoneShare*(1.-sandCover)*(1.-snowCover)));
       }
       normal=normalize(mat3(viewMatrix)*mix(surfaceNormal,worldGroundNormal,distantBlend));
+      `).replace('#include <lights_fragment_end>',`
+      #include <lights_fragment_end>
+      // The relief's own shadows (see the parallax above) take the direct light only: sky light still reaches the hollows.
+      reflectedLight.directDiffuse*=reliefShade;reflectedLight.directSpecular*=reliefShade;
       `);
   };
-  material.customProgramCacheKey=()=> `silence-ground-layers-v2${WORLD_V2?`-w2-${WORLD_SEED}`:''}-${perfOn('groundTaps')?'taps':'all'}`;
+  material.userData.parallax=parallax;
+  material.customProgramCacheKey=()=> `silence-ground-layers-v3${WORLD_V2?`-w2-${WORLD_SEED}`:''}-${perfOn('groundTaps')?'taps':'all'}`;
   const terrainChunks=new Map<string,{tile:TerrainTile;mesh:THREE.Mesh}>();
   // The low-detail distant surface preserves the mountain silhouette and covers
   // teleports while near chunks stream. It is below the exact walkable surface.

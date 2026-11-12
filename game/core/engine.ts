@@ -565,6 +565,8 @@ export function createGame(container:HTMLElement) {
       if(g.done){grab=undefined;blackout.style.opacity=card.style.opacity='0';}
     }
     const skyState=sky.update(hours,player,elapsed),darkness=skyState.darkness;
+    // For shaders that work out light themselves (the ground's relief shadows, terrain.ts).
+    scene.userData.sunDirection=skyState.sunDirection;
     diagnostic.darkness=darkness;diagnostic.elapsed=elapsed;
     if(probe)probe.marks.sky=performance.now();
     // Taken: no walking away.

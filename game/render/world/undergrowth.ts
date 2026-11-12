@@ -256,14 +256,16 @@ export function createUndergrowth(
     return material;
   }
 
-  function batch(geometry: THREE.BufferGeometry, material: THREE.MeshStandardMaterial, capacity: number, layer?: number, name = 'Understory vegetation'): Batch {
+  /** `cast`: the plant casts a sun shadow (its alpha cut out, as three.js does for alpha-tested materials). Only the near copies
+   * cast: within the 12 to 20 m their bands reach, a fern's or shrub's shadow on the moss is what sits it in the floor. */
+  function batch(geometry: THREE.BufferGeometry, material: THREE.MeshStandardMaterial, capacity: number, layer?: number, name = 'Understory vegetation', cast = false): Batch {
     geometry.computeBoundingSphere();
     const slopes = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 2), 2);
     slopes.setUsage(THREE.DynamicDrawUsage);
     geometry.setAttribute('plantSlope', slopes);
     const soil=new THREE.InstancedBufferAttribute(new Float32Array(capacity*3),3);soil.setUsage(THREE.DynamicDrawUsage);geometry.setAttribute('plantSoil',soil);
     geometries.push(geometry);
-    return {id:`undergrowth-${definitionSerial++}`,geometry,material,capacity,layer,name,radius:2,spatial:false};
+    return {id:`undergrowth-${definitionSerial++}`,geometry,material,capacity,layer,name,radius:2,spatial:false,castShadow:cast};
   }
 
   const loader = new GLTFLoader();
@@ -315,7 +317,7 @@ export function createUndergrowth(
     for (const mesh of lushGrass.meshes) {
       const geometry = mesh.geometry.clone();
       geometry.translate(0, .004, 0);
-      tussocks.push(batch(geometry, grassMaterial, 480));
+      tussocks.push(batch(geometry, grassMaterial, 480, undefined, 'Understory tussock', true));
       // A scanned tussock is up to 1,660 triangles and some 900 stand within 20 m: over a million triangles, more than
       // every tree in view. Past a few metres it is drawn from a copy with about a quarter of them.
       farTussocks.push(batch(gridSimplify(geometry, .26), farGrassMaterial, 480));
@@ -329,7 +331,7 @@ export function createUndergrowth(
       // 2 million in all: the largest thing in the frame. Snapping the points to a coarse grid instead draws the same
       // frond outlines, which at that range are a few pixels wide, with about a fifth of the triangles.
       const lowDetail = perfOn('fernLod') ? gridSimplify(geometry, .2) : simplifier.modify(geometry, Math.floor(geometry.attributes.position.count * .66));
-      ferns.push(batch(geometry, fernMaterial, 400));
+      ferns.push(batch(geometry, fernMaterial, 400, undefined, 'Understory fern', true));
       farFerns.push(batch(lowDetail, farFernMaterial, 1400));
     }
     // The other plants of the floor, each with a full copy near and a grid-simplified one further out that dissolve
@@ -342,7 +344,7 @@ export function createUndergrowth(
       for (const mesh of from.meshes) {
         const geometry = mesh.geometry.clone();
         geometry.translate(0, -.006, 0);
-        entry.near.push(batch(geometry, near, capacity, undefined, name));
+        entry.near.push(batch(geometry, near, capacity, undefined, name, true));
         entry.far.push(batch(gridSimplify(geometry, .22), far, capacity * 2, undefined, `${name} distant`));
       }
       kinds.push(entry);
