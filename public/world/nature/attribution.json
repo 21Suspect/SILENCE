@@ -1,0 +1,81 @@
+{
+ "provider": "Poly Haven",
+ "license": "CC0-1.0",
+ "license_url": "https://polyhaven.com/license",
+ "built_by": "tools/assets/nature/build.py",
+ "assets": [
+  {
+   "asset": "rock_moss_set_02",
+   "authors": [
+    "Kless Gyzen"
+   ],
+   "license": "CC0-1.0",
+   "license_url": "https://polyhaven.com/license",
+   "source": "https://polyhaven.com/a/rock_moss_set_02",
+   "variants": [
+    "rock_moss_set_02_rock07",
+    "rock_moss_set_02_rock08",
+    "rock_moss_set_02_rock09",
+    "rock_moss_set_02_rock10",
+    "rock_moss_set_02_rock11",
+    "rock_moss_set_02_rock12",
+    "rock_moss_set_02_rock13"
+   ],
+   "triangles_per_variant": 900
+  },
+  {
+   "asset": "dry_branches_medium_01",
+   "authors": [
+    "Rico Cilliers"
+   ],
+   "license": "CC0-1.0",
+   "license_url": "https://polyhaven.com/license",
+   "source": "https://polyhaven.com/a/dry_branches_medium_01",
+   "variants": [
+    "dry_branches_medium_01_a",
+    "dry_branches_medium_01_b",
+    "dry_branches_medium_01_c"
+   ],
+   "triangles_per_variant": 700
+  },
+  {
+   "asset": "tree_stump_01",
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "license": "CC0-1.0",
+   "license_url": "https://polyhaven.com/license",
+   "source": "https://polyhaven.com/a/tree_stump_01",
+   "variants": [
+    "tree_stump_01"
+   ],
+   "triangles_per_variant": 2400
+  },
+  {
+   "asset": "tree_stump_02",
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "license": "CC0-1.0",
+   "license_url": "https://polyhaven.com/license",
+   "source": "https://polyhaven.com/a/tree_stump_02",
+   "variants": [
+    "tree_stump_02"
+   ],
+   "triangles_per_variant": 2400
+  },
+  {
+   "asset": "dead_tree_trunk",
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "license": "CC0-1.0",
+   "license_url": "https://polyhaven.com/license",
+   "source": "https://polyhaven.com/a/dead_tree_trunk",
+   "variants": [
+    "dead_tree_trunk"
+   ],
+   "triangles_per_variant": 3000
+  }
+ ]
+}

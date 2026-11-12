@@ -4,13 +4,14 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createUndergrowth } from './undergrowth';
 import { createRockGeometry, createRockMaterial } from './surfaces';
 import { varyDirectionalTexture } from './texture-variation';
-import { WORLD_RADIUS, biomeAt, riverX, riverPresence, roadZ } from '../../sim/world/world';
+import { WORLD_RADIUS, biomeAt, groundMasks, riverX, riverPresence, roadZ } from '../../sim/world/world';
 import { naturalLayout, groundedOrigin, type LayoutCell as ForestCell } from '../../sim/world/placement';
 import type { SolidCollider } from '../../sim/world/collision';
 import { createMeshSurface } from './surface-support';
 import { branchSpec, broadleafGeometry, crownBranches, crownGeometry, stumpGeometry } from './forest-assets';
 import { createVegetationBatcher, type VegetationBatchDefinition, type VegetationBatchHandle } from './vegetation-batches';
 import { perfOn } from '../../core/perf-flags';
+import { loadNature, type NatureVariant } from './nature-assets';
 import { createSlice, runSlice, runToEnd } from '../../core/time-slice';
 
 type Collider = { x: number; z: number; radius: number };
@@ -22,6 +23,8 @@ const TRUNK_SEGMENTS = 16;
 // the shader, so the placement stays valid until the player is FOREST_BUFFER from that point. A rebuild starts every FOREST_STEP and
 // is spread over a few frames; the 1.5 m between the two is the room it has to finish in.
 const FOREST_STEP=6, FOREST_BUFFER=FOREST_STEP+1.5, TREE_RANGE=98, TREE_COLLISION_RANGE=94, TRUNK_DETAIL_END=43, CROWN_DETAIL_START=30, CROWN_DETAIL_END=40;
+// How far the scanned ground pieces are drawn. Each dissolves out over the last 8 m, so a rebuild never pops one in or out.
+const ROCK_RANGE=58, BRANCH_RANGE=42, STUMP_RANGE=65, TRUNK_RANGE=77, PEBBLE_RANGE=24;
 const branchesByKind = Array.from({length:8}, (_,kind) => Array.from({length:36}, (_,branch) => branchSpec(kind,branch)));
 
 // All vegetation is deterministic; only objects concealed by the fog are recycled.
@@ -441,20 +444,89 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
   const logs = instances(logGeometry(), [logBark, woodMaterial], 200, true, 'Fallen logs', undefined, 5, false);
   const sticks = instances(new THREE.CylinderGeometry(.013, .026, 1, 7, 2, false), logBark, 800, true, 'Forest sticks', undefined, 1, false);
   const stumps=[0,1,2].map(i=>instances(stumpGeometry(i),[logBark,woodMaterial],140,true,['Cut stump','Splintered snag','Hollow decayed stump'][i],undefined,2, false));
+  // The scanned pieces (nature-assets.ts) replace the procedural rocks, sticks, cut stumps and fallen logs once they have
+  // loaded (behind the loading veil: the GLBs count as pending assets); the forest then rebuilds once. Until then, or if
+  // they fail to load, the procedural pieces stand in. The tall splintered snag and the layered slate have no scan and stay.
+  type Scanned={definition:VegetationBatchDefinition;variant:NatureVariant;foot:number};
+  let scanned:{rocks:Scanned[][];pebbles:Scanned[];branches:Scanned[];stumps:Scanned[];trunk:Scanned}|undefined;
+  let rescan=false;
+  loadNature().then(n=>{
+    if(disposed)return;
+    const fade=(material:THREE.MeshStandardMaterial,range:number)=>{
+      const m=material.clone();fadeInstances(m,range-8,range);natureMaterials.push(m);
+      for(const map of [m.map,m.normalMap,m.roughnessMap,m.metalnessMap])if(map&&!textures.includes(map))textures.push(map);
+      return m;
+    };
+    const set=(variants:NatureVariant[],material:THREE.MeshStandardMaterial,capacity:number,cast:boolean,name:string,radius:number,layer?:number)=>variants.map((variant,i)=>{
+      geometries.push(variant.geometry);
+      // Where a rock is seated from: the bottom tenth of its height. A scan was lifted off real ground, so it already has a
+      // flat underside, and seating it on anything higher buries the uphill side.
+      const box=variant.geometry.boundingBox!,foot=box.min.y+(box.max.y-box.min.y)*.1;
+      return {definition:instances(variant.geometry,material,capacity,cast,`${name} ${i+1}`,layer,radius,false),variant,foot};
+    });
+    const rocks=set(n.rocks.variants,fade(n.rocks.material,ROCK_RANGE),80,true,'Scanned boulder',2.5);
+    scanned={
+      rocks:[rocks,rocks],
+      pebbles:set(n.pebbles.variants,fade(n.rocks.material,PEBBLE_RANGE),400,false,'Scanned pebble',.3,2),
+      branches:set(n.branches.variants,fade(n.branches.material,BRANCH_RANGE),320,true,'Scanned fallen branch',1,2),
+      stumps:n.stumps.map(s=>set(s.variants,fade(s.material,STUMP_RANGE),140,true,'Scanned stump',2)[0]),
+      trunk:set(n.trunk.variants,fade(n.trunk.material,TRUNK_RANGE),200,true,'Scanned fallen trunk',5)[0],
+    };
+    // The trunk was photographed wet: its colour map averages 0.035 (linear), half the other scans and the forest floor
+    // (0.07 to 0.10), and it read as charcoal. Brought to the level of dry dead bark.
+    (scanned.trunk.definition.material as THREE.MeshStandardMaterial).color.setScalar(2);
+    for(const s of [n.rocks,n.branches,...n.stumps,n.trunk])s.material.dispose();
+    rescan=true;
+  }).catch(error=>console.warn('Scanned forest scatter did not load; the procedural pieces stay.',error));
+  const natureMaterials:THREE.Material[]=[];
+  /** Picks a variant from a list by a scatter item's own random numbers, so the same item always gets the same piece. */
+  const pick=<T,>(list:T[],item:Scatter)=>list[Math.floor((((item.variant%1)*7.31+item.yaw*.913)%1)*list.length)%list.length];
+  const pebbleCells=new WeakMap<ForestCell,Float32Array>();
+  /**
+   * Loose stones for one cell: scree at the foot of each boulder, and a scatter weighted to where the ground is stony or worn
+   * (path margins, the rock mask), never on the trodden middle of a path, roads, banks, beaches or footprints. Six numbers a
+   * stone: x, y, z, size, yaw, variant. A generator so the ground tests run inside the rebuild's time slice.
+   */
+  function* growPebbles(cell:ForestCell,cx:number,cz:number,pause:()=>boolean):Generator<void,Float32Array,void>{
+    let seed=(Math.imul(cx,73856093)^Math.imul(cz,19349663)^0x2c1b3c6d)>>>0;
+    const r=()=>{seed=(seed+0x6d2b79f5)>>>0;let t=seed;t=Math.imul(t^(t>>>15),t|1);t^=t+Math.imul(t^(t>>>7),t|61);return((t^(t>>>14))>>>0)/4294967296;};
+    const out:number[]=[],variants=scanned!.pebbles.length;
+    const add=(x:number,z:number,size:number)=>{if(exclusion(x,z)>.985)return;out.push(x,heightAt(x,z),z,size,r()*Math.PI*2,Math.floor(r()*variants));};
+    for(const rock of cell.rubble){
+      const count=Math.round(2+Math.min(rock.size,1.3)*10);
+      for(let k=0;k<count;k++){const a=r()*Math.PI*2,d=rock.size*(1.05+r()*r()*1.6);add(rock.x+Math.cos(a)*d,rock.z+Math.sin(a)*d,.025+r()*r()*Math.min(.17,.05+rock.size*.12));}
+    }
+    for(let i=0;i<900;i++){
+      if((i&31)===0&&pause())yield;
+      const x=(cx+r())*CELL,z=(cz+r())*CELL,[worn,rock]=groundMasks(x,z);
+      // Stones gather at the edge of a worn path (kicked aside), not on its trodden middle.
+      if(r()>.035+rock*.5+worn*(1-worn)*1.6)continue;
+      add(x,z,.02+r()*r()*r()*.13);
+    }
+    const loose=new Float32Array(out);pebbleCells.set(cell,loose);return loose;
+  }
 
   const CELL=32,cells=new Map<string,ForestCell>();
   const layout=naturalLayout({heightAt,exclusion,biomeAt,riverX,riverPresence,roadZ,radius:WORLD_RADIUS});
   const colliders:Collider[]=[],solidColliders:SolidCollider[]=[];let collisionVersion=0;
   function buildCell(cx:number,cz:number):ForestCell{const cell=layout.cell(cx,cz);cells.set(`${cx},${cz}`,cell);return cell;}
-  const propSurfaces=new WeakMap<Scatter,ReturnType<typeof createMeshSurface>>();
+  const propSurfaces=new WeakMap<Scatter,{geometry:THREE.BufferGeometry;surface:ReturnType<typeof createMeshSurface>}>();
   function surfaceFor(item:Scatter,geometry:THREE.BufferGeometry){
-    let surface=propSurfaces.get(item);
-    if(!surface){
+    let cached=propSurfaces.get(item);
+    // Keyed on the mesh too: when the scans arrive, the same item is re-placed with a different piece.
+    if(!cached||cached.geometry!==geometry){
       dummy.updateMatrix();
-      surface=createMeshSurface(geometry,dummy.matrix);
-      propSurfaces.set(item,surface);
+      cached={geometry,surface:createMeshSurface(geometry,dummy.matrix)};
+      propSurfaces.set(item,cached);
     }
-    return surface;
+    return cached.surface;
+  }
+  const basisX=new THREE.Vector3(),basisY=new THREE.Vector3(),basisZ=new THREE.Vector3(),basis=new THREE.Matrix4();
+  /** Turns `dummy` so the piece's long axis (x or z) runs along `along`, keeping its own up as close to world up as it can. */
+  function alignAxis(along:THREE.Vector3,axis:'x'|'z'){
+    if(axis==='z'){basisZ.copy(along);basisX.crossVectors(up,basisZ).normalize();basisY.crossVectors(basisZ,basisX);}
+    else{basisX.copy(along);basisZ.crossVectors(basisX,up).normalize();basisY.crossVectors(basisZ,basisX);}
+    dummy.quaternion.setFromRotationMatrix(basis.makeBasis(basisX,basisY,basisZ));
   }
   const matrix = new THREE.Matrix4(); const dummy = new THREE.Object3D();
   const radialDirection = new THREE.Vector3(), across = new THREE.Vector3(), normal = new THREE.Vector3(), canopyScale = new THREE.Vector3();
@@ -533,11 +605,11 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
     const nextColliders:Collider[]=[],nextSolid:SolidCollider[]=[];
     let work=0;
     const pause=()=>sliced&&(++work&15)===0&&slice.over();
-    const nearby:ForestCell[]=[],cx0=Math.floor(player.x/CELL),cz0=Math.floor(player.z/CELL);
+    const nearby:ForestCell[]=[],nearbyAt:[number,number][]=[],cx0=Math.floor(player.x/CELL),cz0=Math.floor(player.z/CELL);
     for(let dx=-4;dx<=4;dx++)for(let dz=-4;dz<=4;dz++){
       const cx=cx0+dx,cz=cz0+dz;
       if(Math.hypot((cx+.5)*CELL-player.x,(cz+.5)*CELL-player.z)>(rendering?128:118))continue;
-      nearby.push(cells.get(`${cx},${cz}`)??buildCell(cx,cz));
+      nearby.push(cells.get(`${cx},${cz}`)??buildCell(cx,cz));nearbyAt.push([cx,cz]);
       if(sliced&&slice.over())yield;
     }
     for(const [key] of cells){const [x,z]=key.split(',').map(Number);if(Math.abs(x-cx0)>5||Math.abs(z-cz0)>5)cells.delete(key);}
@@ -578,23 +650,50 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
     }
     for(const cell of nearby)for (const item of cell.rubble) {
       if(pause())yield;
-      if ((item.x - player.x) ** 2 + (item.z - player.z) ** 2 > 58 ** 2) continue;
-      const type=Math.min(2,Math.floor(item.variant)),form=Math.floor(item.yaw*2)%3,definition=stones[type*3+form];
-      dummy.rotation.set((item.variant%1)*.12,item.yaw,.07);dummy.scale.setScalar(item.size);
-      const placed=item as Scatter&{grounded?:{y:number;minY:number;maxY:number;radius:number}};
-      if(!placed.grounded){
+      if ((item.x - player.x) ** 2 + (item.z - player.z) ** 2 > (ROCK_RANGE+FOREST_BUFFER) ** 2) continue;
+      const type=Math.min(2,Math.floor(item.variant)),form=Math.floor(item.yaw*2)%3,scan=scanned&&type<2?pick(scanned.rocks[type],item):undefined;
+      const definition=scan?.definition??stones[type*3+form],foot=scan?.foot??-.30;
+      // A scan already rests the way it lay: only a slight lean, so its flat underside stays against the slope. Scanned
+      // boulders are lower than the old egg-shaped ones; a quarter more height is still well within how rocks vary.
+      dummy.rotation.set((item.variant%1)*(scan?.06:.12),item.yaw,scan?.03:.07);
+      if(scan)dummy.scale.set(item.size*1.1,item.size*1.38,item.size*1.1);else dummy.scale.setScalar(item.size);
+      const placed=item as Scatter&{grounded?:{definition:VegetationBatchDefinition;y:number;minY:number;maxY:number;radius:number}};
+      if(placed.grounded?.definition!==definition){
         const p=definition.geometry.attributes.position,samples:{x:number;y:number;z:number}[]=[],v=new THREE.Vector3();let minY=Infinity,maxY=-Infinity,radius=0;
-        for(let i=0;i<p.count;i++){v.fromBufferAttribute(p,i).multiplyScalar(item.size).applyQuaternion(dummy.quaternion);minY=Math.min(minY,v.y);maxY=Math.max(maxY,v.y);radius=Math.max(radius,Math.hypot(v.x,v.z));if(p.getY(i)<-.30)samples.push({x:v.x,y:v.y,z:v.z});}
-        const y=groundedOrigin(samples,item.x,item.z,heightAt,Math.max(.025,item.size*.06));placed.grounded={y,minY:y+minY,maxY:y+maxY,radius};
+        for(let i=0;i<p.count;i++){v.fromBufferAttribute(p,i).multiply(dummy.scale).applyQuaternion(dummy.quaternion);minY=Math.min(minY,v.y);maxY=Math.max(maxY,v.y);radius=Math.max(radius,Math.hypot(v.x,v.z));if(p.getY(i)<foot)samples.push({x:v.x,y:v.y,z:v.z});}
+        const y=groundedOrigin(samples,item.x,item.z,heightAt,Math.max(.025,item.size*(scan?.07:.06)));placed.grounded={definition,y,minY:y+minY,maxY:y+maxY,radius};
       }
       const ground=placed.grounded;dummy.position.set(item.x,ground.y,item.z);
       place(definition,Math.max(2.5,ground.radius));
       if(updateColliders)nextSolid.push({kind:'capsule',ax:item.x,az:item.z,bx:item.x,bz:item.z,radius:ground.radius,minY:ground.minY,maxY:ground.maxY,tag:'rock',surfaceHeight:surfaceFor(item,definition.geometry)});
     }
+    if(rendering&&scanned)for(let c=0;c<nearby.length;c++){
+      const cell=nearby[c],[cx,cz]=nearbyAt[c];
+      if(Math.hypot((cx+.5)*CELL-player.x,(cz+.5)*CELL-player.z)>PEBBLE_RANGE+FOREST_BUFFER+CELL*.71)continue;
+      const loose=pebbleCells.get(cell)??(yield* growPebbles(cell,cx,cz,pause));
+      for(let i=0;i<loose.length;i+=6){
+        if(pause())yield;
+        const x=loose[i],z=loose[i+2],size=loose[i+3],yaw=loose[i+4];
+        if((x-player.x)**2+(z-player.z)**2>(PEBBLE_RANGE+FOREST_BUFFER)**2)continue;
+        const scan=scanned.pebbles[loose[i+5]];
+        // Bedded about a third of its depth into the soil, tipped as it fell.
+        dummy.position.set(x,loose[i+1]-scan.variant.geometry.boundingBox!.min.y*size*.62,z);dummy.rotation.set((yaw*3.1%1-.5)*.5,yaw,(yaw*7.7%1-.5)*.5);dummy.scale.setScalar(size);
+        place(scan.definition,.3);
+      }
+    }
     for(const cell of nearby)for (const item of cell.sticks) {
       if(pause())yield;
-      if ((item.x - player.x) ** 2 + (item.z - player.z) ** 2 > 44 ** 2) continue;
+      if ((item.x - player.x) ** 2 + (item.z - player.z) ** 2 > (scanned?BRANCH_RANGE+FOREST_BUFFER:44) ** 2) continue;
       const dx = Math.sin(item.yaw) * item.size * .5, dz = Math.cos(item.yaw) * item.size * .5;
+      if(scanned){
+        const scan=pick(scanned.branches,item);
+        const a = new THREE.Vector3(item.x - dx, heightAt(item.x - dx, item.z - dz) - .012, item.z - dz);
+        const b = new THREE.Vector3(item.x + dx, heightAt(item.x + dx, item.z + dz) - .012, item.z + dz);
+        direction.subVectors(b, a); const length=direction.length(); direction.normalize();
+        dummy.position.copy(a).add(b).multiplyScalar(.5); alignAxis(direction,'z'); dummy.scale.setScalar(length); place(scan.definition,1);
+        if(updateColliders)nextSolid.push({kind:'capsule',ax:a.x,az:a.z,bx:b.x,bz:b.z,radius:scan.variant.size.x*length*.3,minY:Math.min(a.y,b.y)-.03,maxY:Math.max(a.y,b.y)+scan.variant.size.y*length,tag:'twig'});
+        continue;
+      }
       const a = new THREE.Vector3(item.x - dx, heightAt(item.x - dx, item.z - dz) + .022, item.z - dz);
       const b = new THREE.Vector3(item.x + dx, heightAt(item.x + dx, item.z + dz) + .022, item.z + dz);
       direction.subVectors(b, a); const length=direction.length(); direction.normalize();
@@ -603,8 +702,20 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
     }
     for(const cell of nearby)for (const item of cell.deadfall) {
       if(pause())yield;
-      if ((item.x - player.x) ** 2 + (item.z - player.z) ** 2 > 77 ** 2) continue;
+      if ((item.x - player.x) ** 2 + (item.z - player.z) ** 2 > (scanned?TRUNK_RANGE+FOREST_BUFFER:77) ** 2) continue;
       const dx = Math.sin(item.yaw) * item.size * .5, dz = Math.cos(item.yaw) * item.size * .5;
+      if(scanned){
+        // The scan is one 3 m trunk: stretched to the log's length, with its girth kept within a third of in proportion so
+        // the bark is never visibly smeared round or along it.
+        const t=scanned.trunk,half=Math.max(t.variant.size.y,t.variant.size.z)*.5;
+        const girth=THREE.MathUtils.clamp(item.variant/half,item.size*.75,item.size*1.35),radius=half*girth;
+        const a = new THREE.Vector3(item.x - dx, heightAt(item.x - dx, item.z - dz) + radius * .72, item.z - dz);
+        const b = new THREE.Vector3(item.x + dx, heightAt(item.x + dx, item.z + dz) + radius * .62, item.z + dz);
+        direction.subVectors(b, a); const length = direction.length(); direction.normalize();
+        dummy.position.copy(a).add(b).multiplyScalar(.5); alignAxis(direction,'x'); dummy.scale.set(length, girth, girth); place(t.definition,5);
+        if(updateColliders)nextSolid.push({kind:'capsule',ax:a.x,az:a.z,bx:b.x,bz:b.z,radius,minY:Math.min(a.y,b.y)-radius,maxY:Math.max(a.y,b.y)+radius,tag:'fallen log',surfaceHeight:surfaceFor(item,t.definition.geometry)});
+        continue;
+      }
       const a = new THREE.Vector3(item.x - dx, heightAt(item.x - dx, item.z - dz) + item.variant * .66, item.z - dz);
       const b = new THREE.Vector3(item.x + dx, heightAt(item.x + dx, item.z + dz) + item.variant * .49, item.z + dz);
       direction.subVectors(b, a); const length = direction.length(); direction.normalize();
@@ -617,6 +728,16 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
       const type=Math.floor(item.variant*3),height=type===1?1.2+item.variant: .45+item.variant*.65;
       let base=item.y;
       for(let j=0;j<8;j++){const a=j*Math.PI*.25;base=Math.min(base,heightAt(item.x+Math.cos(a)*item.size,item.z+Math.sin(a)*item.size));}
+      const scan=scanned&&type!==1?scanned.stumps[type===0?0:1]:undefined;
+      if(scan){
+        // A scan's unit half-width runs to the tips of its root flare; its cut face is about half that, and `size` is the
+        // radius of the cut face.
+        const s=item.size*1.75,tall=.85+(item.yaw*3.7%1)*.35,top=scan.variant.size.y*s*tall;
+        dummy.position.set(item.x,base-.05,item.z);dummy.rotation.set(0,item.yaw,0);dummy.scale.set(s,s*tall,s);
+        place(scan.definition,2);
+        if(updateColliders)nextSolid.push({kind:'capsule',ax:item.x,az:item.z,bx:item.x,bz:item.z,radius:s*.5,minY:base-.1,maxY:base+top,tag:'stump',surfaceHeight:surfaceFor(item,scan.definition.geometry)});
+        continue;
+      }
       dummy.position.set(item.x,base-.06,item.z);dummy.rotation.set(0,item.yaw,0);dummy.scale.set(item.size,height,item.size);
       place(stumps[type],2);
       if(updateColliders)nextSolid.push({kind:'capsule',ax:item.x,az:item.z,bx:item.x,bz:item.z,radius:item.size*.91,minY:base-.1,maxY:base+height*(type===1?1.25:1.04),tag:'stump',surfaceHeight:surfaceFor(item,stumps[type].geometry)});
@@ -657,8 +778,8 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
       windTime.value = time;
       forestEye.value.copy(player);
       if(!job){
-        const changed=player.distanceToSquared(lastPosition)>20;
-        const rebuilt=player.distanceToSquared(lastRenderPosition)>FOREST_STEP**2;
+        const changed=rescan||player.distanceToSquared(lastPosition)>20;
+        const rebuilt=rescan||player.distanceToSquared(lastRenderPosition)>FOREST_STEP**2;rescan=false;
         if(changed||rebuilt){job=build(player.clone(),changed,rebuilt,perfOn('slicedForest'));jobVisuals=rebuilt;}
       }
       let swapped=false;
@@ -676,7 +797,7 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
     dispose() {
       if (disposed) return; disposed = true; job = undefined; undergrowth.dispose(); scene.remove(group); for (const b of batchers) b.dispose(); geometries.forEach(g => g.dispose()); textures.forEach(t => t.dispose());
       for (const map of [stonesMaterial.map, stonesMaterial.normalMap, stonesMaterial.roughnessMap]) map?.dispose();
-      [bark, birchBark, oakBark, logBark, crownBark, needlesMaterial, broadleafMaterial, ...stoneMaterials, leafMaterial, woodMaterial, rootDepth, rootDistance].forEach(m => m.dispose());cells.clear();
+      [bark, birchBark, oakBark, logBark, crownBark, needlesMaterial, broadleafMaterial, ...stoneMaterials, leafMaterial, woodMaterial, rootDepth, rootDistance, ...natureMaterials].forEach(m => m.dispose());cells.clear();
     },
   };
 }
