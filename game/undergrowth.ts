@@ -4,7 +4,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { SimplifyModifier } from 'three/addons/modifiers/SimplifyModifier.js';
 import { WORLD_RADIUS, biomeAt } from './world';
 import { createVegetationBatcher, type VegetationBatchDefinition } from './vegetation-batches';
-import { createSlice, runSlice, runToEnd } from './time-slice';
+import { createSlice, runSlice, runToEnd, type Slice } from './time-slice';
 import { perfOn } from './perf-flags';
 import { coastDistance, beachWidth } from './coastal-geography';
 import { WORLD_V2 } from './world-flags';
@@ -120,13 +120,13 @@ export function createUndergrowth(
   buffers[1].visible = false; group.add(buffers[0], buffers[1]);
   const batchers = [createVegetationBatcher(buffers[0]), createVegetationBatcher(buffers[1])];
   let shown = 0, target = 0, vegetation = batchers[0], job: Generator<void, void, void> | undefined;
-  const slice = createSlice(3);
+  const slice = createSlice(3), warmSlice = createSlice(1.5);
   let definitionSerial = 0;
   const timeUniform = { value: 0 };
   const eyeUniform = { value: new THREE.Vector3(0, 2, 12) };
   const CELL = 6.4;
   const GRASS_RANGE = 33, TUSSOCK_RANGE=20, FERN_RANGE = 48;
-  const STREAM_STEP=4, STREAM_BUFFER=4.5, FERN_LOD_START=12, FERN_LOD_END=16, TUSSOCK_LOD=[6,9] as const;
+  const STREAM_STEP=3.5, STREAM_BUFFER=4.5, FERN_LOD_START=12, FERN_LOD_END=16, TUSSOCK_LOD=[6,9] as const;
   const warmCells: {cx:number;cz:number;key:string;distance2:number}[] = [];
   const lastPosition = new THREE.Vector3(Infinity, 0, Infinity);
   let disposed = false, loaded = false;
@@ -346,31 +346,33 @@ export function createUndergrowth(
       soilR:.085*(1-leaf)+.091*leaf,soilG:.071*(1-leaf)+.061*leaf,soilB:.026*(1-leaf)+.023*leaf,
     };
   }
-  function buildGroundCover(cx: number, cz: number, key: string) {
-    const cell: GroundCover = { fine: [], tussock: [] };
-    for (let ax = 0; ax < 20; ax++) {
-      for (let az = 0; az < 20; az++) {
-        const ix = cx * 20 + ax, iz = cz * 20 + az;
-        const x = (ix + .12 + hash(ix, iz, 1) * .76) * .32;
-        const z = (iz + .12 + hash(ix, iz, 2) * .76) * .32;
-        if (Math.hypot(x, z) > WORLD_RADIUS-55) continue;
-        const dune = WORLD_V2 && coastDistance(x,z)>beachWidth(x,z)*.82 && coastDistance(x,z)<beachWidth(x,z)+18;
-        const e = dune ? Math.min(.2,exclusion(x,z)) : exclusion(x, z);
-        if (e > .91) continue;
-        const cover = patch(x, z);
-        const biome=biomeAt(x,z);
-        const probability = (.30 + cover * .40) * (1 - Math.pow(e, 1.3) * .93) * (1-biome.alpine*.93);
-        if (hash(ix, iz, 5) > probability) continue;
-        if (Math.abs(x + 18) < 1.55 && Math.abs(z + 46) < 1.05 && hash(ix, iz, 93) > .12) continue;
-        const size = Math.min(3, (1.8 + hash(ix, iz, 8) * 1.8) * (.72 + cover * .48) * (1 - e * .42));
-        const plant=makePlant(x,z,ix,iz,20,Math.floor(hash(ix,iz,14)*4),size*(dune?1.2:1),biome);
-        if(dune){
-          if(patch(x*.7+17,z*.7)<.42)continue;
-          plant.dry=.85;plant.soilR=.34;plant.soilG=.27;plant.soilB=.17;
-        }
-        if(Math.hypot(plant.sx,plant.sz)<.75)cell.fine.push(plant);
+  // A cell of ground cover is 400 grass candidates and 35 tussocks: 3 ms on average and up to 27 ms near the coast and the POIs,
+  // too much for one frame. It is built a row at a time and can stop between rows (see growGroundCover).
+  const partialCover = new Map<string, { cell: GroundCover; row: number }>();
+  function groundCoverRow(cx: number, cz: number, ax: number, cell: GroundCover) {
+    for (let az = 0; az < 20; az++) {
+      const ix = cx * 20 + ax, iz = cz * 20 + az;
+      const x = (ix + .12 + hash(ix, iz, 1) * .76) * .32;
+      const z = (iz + .12 + hash(ix, iz, 2) * .76) * .32;
+      if (Math.hypot(x, z) > WORLD_RADIUS-55) continue;
+      const dune = WORLD_V2 && coastDistance(x,z)>beachWidth(x,z)*.82 && coastDistance(x,z)<beachWidth(x,z)+18;
+      const e = dune ? Math.min(.2,exclusion(x,z)) : exclusion(x, z);
+      if (e > .91) continue;
+      const cover = patch(x, z);
+      const biome=biomeAt(x,z);
+      const probability = (.30 + cover * .40) * (1 - Math.pow(e, 1.3) * .93) * (1-biome.alpine*.93);
+      if (hash(ix, iz, 5) > probability) continue;
+      if (Math.abs(x + 18) < 1.55 && Math.abs(z + 46) < 1.05 && hash(ix, iz, 93) > .12) continue;
+      const size = Math.min(3, (1.8 + hash(ix, iz, 8) * 1.8) * (.72 + cover * .48) * (1 - e * .42));
+      const plant=makePlant(x,z,ix,iz,20,Math.floor(hash(ix,iz,14)*4),size*(dune?1.2:1),biome);
+      if(dune){
+        if(patch(x*.7+17,z*.7)<.42)continue;
+        plant.dry=.85;plant.soilR=.34;plant.soilG=.27;plant.soilB=.17;
       }
+      if(Math.hypot(plant.sx,plant.sz)<.75)cell.fine.push(plant);
     }
+  }
+  function tussockRow(cx: number, cz: number, cell: GroundCover) {
     for (let i = 0; i < 35; i++) {
       const x = (cx + hash(cx * 37 + i, cz, 101)) * CELL;
       const z = (cz + hash(cx, cz * 41 + i, 103)) * CELL;
@@ -382,9 +384,20 @@ export function createUndergrowth(
       if(dune){plant.dry=.95;plant.soilR=.34;plant.soilG=.27;plant.soilB=.17;}
       if(Math.hypot(plant.sx,plant.sz)<.65)cell.tussock.push(plant);
     }
-    groundCover.set(key, cell);
-    return cell;
   }
+  /** Builds rows of the cell until it is complete (returned) or `budget` is used up (undefined; call again to carry on). */
+  function growGroundCover(cx: number, cz: number, key: string, budget?: Slice): GroundCover | undefined {
+    let partial = partialCover.get(key);
+    if (!partial) { partial = { cell: { fine: [], tussock: [] }, row: 0 }; partialCover.set(key, partial); }
+    while (partial.row <= 20) {
+      if (partial.row < 20) groundCoverRow(cx, cz, partial.row, partial.cell); else tussockRow(cx, cz, partial.cell);
+      partial.row++;
+      if (partial.row <= 20 && budget?.over()) return undefined;
+    }
+    partialCover.delete(key); groundCover.set(key, partial.cell);
+    return partial.cell;
+  }
+  const buildGroundCover = (cx: number, cz: number, key: string) => growGroundCover(cx, cz, key)!;
   function buildFerns(cx: number, cz: number, key: string) {
     const plants: Plant[] = [];
     for (let i = 0; i < 8; i++) {
@@ -432,7 +445,9 @@ export function createUndergrowth(
         const distance2 = Math.max(0,x-CELL*.5)**2 + Math.max(0,z-CELL*.5)**2;
         const key = `${cx},${cz}`;
         if (distance2 < (GRASS_RANGE+STREAM_BUFFER)**2) {
-          const cell = groundCover.get(key) ?? buildGroundCover(cx, cz, key);
+          let cell = groundCover.get(key);
+          if (!cell && sliced) while (!(cell = growGroundCover(cx, cz, key, slice))) yield;
+          cell ??= buildGroundCover(cx, cz, key);
           for(const plant of cell.fine){
             const distance2=(plant.x-player.x)**2+(plant.z-player.z)**2;
             if(distance2>=(GRASS_RANGE+STREAM_BUFFER)**2)continue;
@@ -465,6 +480,10 @@ export function createUndergrowth(
       const [cx, cz] = key.split(',').map(Number);
       if (Math.abs(cx - cx0) > 11 || Math.abs(cz - cz0) > 11) cache.delete(key);
     }
+    for (const key of partialCover.keys()) {
+      const [cx, cz] = key.split(',').map(Number);
+      if (Math.abs(cx - cx0) > 11 || Math.abs(cz - cz0) > 11) partialCover.delete(key);
+    }
     const built = vegetation, total=(list:Batch[])=>list.reduce((n,b)=>n+built.count(b),0);
     group.userData.counts = { fine: total([...fine,...midFine,...farFine]), closeGrass:total(fine), tussocks: total([...tussocks, ...farTussocks]), ferns: total([...ferns, ...farFerns]), detailedFerns: total(ferns) };
     lastPosition.copy(player);
@@ -473,13 +492,22 @@ export function createUndergrowth(
   }
   return {
     ready,
+    /** `deferRefresh`: the forest is rebuilding this frame, so no new ring is started (one already under way carries on). */
     update(time: number, player: THREE.Vector3, deferRefresh = false) {
       timeUniform.value = time; eyeUniform.value.copy(player);
-      if (!loaded || disposed || deferRefresh) return;
-      if (job) { if (runSlice(job, slice)) job = undefined; return; }
+      if (!loaded || disposed) return;
+      if (job) {
+        // The ring on screen covers the view while the player is within STREAM_BUFFER of where it was built; past that (a very
+        // low frame rate) the rest of the new one is built now rather than show bare ground at the edge.
+        if (player.distanceToSquared(lastPosition) > STREAM_BUFFER ** 2) { runToEnd(job); job = undefined; }
+        else if (runSlice(job, slice)) job = undefined;
+        return;
+      }
       // Prepare beyond the visible fade so a plant can reach full coverage
       // without waiting for the next ring refresh.
       const moved = lastPosition.distanceToSquared(player);
+      // Waiting a few frames for the forest is fine while there is room to spare before the ring on screen runs out.
+      if (deferRefresh && moved < (STREAM_STEP + .4) ** 2) return;
       if (moved > STREAM_STEP ** 2) {
         const sliced = perfOn('slicedRefresh');
         target = sliced ? 1 - shown : shown; vegetation = batchers[target];
@@ -488,9 +516,9 @@ export function createUndergrowth(
         if (!sliced || !Number.isFinite(moved) || moved > 40 * 40) { runToEnd(job); job = undefined; }
         else if (runSlice(job, slice)) job = undefined;
       } else {
-        // Spread the next ring's grass generation over ordinary frames.
-        const cell = warmCells.pop();
-        if (cell) buildGroundCover(cell.cx, cell.cz, cell.key);
+        // Spread the next ring's grass generation over ordinary frames, a few rows at a time.
+        const cell = warmCells.at(-1);
+        if (cell) { warmSlice.begin(); if (groundCover.has(cell.key) || growGroundCover(cell.cx, cell.cz, cell.key, warmSlice)) warmCells.pop(); }
       }
     },
     dispose() {

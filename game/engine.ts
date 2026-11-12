@@ -31,6 +31,7 @@ import { createPerfProbe, drawList, shadowInstanceCulling, textureReport } from 
 import { perfOn, perfSwitches } from './perf-flags';
 import { createGpuWarmup } from './gpu-warmup';
 import { createTextureSlicer } from './texture-slicer';
+import { createShadowProgramWarmer } from './shadow-programs';
 import { createStamina, gaitSpeed, sprintFov } from './stamina';
 import { createStaminaHud } from './stamina-hud';
 import { waterDepthAt, wadeSpeedFactor, limitWading } from './water-depth';
@@ -322,7 +323,7 @@ export function createGame(container:HTMLElement) {
     scene.traverse(o=>{if(!(o instanceof THREE.Mesh))return;for(const material of Array.isArray(o.material)?o.material:[o.material]){const af=filterFor(material);for(const value of Object.values(material))if(value instanceof THREE.Texture&&!value.isRenderTargetTexture&&value.image?.width>0&&value.image?.complete!==false&&(filtered.get(value)??-1)<af){filtered.set(value,af);value.anisotropy=af;value.needsUpdate=true;}}});}
   // Props stream in with textures of up to 4096 px and their own shader programs. pois.ts hands each model to this queue as it arrives; one
   // texture or one light state's programs is built per step, with a pause that grows with the cost of the last step (game/gpu-warmup.ts).
-  const lampStates=()=>world2?.debug.streetLights.count?4:2,slicer=createTextureSlicer(renderer);
+  const lampStates=()=>world2?.debug.streetLights.count?4:2,slicer=createTextureSlicer(renderer),shadowPrograms=createShadowProgramWarmer(renderer),lightSync=new THREE.Object3D();
   const gpuWarmup=createGpuWarmup({
     states:lampStates(),
     upload:(t,urgent)=>{
@@ -336,7 +337,13 @@ export function createGame(container:HTMLElement) {
     compile:(object,state)=>{
       const light=flashlight.light,was=light.visible;light.visible=state%2===1;
       const unlit=state>=2?world2?.debug.streetLights.warm():undefined;
-      try{renderer.compile(object,camera,scene);}finally{unlit?.();light.visible=was;}
+      try{renderer.compile(object,camera,scene);if(perfOn('shadowWarmup'))shadowPrograms.compile(object,camera,scene);}finally{
+        unlit?.();light.visible=was;
+        // compile() leaves the scene's light setup as it was for this light state, and three.js (r180) draws the next frame's shadow
+        // maps before that frame sets its lights up again: without this the shadow pass would build depth programs for street lamps
+        // and a torch that are off, the very stall this warm-up is for. An empty object only gathers the lights.
+        if(perfOn('shadowWarmup'))renderer.compile(lightSync,camera,scene);
+      }
     },
   });
   scene.userData.gpuWarmup=gpuWarmup;
@@ -507,7 +514,7 @@ export function createGame(container:HTMLElement) {
     // Draw the rig and its depth material with every light configuration while
     // the loading veil still covers the canvas. A compile alone would leave
     // skin buffers, bone textures, and texture uploads to the first encounter.
-    if(warmupDraws===0){forest.warmupTextures(renderer);if(perfOn('streamWarmup'))uploadSceneTextures();}
+    if(warmupDraws===0){forest.warmupTextures(renderer);if(perfOn('streamWarmup'))uploadSceneTextures();if(perfOn('slicedUpload'))slicer.prime();}
     const light=flashlight.light,wasVisible=creature.visible,beamWasVisible=light.visible;
     const listener=scene.getObjectByName('The Listener'),listenerWasVisible=listener?.visible;
     if(listener)listener.visible=true;
@@ -517,7 +524,13 @@ export function createGame(container:HTMLElement) {
     try{atmosphere.render(elapsed,darkness);}finally{
       unlit?.();creature.visible=wasVisible;if(listener)listener.visible=!!listenerWasVisible;light.visible=beamWasVisible;shadowDirty=true;
     }
-    if(++warmupDraws===warmupTotal()){warmupFence=gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE,0);gl.flush();}
+    if(++warmupDraws===warmupTotal()){
+      warmupFence=gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE,0);gl.flush();
+      // Everything already in the scene, in every light state it can meet, shadow passes included: materials that were out of view
+      // during the warm-up draws too. Queued now, it is worked off behind the veil (the drain below keeps loading on until it is),
+      // instead of in 15 to 30 ms steps while the veil fades.
+      if(perfOn('streamWarmup'))gpuWarmup.add({label:'scene',textures:[],object:scene});
+    }
   }
 
   function animate(now:number){
@@ -710,8 +723,6 @@ export function createGame(container:HTMLElement) {
       if(loadingQuiet&&(!warmupFence||gl.clientWaitSync(warmupFence,0,0)!==gl.TIMEOUT_EXPIRED)){
         if(warmupFence){gl.deleteSync(warmupFence);warmupFence=null;}
         loading=false;loadCompleteAt=now;renderBudget.pause();
-        // Everything already in the scene, in every light state it can meet: materials that were out of view during the warm-up draws too.
-        if(perfOn('streamWarmup'))gpuWarmup.add({label:'scene',textures:[],object:scene});
       }
     }
     if(probe)probe.marks.render1=performance.now();
@@ -732,7 +743,7 @@ export function createGame(container:HTMLElement) {
     window.removeEventListener('mouseup',mouseUp);window.removeEventListener('mousemove',mouseMove);window.removeEventListener('keydown',keyDown);window.removeEventListener('keyup',keyUp);window.removeEventListener('blur',blur);window.removeEventListener('focus',focus);window.removeEventListener('resize',resize);window.visualViewport?.removeEventListener('resize',resize);window.removeEventListener('orientationchange',clearInput);
     document.removeEventListener('pointerlockchange',lockChange);document.removeEventListener('pointerlockerror',lockError);document.removeEventListener('visibilitychange',visibilityChange);
     renderer.domElement.removeEventListener('mousedown',mouseDown);renderer.domElement.removeEventListener('touchstart',touchStart);renderer.domElement.removeEventListener('touchmove',touchUpdate);renderer.domElement.removeEventListener('touchend',touchEnd);renderer.domElement.removeEventListener('touchcancel',touchEnd);
-    unsubscribeNoise();blackout.remove();objectiveHud?.dispose();staminaHud.dispose();world2?.dispose();admin.dispose();flashlight.dispose();sun.shadow.dispose();sky.dispose();audio.dispose();encounters.dispose();forest.dispose();story.dispose();terrain.dispose();atmosphere.dispose();
+    unsubscribeNoise();blackout.remove();objectiveHud?.dispose();staminaHud.dispose();world2?.dispose();admin.dispose();slicer.dispose();flashlight.dispose();sun.shadow.dispose();sky.dispose();audio.dispose();encounters.dispose();forest.dispose();story.dispose();terrain.dispose();atmosphere.dispose();
     scene.traverse(object=>{if(object instanceof THREE.Mesh){object.geometry.dispose();const mats=Array.isArray(object.material)?object.material:[object.material];for(const mat of mats){for(const v of Object.values(mat))if(v instanceof THREE.Texture)v.dispose();mat.dispose();}}});
     renderer.dispose();renderer.domElement.remove();
   };

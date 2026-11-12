@@ -308,27 +308,45 @@ function tunnelGround(x:number,z:number,h:number){
 // Only nearby lattice blocks are retained. Collision and rendered terrain use
 // exactly the same float32 vertices and triangle diagonal, including negative
 // coordinates and chunk seams. No million-vertex world grid is allocated.
-const heightBlocks=new Map<string,Float32Array>();
+// Two stores: the blocks of the terrain tiles currently built round the player (handed over by game/terrain.ts and held until
+// that tile is dropped), and a small LRU for everything else. One LRU used to hold both, and loading the POIs (which sample
+// heights all over the island) pushed the blocks round the player out of it; every forest rebuild then recomputed them on the
+// main thread, 11-28 ms a block, up to 100 ms in one frame.
+const heightBlocks=new Map<string,Float32Array>(),retainedBlocks=new Map<string,Float32Array>();
 const HEIGHT_CACHE_LIMIT=196;
-let lastHeightBlock:Float32Array|undefined,lastHeightBlockX=Infinity,lastHeightBlockZ=Infinity;
+let lastHeightBlock:Float32Array|undefined,lastHeightBlockX=Infinity,lastHeightBlockZ=Infinity,computedBlocks=0,computeMs=0;
 function rememberHeightBlock(ix:number,iz:number,key:string,block:Float32Array) {
   heightBlocks.set(key,block);
   if(heightBlocks.size>HEIGHT_CACHE_LIMIT)heightBlocks.delete(heightBlocks.keys().next().value!);
   lastHeightBlock=block;lastHeightBlockX=ix;lastHeightBlockZ=iz;
 }
-export function cacheTerrainBlock(ix:number,iz:number,block:Float32Array) {
+/** Keeps `block` (or the copy already held) for tile ix,iz until releaseTerrainBlock: the tile is built and in use. */
+export function cacheTerrainBlock(ix:number,iz:number,block?:Float32Array) {
   const key=`${ix},${iz}`;
-  if(!heightBlocks.has(key))rememberHeightBlock(ix,iz,key,block);
+  if(retainedBlocks.has(key))return;
+  const held=heightBlocks.get(key)??block??terrainBlock(ix,iz);
+  heightBlocks.delete(key);retainedBlocks.set(key,held);
+}
+/** The tile is no longer built: its block goes back to the LRU. */
+export function releaseTerrainBlock(ix:number,iz:number) {
+  const key=`${ix},${iz}`,block=retainedBlocks.get(key);
+  if(!block)return;
+  retainedBlocks.delete(key);rememberHeightBlock(ix,iz,key,block);
 }
 export function terrainBlock(ix:number,iz:number) {
   // Consecutive slope samples, vertices and plant roots usually share a tile.
   if(ix===lastHeightBlockX&&iz===lastHeightBlockZ&&lastHeightBlock)return lastHeightBlock;
-  const key=`${ix},${iz}`;let block=heightBlocks.get(key);
+  const key=`${ix},${iz}`;
+  let block=retainedBlocks.get(key);
+  if(block){lastHeightBlock=block;lastHeightBlockX=ix;lastHeightBlockZ=iz;return block;}
+  block=heightBlocks.get(key);
   if(block)heightBlocks.delete(key);
   else{
+    const start=typeof performance!=='undefined'?performance.now():0;
     block=new Float32Array((TERRAIN_SEGMENTS+1)**2);
     for(let z=0;z<=TERRAIN_SEGMENTS;z++)for(let x=0;x<=TERRAIN_SEGMENTS;x++)
       block[z*(TERRAIN_SEGMENTS+1)+x]=rawHeight(ix*TERRAIN_CHUNK+x*TERRAIN_STEP,iz*TERRAIN_CHUNK+z*TERRAIN_STEP);
+    computedBlocks++;if(start)computeMs+=performance.now()-start;
   }
   rememberHeightBlock(ix,iz,key,block);
   return block;
@@ -359,7 +377,8 @@ export function horizonHeightAt(x:number,z:number){
   const a=horizonSample(x0,z0),b=horizonSample(x0+step,z0),c=horizonSample(x0,z0+step),d=horizonSample(x0+step,z0+step);
   return fx+fz<=1?a+(b-a)*fx+(c-a)*fz:d+(b-d)*(1-fz)+(c-d)*(1-fx);
 }
-export const terrainHeightStats=()=>({blocks:heightBlocks.size,limit:HEIGHT_CACHE_LIMIT,bytes:heightBlocks.size*(TERRAIN_SEGMENTS+1)**2*4});
+/** `computed`/`computeMs`: blocks built from scratch on this thread so far (each one is 2,401 height samples). */
+export const terrainHeightStats=()=>({blocks:heightBlocks.size,retained:retainedBlocks.size,limit:HEIGHT_CACHE_LIMIT,bytes:(heightBlocks.size+retainedBlocks.size)*(TERRAIN_SEGMENTS+1)**2*4,computed:computedBlocks,computeMs:Math.round(computeMs)});
 
 /** Dry viewpoints for the developer menu, chosen away from placed buildings. */
 function coastalDestination(name:string,x:number,z:number,kind:'lake'|'beach'|'alpine') {

@@ -11,13 +11,17 @@ import { createMeshSurface } from './surface-support';
 import { branchSpec, broadleafGeometry, crownBranches, crownGeometry, stumpGeometry } from './forest-assets';
 import { createVegetationBatcher, type VegetationBatchDefinition, type VegetationBatchHandle } from './vegetation-batches';
 import { perfOn } from './perf-flags';
+import { createSlice, runSlice, runToEnd } from './time-slice';
 
 type Collider = { x: number; z: number; radius: number };
 type Tree = { x: number; z: number; y: number; height: number; width: number; yaw: number; kind: number; seed: number };
 type Scatter = { x: number; z: number; y: number; size: number; yaw: number; variant: number };
 const TRUNK_RINGS = [0, .16, .45, .9, 1.5, 2.4, 4, 6, 8.5, 11, 14, 17, 20, 23, 26, 29, 31];
 const TRUNK_SEGMENTS = 16;
-const FOREST_STEP=6, FOREST_BUFFER=FOREST_STEP+.5, TREE_RANGE=98, TREE_COLLISION_RANGE=94, TRUNK_DETAIL_END=43, CROWN_DETAIL_START=30, CROWN_DETAIL_END=40;
+// Trees are placed out to TREE_RANGE+FOREST_BUFFER round the point the forest was last rebuilt at and faded by distance from the eye in
+// the shader, so the placement stays valid until the player is FOREST_BUFFER from that point. A rebuild starts every FOREST_STEP and
+// is spread over a few frames; the 1.5 m between the two is the room it has to finish in.
+const FOREST_STEP=6, FOREST_BUFFER=FOREST_STEP+1.5, TREE_RANGE=98, TREE_COLLISION_RANGE=94, TRUNK_DETAIL_END=43, CROWN_DETAIL_START=30, CROWN_DETAIL_END=40;
 const branchesByKind = Array.from({length:8}, (_,kind) => Array.from({length:36}, (_,branch) => branchSpec(kind,branch)));
 
 // All vegetation is deterministic; only objects concealed by the fog are recycled.
@@ -345,7 +349,13 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
   const geometries: THREE.BufferGeometry[] = [];
   // Keep crowns in smaller sectors for camera culling. Trunks use wider
   // sectors to limit draw calls in the sun and flashlight passes.
-  const vegetation = createVegetationBatcher(group, 96);
+  // Two copies of the trees round the player, as with the undergrowth: one is drawn while the other is rebuilt a slice at a time
+  // (game/time-slice.ts), and they swap once it is whole, so nothing on screen is ever missing or half placed. Rebuilt in one go,
+  // the forest cost 5 to 10 ms every 6 m of walking (and up to 100 ms while it still recomputed terrain heights).
+  const buffers=[new THREE.Group(),new THREE.Group()];buffers[1].visible=false;group.add(buffers[0],buffers[1]);
+  const batchers=[createVegetationBatcher(buffers[0],96),createVegetationBatcher(buffers[1],96)];
+  let shown=0,vegetation=batchers[0],job:Generator<void,void,void>|undefined,jobVisuals=false;
+  const slice=createSlice(2);
   let definitionSerial = 0;
   function instances(geometry: THREE.BufferGeometry, material: THREE.Material | THREE.Material[], capacity: number, cast = false, name = '', layer?: number, radius = 1, spatial = true): VegetationBatchDefinition {
     geometries.push(geometry);
@@ -513,24 +523,30 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
       attribute.setXYZW(instance, offsets[start], offsets[start + 1], offsets[start + 2], offsets[start + 3]);
     }
   }
-  function build(player: THREE.Vector3, updateColliders:boolean, rebuildVisuals:boolean) {
+  /**
+   * Places the trees and their litter round `player` into the hidden copy and/or rebuilds the colliders, then swaps it on screen.
+   * A generator so that update() can run it a slice a frame: with `sliced` it yields whenever the slice is used up.
+   */
+  function* build(player: THREE.Vector3, updateColliders:boolean, rebuildVisuals:boolean, sliced:boolean): Generator<void,void,void> {
     rendering=rebuildVisuals;
-    if (rendering) vegetation.begin();
-    if(updateColliders){
-      lastPosition.copy(player);colliders.length=0;solidColliders.length=0;
-    }
+    if (rendering) { vegetation=batchers[1-shown]; vegetation.begin(); }
+    const nextColliders:Collider[]=[],nextSolid:SolidCollider[]=[];
+    let work=0;
+    const pause=()=>sliced&&(++work&15)===0&&slice.over();
     const nearby:ForestCell[]=[],cx0=Math.floor(player.x/CELL),cz0=Math.floor(player.z/CELL);
     for(let dx=-4;dx<=4;dx++)for(let dz=-4;dz<=4;dz++){
       const cx=cx0+dx,cz=cz0+dz;
       if(Math.hypot((cx+.5)*CELL-player.x,(cz+.5)*CELL-player.z)>(rendering?128:118))continue;
       nearby.push(cells.get(`${cx},${cz}`)??buildCell(cx,cz));
+      if(sliced&&slice.over())yield;
     }
     for(const [key] of cells){const [x,z]=key.split(',').map(Number);if(Math.abs(x-cx0)>5||Math.abs(z-cz0)>5)cells.delete(key);}
     for(const cell of nearby)for (const tree of cell.trees) {
       const distance2 = (tree.x - player.x) ** 2 + (tree.z - player.z) ** 2;
+      if(pause())yield;
       if(updateColliders&&distance2<=TREE_COLLISION_RANGE**2){
-        const radius=.44*tree.width+.08;colliders.push({x:tree.x,z:tree.z,radius});
-        solidColliders.push({kind:'capsule',ax:tree.x,az:tree.z,bx:tree.x,bz:tree.z,radius,minY:tree.y-.15,maxY:tree.y+31*tree.height,tag:'tree',barkContact:barkContactFor(tree),crownBase:tree.y+branchSpec(tree.kind,0).height*tree.height});
+        const radius=.44*tree.width+.08;nextColliders.push({x:tree.x,z:tree.z,radius});
+        nextSolid.push({kind:'capsule',ax:tree.x,az:tree.z,bx:tree.x,bz:tree.z,radius,minY:tree.y-.15,maxY:tree.y+31*tree.height,tag:'tree',barkContact:barkContactFor(tree),crownBase:tree.y+branchSpec(tree.kind,0).height*tree.height});
       }
       if (!rendering||distance2>(TREE_RANGE+FOREST_BUFFER)**2) continue;
       dummy.position.set(tree.x, tree.y, tree.z); dummy.rotation.set(0, tree.yaw, 0); dummy.scale.set(tree.width, tree.height, tree.width);
@@ -555,11 +571,13 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
       }
     }
     if (rendering) for(const cell of nearby)for (const item of cell.scatter) {
+      if(pause())yield;
       const distance2 = (item.x - player.x) ** 2 + (item.z - player.z) ** 2; if (distance2 > (34+FOREST_BUFFER+1)**2) continue;
       const transforms=litterFor(item);
       for(let l=0;l<transforms.length;l+=16)placeMatrix(litter,matrix.fromArray(transforms,l));
     }
     for(const cell of nearby)for (const item of cell.rubble) {
+      if(pause())yield;
       if ((item.x - player.x) ** 2 + (item.z - player.z) ** 2 > 58 ** 2) continue;
       const type=Math.min(2,Math.floor(item.variant)),form=Math.floor(item.yaw*2)%3,definition=stones[type*3+form];
       dummy.rotation.set((item.variant%1)*.12,item.yaw,.07);dummy.scale.setScalar(item.size);
@@ -571,43 +589,54 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
       }
       const ground=placed.grounded;dummy.position.set(item.x,ground.y,item.z);
       place(definition,Math.max(2.5,ground.radius));
-      if(updateColliders)solidColliders.push({kind:'capsule',ax:item.x,az:item.z,bx:item.x,bz:item.z,radius:ground.radius,minY:ground.minY,maxY:ground.maxY,tag:'rock',surfaceHeight:surfaceFor(item,definition.geometry)});
+      if(updateColliders)nextSolid.push({kind:'capsule',ax:item.x,az:item.z,bx:item.x,bz:item.z,radius:ground.radius,minY:ground.minY,maxY:ground.maxY,tag:'rock',surfaceHeight:surfaceFor(item,definition.geometry)});
     }
     for(const cell of nearby)for (const item of cell.sticks) {
+      if(pause())yield;
       if ((item.x - player.x) ** 2 + (item.z - player.z) ** 2 > 44 ** 2) continue;
       const dx = Math.sin(item.yaw) * item.size * .5, dz = Math.cos(item.yaw) * item.size * .5;
       const a = new THREE.Vector3(item.x - dx, heightAt(item.x - dx, item.z - dz) + .022, item.z - dz);
       const b = new THREE.Vector3(item.x + dx, heightAt(item.x + dx, item.z + dz) + .022, item.z + dz);
       direction.subVectors(b, a); const length=direction.length(); direction.normalize();
       dummy.position.copy(a).add(b).multiplyScalar(.5); dummy.quaternion.setFromUnitVectors(up, direction); dummy.scale.set(item.variant, length, item.variant); place(sticks,1);
-      if(updateColliders)solidColliders.push({kind:'capsule',ax:a.x,az:a.z,bx:b.x,bz:b.z,radius:item.variant*.026,minY:Math.min(a.y,b.y)-.03,maxY:Math.max(a.y,b.y)+item.variant*.026,tag:'twig'});
+      if(updateColliders)nextSolid.push({kind:'capsule',ax:a.x,az:a.z,bx:b.x,bz:b.z,radius:item.variant*.026,minY:Math.min(a.y,b.y)-.03,maxY:Math.max(a.y,b.y)+item.variant*.026,tag:'twig'});
     }
     for(const cell of nearby)for (const item of cell.deadfall) {
+      if(pause())yield;
       if ((item.x - player.x) ** 2 + (item.z - player.z) ** 2 > 77 ** 2) continue;
       const dx = Math.sin(item.yaw) * item.size * .5, dz = Math.cos(item.yaw) * item.size * .5;
       const a = new THREE.Vector3(item.x - dx, heightAt(item.x - dx, item.z - dz) + item.variant * .66, item.z - dz);
       const b = new THREE.Vector3(item.x + dx, heightAt(item.x + dx, item.z + dz) + item.variant * .49, item.z + dz);
       direction.subVectors(b, a); const length = direction.length(); direction.normalize();
       dummy.position.copy(a).add(b).multiplyScalar(.5); dummy.quaternion.setFromUnitVectors(up, direction); dummy.scale.set(item.variant, length, item.variant); place(logs,5);
-      if(updateColliders)solidColliders.push({kind:'capsule',ax:a.x,az:a.z,bx:b.x,bz:b.z,radius:item.variant,minY:Math.min(a.y,b.y)-item.variant,maxY:Math.max(a.y,b.y)+item.variant,tag:'fallen log',surfaceHeight:surfaceFor(item,logs.geometry)});
+      if(updateColliders)nextSolid.push({kind:'capsule',ax:a.x,az:a.z,bx:b.x,bz:b.z,radius:item.variant,minY:Math.min(a.y,b.y)-item.variant,maxY:Math.max(a.y,b.y)+item.variant,tag:'fallen log',surfaceHeight:surfaceFor(item,logs.geometry)});
     }
     for(const cell of nearby)for(const item of cell.stumps){
+      if(pause())yield;
       if((item.x-player.x)**2+(item.z-player.z)**2>65**2)continue;
       const type=Math.floor(item.variant*3),height=type===1?1.2+item.variant: .45+item.variant*.65;
       let base=item.y;
       for(let j=0;j<8;j++){const a=j*Math.PI*.25;base=Math.min(base,heightAt(item.x+Math.cos(a)*item.size,item.z+Math.sin(a)*item.size));}
       dummy.position.set(item.x,base-.06,item.z);dummy.rotation.set(0,item.yaw,0);dummy.scale.set(item.size,height,item.size);
       place(stumps[type],2);
-      if(updateColliders)solidColliders.push({kind:'capsule',ax:item.x,az:item.z,bx:item.x,bz:item.z,radius:item.size*.91,minY:base-.1,maxY:base+height*(type===1?1.25:1.04),tag:'stump',surfaceHeight:surfaceFor(item,stumps[type].geometry)});
+      if(updateColliders)nextSolid.push({kind:'capsule',ax:item.x,az:item.z,bx:item.x,bz:item.z,radius:item.size*.91,minY:base-.1,maxY:base+height*(type===1?1.25:1.04),tag:'stump',surfaceHeight:surfaceFor(item,stumps[type].geometry)});
     }
-    if(updateColliders)collisionVersion++;
+    if(updateColliders){
+      // Swapped in whole, so the collision world never sees half a forest.
+      colliders.length=0;solidColliders.length=0;
+      for(const c of nextColliders)colliders.push(c);
+      for(const c of nextSolid)solidColliders.push(c);
+      lastPosition.copy(player);collisionVersion++;
+    }
     if (rendering) {
       vegetation.end();
+      buffers[1-shown].visible=true;buffers[shown].visible=false;shown=1-shown;
       lastRenderPosition.copy(player);
+      group.userData.species=trunks.map((definition,i)=>({name:definition.name,count:vegetation.count(definition)+vegetation.count(farTrunks[i])}));
     }
-    group.userData.cells=cells.size;group.userData.species=trunks.map((definition,i)=>({name:definition.name,count:vegetation.count(definition)+vegetation.count(farTrunks[i])}));
+    group.userData.cells=cells.size;
   }
-  build(spawn,true,true);
+  runToEnd(build(spawn.clone(),true,true,false));
   let disposed = false;
   return {
     colliders,solidColliders,get collisionVersion(){return collisionVersion;},
@@ -627,14 +656,25 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
       if(disposed)return false;
       windTime.value = time;
       forestEye.value.copy(player);
-      const changed=player.distanceToSquared(lastPosition)>20;
-      const rebuilt=player.distanceToSquared(lastRenderPosition)>FOREST_STEP**2;
-      if(changed||rebuilt)build(player,changed,rebuilt);
-      undergrowth.update(time, player, rebuilt);
-      return rebuilt;
+      if(!job){
+        const changed=player.distanceToSquared(lastPosition)>20;
+        const rebuilt=player.distanceToSquared(lastRenderPosition)>FOREST_STEP**2;
+        if(changed||rebuilt){job=build(player.clone(),changed,rebuilt,perfOn('slicedForest'));jobVisuals=rebuilt;}
+      }
+      let swapped=false;
+      const worked=!!job;
+      if(job){
+        // The trees on screen only reach the edge of the fog while the player is within FOREST_BUFFER of where they were placed.
+        // Past that (a jump, flying, or a very low frame rate) the rest of the rebuild is done now rather than show the gap.
+        const late=player.distanceToSquared(lastRenderPosition)>(FOREST_BUFFER-.25)**2;
+        if(late)runToEnd(job);
+        if(late||runSlice(job,slice)){swapped=jobVisuals;job=undefined;}
+      }
+      undergrowth.update(time, player, worked);
+      return swapped;
     },
     dispose() {
-      if (disposed) return; disposed = true; undergrowth.dispose(); scene.remove(group); vegetation.dispose(); geometries.forEach(g => g.dispose()); textures.forEach(t => t.dispose());
+      if (disposed) return; disposed = true; job = undefined; undergrowth.dispose(); scene.remove(group); for (const b of batchers) b.dispose(); geometries.forEach(g => g.dispose()); textures.forEach(t => t.dispose());
       for (const map of [stonesMaterial.map, stonesMaterial.normalMap, stonesMaterial.roughnessMap]) map?.dispose();
       [bark, birchBark, oakBark, logBark, crownBark, needlesMaterial, broadleafMaterial, ...stoneMaterials, leafMaterial, woodMaterial, rootDepth, rootDistance].forEach(m => m.dispose());cells.clear();
     },

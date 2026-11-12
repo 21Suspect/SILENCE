@@ -11,7 +11,7 @@ import { roadMarkerSpot } from './road-geometry';
 import { coastalGLSL } from './coastal-geography';
 import { coastalMaterialGLSL } from './coastal-material';
 
-import { WORLD_EXTENT, WORLD_RADIUS, TERRAIN_CHUNK, TERRAIN_STEP, hash, noise, pathX, riverX, roadZ, riverPresence, biomeAt, cacheTerrainBlock, heightAt, vegetationExclusion, worldGeographyGLSL, waterHeightAt } from './world';
+import { WORLD_EXTENT, WORLD_RADIUS, TERRAIN_CHUNK, TERRAIN_STEP, hash, noise, pathX, riverX, roadZ, riverPresence, biomeAt, cacheTerrainBlock, releaseTerrainBlock, heightAt, vegetationExclusion, worldGeographyGLSL, waterHeightAt } from './world';
 import type { SolidCollider } from './collision';
 import { createMeshSurface } from './surface-support';
 import { naturalLayout, groundedOrigin, type LayoutScatter } from './placement';
@@ -281,6 +281,8 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
   let pendingChunks=0,lastCoverageUpdate=performance.now();
   const tileKey=({x,z}:TerrainTile)=>`${x},${z}`;
   function addTile(tile:TerrainTile,geometry:THREE.BufferGeometry){
+    // Its heights stay cached for as long as the tile is built (game/world.ts): the forest and props round the player read them.
+    cacheTerrainBlock(tile.x,tile.z);
     const mesh=new THREE.Mesh(geometry,material);
     mesh.receiveShadow=true;mesh.name='Streamed forest terrain';mesh.visible=false;
     scene.add(mesh);terrainChunks.set(tileKey(tile),{tile,mesh});
@@ -332,7 +334,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
     for(const [key,{tile,mesh}] of terrainChunks){
       const distance2=tileDistanceSquared(tile.x,tile.z,player.x,player.z);
       mesh.visible=distance2<nearCoverage.value**2;
-      if(distance2>RETAIN_RADIUS**2){scene.remove(mesh);mesh.geometry.dispose();terrainChunks.delete(key);}
+      if(distance2>RETAIN_RADIUS**2){scene.remove(mesh);mesh.geometry.dispose();terrainChunks.delete(key);releaseTerrainBlock(tile.x,tile.z);}
     }
   }
   updateChunks(spawn,true);
@@ -492,6 +494,6 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
       }
       return support;
     },
-    dispose() {stopWorker();for(const {mesh} of terrainChunks.values()){scene.remove(mesh);mesh.geometry.dispose();}terrainChunks.clear();scene.remove(horizon);horizon.geometry.dispose();horizonMaterial.dispose();for(const t of textures)t.dispose();for(const g of bridgeGeometries)g.dispose();material.dispose();river.dispose();boulderGeo.dispose();boulderMat.dispose();markerMat.dispose();for(const g of markerGeometries)g.dispose();wood.dispose();}
+    dispose() {stopWorker();for(const {tile,mesh} of terrainChunks.values()){scene.remove(mesh);mesh.geometry.dispose();releaseTerrainBlock(tile.x,tile.z);}terrainChunks.clear();scene.remove(horizon);horizon.geometry.dispose();horizonMaterial.dispose();for(const t of textures)t.dispose();for(const g of bridgeGeometries)g.dispose();material.dispose();river.dispose();boulderGeo.dispose();boulderMat.dispose();markerMat.dispose();for(const g of markerGeometries)g.dispose();wood.dispose();}
   };
 }
