@@ -38,6 +38,17 @@ export const textureVariationGLSL = `
       +textureGrad(source,p.b,patchRotate(p.dx,p.rb),patchRotate(p.dy,p.rb))*p.w.y
       +textureGrad(source,p.c,patchRotate(p.dx,p.rc),patchRotate(p.dy,p.rc))*p.w.z;
   }
+  /** The normal (xyz) and the roughness in the alpha channel (w) of a normal-rough map, from one set of reads. */
+  vec4 samplePatchNormalRough(sampler2D source,TexturePatch p){
+    vec4 a=textureGrad(source,p.a,patchRotate(p.dx,p.ra),patchRotate(p.dy,p.ra));
+    vec4 b=textureGrad(source,p.b,patchRotate(p.dx,p.rb),patchRotate(p.dy,p.rb));
+    vec4 c=textureGrad(source,p.c,patchRotate(p.dx,p.rc),patchRotate(p.dy,p.rc));
+    vec3 na=a.xyz*2.-1.,nb=b.xyz*2.-1.,nc=c.xyz*2.-1.;
+    na.xy=patchRotate(na.xy,vec2(p.ra.x,-p.ra.y));
+    nb.xy=patchRotate(nb.xy,vec2(p.rb.x,-p.rb.y));
+    nc.xy=patchRotate(nc.xy,vec2(p.rc.x,-p.rc.y));
+    return vec4(normalize(na*p.w.x+nb*p.w.y+nc*p.w.z),a.w*p.w.x+b.w*p.w.y+c.w*p.w.z);
+  }
   vec3 samplePatchNormal(sampler2D source,TexturePatch p){
     vec3 a=textureGrad(source,p.a,patchRotate(p.dx,p.ra),patchRotate(p.dy,p.ra)).xyz*2.-1.;
     vec3 b=textureGrad(source,p.b,patchRotate(p.dx,p.rb),patchRotate(p.dy,p.rb)).xyz*2.-1.;

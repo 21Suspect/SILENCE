@@ -8,7 +8,12 @@ globalThis.__nav={gap:0,astar:0,pull:0,round:0,iter:0,searches:0};
 const w = await createHeadlessWorld({}); const e = w.encounters;
 const treesNear = (x, z, r) => w.collisions.nearby(x, z, r).filter(c => c.tag === 'tree');
 /** Drives the body at the player's position (as a hunt does) until its head is within reach or time runs out. */
+// The game keeps the terrain within 144 m of the player built (game/terrain.ts streams it); a probe that did not would
+// charge every plan for building terrain the game already has.
+const { TERRAIN_CHUNK } = await import('../../game/world.ts');
+function warmTerrain(at) { for (let x = at.x - 144; x <= at.x + 144; x += TERRAIN_CHUNK) for (let z = at.z - 144; z <= at.z + 144; z += TERRAIN_CHUNK) if (Math.hypot(x - at.x, z - at.z) < 144 + TERRAIN_CHUNK) heightAt(x, z); }
 function chase(start, player, seconds = 14) {
+  warmTerrain(player);
   w.streamForest(start); const yaw = Math.atan2(player.x - start.x, player.z - start.z);
   e.preview(start.x, start.z, yaw);
   const s0 = e.navigationStatus().position, direct = Math.hypot(player.x - s0[0], player.z - s0[2]);

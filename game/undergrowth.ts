@@ -1,3 +1,4 @@
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { SimplifyModifier } from 'three/addons/modifiers/SimplifyModifier.js';
@@ -23,6 +24,40 @@ function hash(x: number, z: number, salt = 0) {
 
 function patch(x: number, z: number) {
   return .5 + Math.sin(x * .17 + Math.sin(z * .11) * 1.9) * .23 + Math.cos(z * .21 - x * .073) * .19;
+}
+
+/**
+ * A lighter copy of a mesh for far away: every point is snapped to a grid and points sharing a cell become one, so
+ * triangles smaller than a cell vanish. The cell is grown until at most `keep` of the triangles are left. It works on
+ * meshes of loose cards (leaves, fronds), where collapsing edges one at a time cannot get far.
+ */
+function gridSimplify(source: THREE.BufferGeometry, keep: number) {
+  const geometry = source.index ? source : mergeVertices(source), position = geometry.attributes.position, index = geometry.index!;
+  geometry.computeBoundingBox();
+  const size = geometry.boundingBox!.getSize(new THREE.Vector3()), names = Object.keys(geometry.attributes), target = index.count / 3 * keep;
+  let best: { remap: Int32Array; firsts: number[]; triangles: number[] } | undefined;
+  for (let cell = Math.max(size.x, size.y, size.z) / 96; ; cell *= 1.25) {
+    const cells = new Map<string, number>(), remap = new Int32Array(position.count), firsts: number[] = [], triangles: number[] = [];
+    for (let i = 0; i < position.count; i++) {
+      const key = `${Math.round(position.getX(i) / cell)},${Math.round(position.getY(i) / cell)},${Math.round(position.getZ(i) / cell)}`;
+      let at = cells.get(key); if (at === undefined) { at = firsts.length; cells.set(key, at); firsts.push(i); }
+      remap[i] = at;
+    }
+    for (let i = 0; i < index.count; i += 3) {
+      const a = remap[index.getX(i)], b = remap[index.getX(i + 1)], c = remap[index.getX(i + 2)];
+      if (a !== b && b !== c && a !== c) triangles.push(a, b, c);
+    }
+    best = { remap, firsts, triangles };
+    if (triangles.length / 3 <= target || cell > Math.max(size.x, size.y, size.z) / 6) break;
+  }
+  const result = new THREE.BufferGeometry();
+  for (const name of names) {
+    const from = geometry.attributes[name], array = new (from.array.constructor as Float32ArrayConstructor)(best.firsts.length * from.itemSize);
+    for (let i = 0; i < best.firsts.length; i++) for (let k = 0; k < from.itemSize; k++) array[i * from.itemSize + k] = from.array[best.firsts[i] * from.itemSize + k];
+    result.setAttribute(name, new THREE.BufferAttribute(array, from.itemSize, from.normalized));
+  }
+  result.setIndex(best.triangles);
+  return result;
 }
 
 function grassPatch(variant: number, blades=32, segments=3, widthScale=1) {
@@ -77,7 +112,7 @@ export function createUndergrowth(
   const textureSet = new Set<THREE.Texture>();
   const geometries: THREE.BufferGeometry[] = [];
   const materials: THREE.MeshStandardMaterial[] = [];
-  const fine: Batch[] = [], midFine: Batch[] = [], farFine: Batch[] = [], tussocks: Batch[] = [], ferns: Batch[] = [], farFerns: Batch[] = [];
+  const fine: Batch[] = [], midFine: Batch[] = [], farFine: Batch[] = [], tussocks: Batch[] = [], farTussocks: Batch[] = [], ferns: Batch[] = [], farFerns: Batch[] = [];
   const groundCover = new Map<string, GroundCover>(), fernCells = new Map<string, Plant[]>();
   // Two copies of the ring of plants. One is on screen while the other is rebuilt a few milliseconds per frame (game/time-slice.ts), and
   // they swap when it is whole; rebuilt in one go, the ring cost 8 to 60 ms every 4 m of walking.
@@ -91,7 +126,7 @@ export function createUndergrowth(
   const eyeUniform = { value: new THREE.Vector3(0, 2, 12) };
   const CELL = 6.4;
   const GRASS_RANGE = 33, TUSSOCK_RANGE=20, FERN_RANGE = 48;
-  const STREAM_STEP=4, STREAM_BUFFER=4.5, FERN_LOD_START=12, FERN_LOD_END=16;
+  const STREAM_STEP=4, STREAM_BUFFER=4.5, FERN_LOD_START=12, FERN_LOD_END=16, TUSSOCK_LOD=[6,9] as const;
   const warmCells: {cx:number;cz:number;key:string;distance2:number}[] = [];
   const lastPosition = new THREE.Vector3(Infinity, 0, Infinity);
   let disposed = false, loaded = false;
@@ -101,7 +136,8 @@ export function createUndergrowth(
     textureSet.add(texture);
     return texture;
   };
-  function prepareMaterial(source: THREE.MeshStandardMaterial, alpha: THREE.Texture, distance: number, breeze: number, fernLOD?:'near'|'far') {
+  /** `fernLOD` makes this one half of a pair that dissolve into each other across `band` metres from the eye. */
+  function prepareMaterial(source: THREE.MeshStandardMaterial, alpha: THREE.Texture, distance: number, breeze: number, fernLOD?:'near'|'far', band: readonly [number, number] = [FERN_LOD_START, FERN_LOD_END]) {
     const material = source.clone();
     const reflected=distance!==GRASS_RANGE, ditherRange={value:false};
     // Albedo photographed in daylight must not be emitted again as light.
@@ -143,7 +179,7 @@ export function createUndergrowth(
           vec2 awayFromPlayer=instanceMatrix[3].xz-uUnderstoryEye.xz;
           float distanceFromEye=length(awayFromPlayer);
           vPlantFade=1.-smoothstep(${(distance-7).toFixed(1)},${distance.toFixed(1)},distanceFromEye);
-          ${fernLOD?`vFernBlend=smoothstep(${FERN_LOD_START}.,${FERN_LOD_END}.,distanceFromEye);`:''}
+          ${fernLOD?`vFernBlend=smoothstep(${band[0].toFixed(1)},${band[1].toFixed(1)},distanceFromEye);`:''}
           if(vPlantFade<=0.${fernLOD==='near'?'||vFernBlend>=1.':fernLOD==='far'?'||vFernBlend<=0.':''}){
             gl_Position=vec4(2.,2.,2.,1.);return;
           }
@@ -207,7 +243,7 @@ export function createUndergrowth(
           #define RE_Direct RE_Direct_Plant
         `);
     };
-    material.customProgramCacheKey = () => `silence-understory-streamed-${distance}-${breeze}-${fernLOD??''}`;
+    material.customProgramCacheKey = () => `silence-understory-streamed-${distance}-${breeze}-${fernLOD??''}-${band[0]}-${band[1]}`;
     materials.push(material);
     return material;
   }
@@ -248,7 +284,8 @@ export function createUndergrowth(
     }
     const [grass, fern] = sources;
     const fineMaterial = prepareMaterial(grass.meshes[0].material, grass.alpha, 33, 1.4);
-    const grassMaterial = prepareMaterial(grass.meshes[0].material, grass.alpha, TUSSOCK_RANGE, .6);
+    const grassMaterial = prepareMaterial(grass.meshes[0].material, grass.alpha, TUSSOCK_RANGE, .6, 'near', TUSSOCK_LOD);
+    const farGrassMaterial = prepareMaterial(grass.meshes[0].material, grass.alpha, TUSSOCK_RANGE, .6, 'far', TUSSOCK_LOD);
     const fernMaterial = prepareMaterial(fern.meshes[0].material, fern.alpha, FERN_RANGE, .17,'near');
     const farFernMaterial = prepareMaterial(fern.meshes[0].material, fern.alpha, FERN_RANGE, .17,'far');
     // One exposure/albedo scale across low grass and taller clumps prevents
@@ -267,12 +304,19 @@ export function createUndergrowth(
       const geometry = grass.meshes[index].geometry.clone();
       geometry.translate(0, .004, 0);
       tussocks.push(batch(geometry, grassMaterial, 480));
+      // A scanned tussock is up to 1,660 triangles and some 900 stand within 20 m: over a million triangles, more than
+      // every tree in view. Past a few metres it is drawn from a copy with about a quarter of them.
+      farTussocks.push(batch(gridSimplify(geometry, .26), farGrassMaterial, 480));
     }
     for (const sourceMesh of fern.meshes) {
       const geometry = sourceMesh.geometry.clone();
       // Stem bases intentionally sink by a few millimetres into the damp litter.
       geometry.translate(0, .01, 0);
-      const lowDetail = simplifier.modify(geometry, Math.floor(geometry.attributes.position.count * .66));
+      // Beyond 12 to 16 m a fern is drawn from this lighter copy, out to 48 m: some 1,700 of them at once. The edge
+      // collapser gets stuck on these scans (each leaflet is its own island) and left up to 1,660 triangles a plant,
+      // 2 million in all: the largest thing in the frame. Snapping the points to a coarse grid instead draws the same
+      // frond outlines, which at that range are a few pixels wide, with about a fifth of the triangles.
+      const lowDetail = perfOn('fernLod') ? gridSimplify(geometry, .2) : simplifier.modify(geometry, Math.floor(geometry.attributes.position.count * .66));
       ferns.push(batch(geometry, fernMaterial, 150));
       farFerns.push(batch(lowDetail, farFernMaterial, 300));
     }
@@ -396,7 +440,13 @@ export function createUndergrowth(
             const stagger=hash(Math.floor(plant.x*20),Math.floor(plant.z*20),91)*4-1;
             place(plant,distance2<(7+stagger)**2?fine:distance2<(15+stagger)**2?midFine:farFine,true);
           }
-          for (const plant of cell.tussock) if ((plant.x - player.x) ** 2 + (plant.z - player.z) ** 2 < (TUSSOCK_RANGE+STREAM_BUFFER)**2) place(plant, tussocks);
+          for (const plant of cell.tussock) {
+            const distance2 = (plant.x - player.x) ** 2 + (plant.z - player.z) ** 2;
+            if (distance2 >= (TUSSOCK_RANGE+STREAM_BUFFER)**2) continue;
+            // Across the band both copies are placed and the shader dissolves the full one into the light one.
+            if (distance2 < (TUSSOCK_LOD[1] + STREAM_BUFFER) ** 2) place(plant, tussocks);
+            if (distance2 > Math.max(0, TUSSOCK_LOD[0] - STREAM_BUFFER) ** 2) place(plant, farTussocks);
+          }
         } else if (distance2 < (GRASS_RANGE+STREAM_BUFFER+STREAM_STEP+2)**2 && !groundCover.has(key)) {
           warmCells.push({cx,cz,key,distance2});
         }
@@ -416,7 +466,7 @@ export function createUndergrowth(
       if (Math.abs(cx - cx0) > 11 || Math.abs(cz - cz0) > 11) cache.delete(key);
     }
     const built = vegetation, total=(list:Batch[])=>list.reduce((n,b)=>n+built.count(b),0);
-    group.userData.counts = { fine: total([...fine,...midFine,...farFine]), closeGrass:total(fine), tussocks: total(tussocks), ferns: total([...ferns, ...farFerns]), detailedFerns: total(ferns) };
+    group.userData.counts = { fine: total([...fine,...midFine,...farFine]), closeGrass:total(fine), tussocks: total([...tussocks, ...farTussocks]), ferns: total([...ferns, ...farFerns]), detailedFerns: total(ferns) };
     lastPosition.copy(player);
     // The ring just finished goes on screen; the one that was showing is the next to rebuild.
     if (target !== shown) { buffers[target].visible = true; buffers[shown].visible = false; shown = target; target = 1 - target; vegetation = batchers[target]; }

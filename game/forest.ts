@@ -17,7 +17,7 @@ type Tree = { x: number; z: number; y: number; height: number; width: number; ya
 type Scatter = { x: number; z: number; y: number; size: number; yaw: number; variant: number };
 const TRUNK_RINGS = [0, .16, .45, .9, 1.5, 2.4, 4, 6, 8.5, 11, 14, 17, 20, 23, 26, 29, 31];
 const TRUNK_SEGMENTS = 16;
-const FOREST_STEP=6, FOREST_BUFFER=FOREST_STEP+.5, TREE_RANGE=98, TREE_COLLISION_RANGE=94, TRUNK_DETAIL_END=43;
+const FOREST_STEP=6, FOREST_BUFFER=FOREST_STEP+.5, TREE_RANGE=98, TREE_COLLISION_RANGE=94, TRUNK_DETAIL_END=43, CROWN_DETAIL_START=30, CROWN_DETAIL_END=40;
 const branchesByKind = Array.from({length:8}, (_,kind) => Array.from({length:36}, (_,branch) => branchSpec(kind,branch)));
 
 // All vegetation is deterministic; only objects concealed by the fog are recycled.
@@ -260,7 +260,7 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
   broadleafMaterial.name='Photographed broadleaf foliage';
   const windTime = { value: 0 };
   const forestEye={value:spawn.clone()};
-  function fadeInstances(material:THREE.Material,from:number,to:number,kind?:'trunk'|'branch'){
+  function fadeInstances(material:THREE.Material,from:number,to:number,kind?:'trunk'|'branch'|'crown'){
     const compile=material.onBeforeCompile,cacheKey=material.customProgramCacheKey();
     // One fade works in the main view, reflections and shadow maps.
     material.alphaHash=true;
@@ -268,7 +268,7 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
     material.onBeforeCompile=(shader,renderer)=>{
       compile.call(material,shader,renderer);
       shader.uniforms.uForestEye=forestEye;
-      shader.vertexShader=`uniform vec3 uForestEye;varying float vForestCoverage;${kind==='trunk'?'attribute float streamDetail;':''}\n${shader.vertexShader}`.replace(/void main\s*\(\s*\)\s*\{/,`void main(){
+      shader.vertexShader=`uniform vec3 uForestEye;varying float vForestCoverage;${kind==='trunk'?'attribute float streamDetail;':kind==='crown'?'attribute float crownLod;':''}\n${shader.vertexShader}`.replace(/void main\s*\(\s*\)\s*\{/,`void main(){
         vForestCoverage=1.;
         #ifdef USE_INSTANCING
           vec2 eyeOffset=instanceMatrix[3].xz-uForestEye.xz;
@@ -276,6 +276,11 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
           float distanceSquared=dot(eyeOffset,eyeOffset);
           vForestCoverage=1.-smoothstep(${from**2}.,${to**2}.,distanceSquared);
           ${kind==='trunk'?`vForestCoverage*=1.-streamDetail*smoothstep(1225.,${TRUNK_DETAIL_END**2}.,distanceSquared);`:''}
+          ${kind==='crown'?`
+          // The full crown thins out across the band as the light one fills in under it: a dissolve from one to the
+          // other over ${CROWN_DETAIL_END-CROWN_DETAIL_START} m of walking, never a switch.
+          float lodBlend=smoothstep(${CROWN_DETAIL_START**2}.,${CROWN_DETAIL_END**2}.,distanceSquared);
+          vForestCoverage*=mix(1.-lodBlend,lodBlend,crownLod);`:''}
           if(vForestCoverage<=0.){gl_Position=vec4(2.,2.,2.,1.);return;}
         #endif
       `);
@@ -323,7 +328,7 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
   varyDirectionalTexture(bark);varyDirectionalTexture(birchBark);varyDirectionalTexture(oakBark);
   varyDirectionalTexture(logBark);
   for(const m of [bark,birchBark,oakBark,rootDepth,rootDistance])fadeInstances(m,83,TREE_RANGE,'trunk');
-  for(const m of [needlesMaterial,broadleafMaterial])fadeInstances(m,83,TREE_RANGE);
+  for(const m of [needlesMaterial,broadleafMaterial])fadeInstances(m,83,TREE_RANGE,'crown');
   const stoneMaterials=[createRockMaterial(false),createRockMaterial(false),createRockMaterial(false)];
   for(let i=1;i<3;i++){
     const m=stoneMaterials[i],prefix=i===1?'granite':'slate';
@@ -396,6 +401,7 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
   const needleBough=canopyGeometry(WORLD_V2?30:16,WORLD_V2?1.35:1),leafBough=broadleafGeometry(WORLD_V2?36:22);
   const crowns=Array.from({length:8},(_,kind)=>{
     const geometry=crownGeometry(kind,kind<4?needleBough:leafBough);
+    geometry.setAttribute('crownLod',new THREE.BufferAttribute(new Float32Array(geometry.attributes.position.count),1));
     const {min,max}=geometry.boundingBox!;
     const horizontalRadius=Math.hypot(Math.max(-min.x,max.x),Math.max(-min.z,max.z));
     const definition=instances(geometry,kind<4?needlesMaterial:broadleafMaterial,512,false,kind<4?'Canopy conifer':'Canopy broadleaf');
@@ -403,6 +409,18 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
     return {definition,horizontalRadius,centerY:(min.y+max.y)*.5,verticalRadius:(max.y-min.y)*.5};
   });
   needleBough.dispose();leafBough.dispose();
+  // Distant crowns. A crown is about 3,500 triangles and every tree out to 98 m drew all of them: trees were half the
+  // frame. Past CROWN_DETAIL_END a crown carries a third as many sprays, each larger, so it covers the same sky with
+  // about a third of the triangles; at that range single shoots are smaller than a pixel anyway.
+  const farNeedleBough=canopyGeometry(10,WORLD_V2?2.25:1.7),farLeafBough=broadleafGeometry(12,1.7);
+  const farCrowns=crowns.map((near,kind)=>{
+    const geometry=crownGeometry(kind,kind<4?farNeedleBough:farLeafBough);
+    geometry.setAttribute('crownLod',new THREE.BufferAttribute(new Float32Array(geometry.attributes.position.count).fill(1),1));
+    const definition=instances(geometry,kind<4?needlesMaterial:broadleafMaterial,512,false,(kind<4?'Canopy conifer':'Canopy broadleaf')+' distant');
+    definition.sectorSize=56;
+    return {...near,definition};
+  });
+  farNeedleBough.dispose();farLeafBough.dispose();
   const crownWood = instances(canopyWoodGeometry(), crownBark, 6000, false, 'Canopy wood', 2, 5);
   const stones = Array.from({length:9},(_,i)=>{
     const g=createRockGeometry(182+i*83),type=Math.floor(i/3);
@@ -523,10 +541,14 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
         treeInstance.mesh.setMatrixAt(treeInstance.index,dummy.matrix);
         groundRoots(tree,treeInstance.index,treeInstance.mesh);
       }
-      const crown=crowns[tree.kind];
-      const crownInstance=vegetation.allocate(crown.definition,tree.x,tree.z,crown.horizontalRadius*tree.width+.5,
-        tree.y+crown.centerY*tree.height,crown.verticalRadius*tree.height+.5);
-      if(crownInstance)crownInstance.mesh.setMatrixAt(crownInstance.index,dummy.matrix);
+      // Inside the band both crowns are placed and the shader dissolves one into the other.
+      const lod=true;
+      for(const crown of [!lod||distance2<(CROWN_DETAIL_END+FOREST_BUFFER)**2?crowns[tree.kind]:undefined,lod&&distance2>(CROWN_DETAIL_START-FOREST_BUFFER)**2?farCrowns[tree.kind]:undefined]){
+        if(!crown)continue;
+        const crownInstance=vegetation.allocate(crown.definition,tree.x,tree.z,crown.horizontalRadius*tree.width+.5,
+          tree.y+crown.centerY*tree.height,crown.verticalRadius*tree.height+.5);
+        if(crownInstance)crownInstance.mesh.setMatrixAt(crownInstance.index,dummy.matrix);
+      }
       if(distance2<(25+FOREST_BUFFER)**2){
         const transforms=crownFor(tree);
         for(const branch of crownBranches)placeMatrix(crownWood,matrix.fromArray(transforms,branch*16),5);

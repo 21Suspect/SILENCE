@@ -1,3 +1,4 @@
+import { guardUnlitLights } from './light-guards';
 import * as THREE from 'three';
 import { WORLD_V2, WORLD_SEED } from './world-flags';
 import { ROAD } from './road-profile';
@@ -53,6 +54,7 @@ export function createGame(container:HTMLElement) {
   camera.rotation.order='YXZ';camera.layers.enable(2);
   // The field of view the settings ask for, eased towards; the sprint widening is added on top of it each frame.
   let baseFov=camera.fov;
+  if(perfOn('lightGuards'))guardUnlitLights();
   const renderer=new THREE.WebGLRenderer({antialias:false,powerPreference:'high-performance',alpha:false});
   const renderBudget=createRenderBudget(window.devicePixelRatio);
   let pixelRatio=renderBudget.resize(window.innerWidth,window.innerHeight);
@@ -303,8 +305,21 @@ export function createGame(container:HTMLElement) {
   });
   resize();
   let frame=0;
-  const filtered=new WeakMap<THREE.Texture,number>(),anisotropy=renderer.capabilities.getMaxAnisotropy();
-  function filterTextures(){scene.traverse(o=>{if(!(o instanceof THREE.Mesh))return;for(const material of Array.isArray(o.material)?o.material:[o.material])for(const value of Object.values(material))if(value instanceof THREE.Texture&&!value.isRenderTargetTexture&&value.image?.width>0&&value.image?.complete!==false&&filtered.get(value)!==Math.min(anisotropy,settings.anisotropy)){const af=Math.min(anisotropy,settings.anisotropy);filtered.set(value,af);value.anisotropy=af;value.needsUpdate=true;}});}
+  let filtered=new WeakMap<THREE.Texture,number>(),filteredAt=-1;const anisotropy=renderer.capabilities.getMaxAnisotropy();
+  // Anisotropic filtering is paid on every texture read. The ground and the road, seen at a grazing angle to the horizon,
+  // need all of it and set their own (game/terrain.ts). Everything else was given the same 16x and it was the largest
+  // per-pixel cost found (1.3 ms of a 12 ms frame on the road): leaf, needle and grass cards face the camera and gain
+  // nothing from it, so they get 2x; bark, props and the creature get 4x.
+  const filterFor=(material:THREE.Material)=>{
+    const wanted=Math.min(anisotropy,settings.anisotropy);
+    if(!perfOn('filterPolicy'))return wanted;
+    const card=material.alphaTest>0||material.alphaHash||material.alphaToCoverage||material.transparent;
+    return Math.min(wanted,card?2:4);
+  };
+  function filterTextures(){
+    // A texture shared by two kinds of material keeps the higher of the two; a change of the setting starts over.
+    if(filteredAt!==settings.anisotropy){filtered=new WeakMap();filteredAt=settings.anisotropy;}
+    scene.traverse(o=>{if(!(o instanceof THREE.Mesh))return;for(const material of Array.isArray(o.material)?o.material:[o.material]){const af=filterFor(material);for(const value of Object.values(material))if(value instanceof THREE.Texture&&!value.isRenderTargetTexture&&value.image?.width>0&&value.image?.complete!==false&&(filtered.get(value)??-1)<af){filtered.set(value,af);value.anisotropy=af;value.needsUpdate=true;}}});}
   // Props stream in with textures of up to 4096 px and their own shader programs. pois.ts hands each model to this queue as it arrives; one
   // texture or one light state's programs is built per step, with a pause that grows with the cost of the last step (game/gpu-warmup.ts).
   const lampStates=()=>world2?.debug.streetLights.count?4:2,slicer=createTextureSlicer(renderer);
@@ -312,8 +327,9 @@ export function createGame(container:HTMLElement) {
     states:lampStates(),
     upload:(t,urgent)=>{
       if(!(t.image?.width>0)||t.image?.complete===false)return 'wait';
-      const af=Math.min(anisotropy,settings.anisotropy);
-      if(filtered.get(t)!==af){filtered.set(t,af);t.anisotropy=af;t.needsUpdate=true;}
+      // A streamed prop's texture: the filtering pass above settles its final quality once the model is in the scene.
+      const af=Math.min(anisotropy,settings.anisotropy,perfOn('filterPolicy')?4:16);
+      if(!filtered.has(t)){filtered.set(t,af);t.anisotropy=af;t.needsUpdate=true;}
       if(!perfOn('slicedUpload')){renderer.initTexture(t);return 'done';}
       return slicer.upload(t,urgent);
     },
@@ -431,6 +447,8 @@ export function createGame(container:HTMLElement) {
       ablate(o:{sunShadow?:boolean;fog?:boolean;reflection?:boolean}){if(o.sunShadow!==undefined){sun.castShadow=o.sunShadow;shadowDirty=true;}scene.userData.profileSkipFog=o.fog===false;scene.userData.profileSkipReflection=o.reflection===false;},
       /** Time the collision query the sun-ray canopy map is built from: `runs` calls of nearby(player, radius). Dev measurement only. */
       nearbyCost(radius=54,runs=40){const times:number[]=[];let n=0;for(let i=0;i<runs;i++){const t=performance.now();n=collisions.nearby(player.x+i*.37,player.z,radius).length;times.push(performance.now()-t);}times.sort((a,b)=>a-b);return{count:n,medianMs:times[Math.floor(runs/2)],maxMs:times[runs-1]};},
+      /** The live renderer, scene and sun, for one-off measurements from the console. Dev only. */
+      handles(){return{renderer,scene,sun,camera,THREE};},
       /** Switch the torch on or off (it eases up or down over half a second of game time). Dev measurement only. */
       torch(on:boolean){const s=flashlight.inspect();if(s.owned&&s.on!==on)flashlight.toggle();},
       /** GPU texture memory estimate by source file, with duplicate uploads called out. */
@@ -505,6 +523,11 @@ export function createGame(container:HTMLElement) {
   function animate(now:number){
     if(disposed)return;
     raf=requestAnimationFrame(animate);
+    // The frame rate limit. A 120 or 144 Hz screen asks for a frame every 7 to 8 ms; drawing every one keeps the GPU
+    // flat out (heat, fans, a laptop slowing itself down) and the time between frames swings with how busy the scene is.
+    // Skipping a refresh when the last frame is younger than the limit allows gives an even 60 (or 120) instead. The
+    // margin lets a frame that arrives a little early still be drawn. Measurements (perf.drive) are never held back.
+    if(settings.frameCap>0&&!benchActive&&now-last<1000/settings.frameCap*.85)return;
     const frameDuration=now-last,startCPU=performance.now();
     if(probe)probe.marks.start=startCPU;
     const rawDelta=Math.min(frameDuration/1000,.1);last=now;
@@ -659,7 +682,14 @@ export function createGame(container:HTMLElement) {
     sunDirty||=castersChanged||shadowMoved||animatedCaster;
     // At normal cycle speed a 30 Hz depth refresh moves the shadows less than
     // a texel for most of the day. Keep fast admin scrubbing and low sun smooth.
-    const drawSun=darkness<.975&&sunDirty&&(castersChanged||!sun.shadow.map||cycleSpeed>1||skyState.sunElevation<.18||settings.shadowRate===0||now-lastSunDraw>=1000/settings.shadowRate);
+    // Redrawing the sun's shadow map sends about a million triangles through again. It was redrawn about 20 times a
+    // second all day just to follow the sun, and on every single frame at low sun and whenever the creature was in
+    // view, which is where dusk went from a 10 ms frame to 17. The sun turns a quarter of a degree a second: followed 8
+    // times a second (15 at low sun, where shadows are long) the tip of the longest shadow steps by a few centimetres,
+    // under the softness of its own edge. A moving caster (the creature) gets 30 a second. Anything that changes what
+    // casts (a door, a streamed-in tree, a dropped item) still redraws at once.
+    const sunGap=!perfOn('sunCadence')?0:animatedCaster?1000/30:skyState.sunElevation<.18?1000/15:1000/8;
+    const drawSun=darkness<.975&&sunDirty&&(castersChanged||!sun.shadow.map||cycleSpeed>1||(now-lastSunDraw>=sunGap&&(settings.shadowRate===0||now-lastSunDraw>=1000/settings.shadowRate)));
     sun.shadow.needsUpdate=drawSun;
     if(drawSun){lastSunDraw=now;sunDirty=false;}
     flashlight.updateShadow(castersChanged||animatedCaster);

@@ -49,12 +49,12 @@ export function crownGeometry(kind:number,bough:THREE.BufferGeometry) {
 /** Small, curved leaf sprays distributed over a complete bough. The shader
  * cancels only the spray's branch scaling, keeping leaves a plausible physical
  * size while preserving the full crown volume and branch locations. */
-export function broadleafGeometry(shootCount:number) {
+export function broadleafGeometry(shootCount:number,sprayScale=1) {
   const parts:THREE.BufferGeometry[]=[];
   for(let i=0;i<shootCount;i++){
     const twig=i%10,rank=Math.floor(i/10),ranks=Math.ceil((shootCount-twig)/10),a=i*2.399963;
     const t=.34+Math.min(twig,8)/8*.61,side=twig%2?1:-1;
-    const size=.83+.19*Math.sin(i*4.73+2),width=.29*size,height=.58*size;
+    const size=(.83+.19*Math.sin(i*4.73+2))*sprayScale,width=.29*size,height=.58*size;
     const g=new THREE.PlaneGeometry(width,height,1,2),p=g.attributes.position,uv=g.attributes.uv;
     const colors=new Float32Array(p.count*3);
     for(let n=0;n<p.count;n++){

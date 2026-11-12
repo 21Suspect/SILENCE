@@ -17,3 +17,10 @@ test('the objective hint is on by default, including for saves from before it ex
 test('turning the objective hint off survives a reload, and only a real boolean counts',()=>{const s=defaults();s.objectiveHints=false;assert.equal(readSettings(JSON.stringify(s)).objectiveHints,false);assert.deepEqual(readSettings(JSON.stringify(s)),s);s.objectiveHints=true;assert.deepEqual(readSettings(JSON.stringify(s)),s);for(const bad of ['false',0,1,null,'no',[],{}])assert.equal(readSettings(JSON.stringify({objectiveHints:bad})).objectiveHints,true,JSON.stringify(bad));assert.equal(readSettings('{"objectiveHints":false,"fov":80}').fov,80);});
 
 test('the objective key is not one of the rebindable actions, and rebinding does not disturb the hint setting',()=>{assert.ok(!Object.values(defaults().bindings).includes('KeyO'));const s=defaults();s.objectiveHints=false;bindKey(s,'forward','ArrowUp');assert.equal(s.objectiveHints,false);assert.equal(readSettings(JSON.stringify(s)).bindings.forward,'ArrowUp');});
+
+test('the frame rate limit defaults to 60, keeps 60, 120 or off, and ignores anything else', async () => {
+  const { readSettings, defaults } = await import('../game/settings.ts');
+  assert.equal(defaults().frameCap, 60);
+  for (const cap of [0, 60, 120]) assert.equal(readSettings(JSON.stringify({ frameCap: cap })).frameCap, cap);
+  for (const bad of [30, 144, -1, 'fast', null]) assert.equal(readSettings(JSON.stringify({ frameCap: bad })).frameCap, 60);
+});

@@ -282,7 +282,7 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
     leg.from.copy(leg.foot); leg.fromNormal.copy(leg.normal);
     leg.to.copy(contact.point); leg.toNormal.copy(contact.normal);
     let span = leg.from.distanceTo(leg.to);
-    let duration = cmd.reachSpeed ? clamp(span / cmd.reachSpeed, swing, .85) : currentPace < 1.8 ? clamp(span / 7, swing, .9) : swing;
+    const duration = cmd.reachSpeed ? clamp(span / cmd.reachSpeed, swing, .85) : currentPace < 1.8 ? clamp(span / 7, swing, .9) : swing;
     if (cmd.reachSpeed && duration > swing) {
       // An unhurried reach must aim where the hip will be when it arrives, not when it set off.
       predicted.copy(cmd.anchor).addScaledVector(velocity, duration + stance * .5);

@@ -33,7 +33,7 @@ export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,wo
   const COAST_BRAKE=9,COAST_BRAKE_MAX=45,COAST_LOOK=7,APPROACH_BRAKE=8,ROUTE_END_REPLAN=4;
   /** Metres per second squared: the most it gathers speed, and the most it sheds speed for a corner (a stun or a stop passes its own brake). */
   const MAX_GATHER=8.5,MAX_EASE=10;
-  const MAX_ROUTE_ITERATIONS=900,PLAN_STEPS=1400;
+  const MAX_ROUTE_ITERATIONS=900,PLAN_STEPS=1400,PULL_REACH=28;
   let climb:ReturnType<typeof createSurfaceClimb>,climbCooldown=0;
   let solids:SolidCollider[]=[],blockers:SolidCollider[]=[],supports:SolidCollider[]=[],layers:SolidCollider[]=[],cacheX=Infinity,cacheZ=Infinity,cacheAge=1;
   // Each list's bounds, so the many questions asked of them (a route search asks thousands) only look at what is near the point.
@@ -308,8 +308,16 @@ export function createCreatureNavigation(heightAt:(x:number,z:number)=>number,wo
     const cells:{x:number;z:number}[]=[];for(let at=best;at!==start&&at>=0;at=previous[at])cells.push({x:px(at),z:pz(at)});cells.reverse();
     // The grid ends on a sample beside the goal: finish on the goal itself when the last stretch is open.
     if(bestH<spacing*1.5&&cells.length&&segmentClear(cells[cells.length-1].x,cells[cells.length-1].z,to.x,to.z,clearance)){cells.push(to);bestH=0;}
-    // Line-of-sight string pulling makes the path a smooth corridor, not a grid walk.
-    const nodes:{x:number;z:number}[]=[];let anchor={x,z};for(let i=0;i<cells.length;){let far=i;for(let j=i+1;j<cells.length;j++)if(segmentClear(anchor.x,anchor.z,cells[j].x,cells[j].z,clearance))far=j;nodes.push(cells[far]);anchor=cells[far];i=far+1;}
+    // Line-of-sight string pulling makes the path a smooth corridor, not a grid walk: from each corner, the furthest cell
+    // in view is the next one. Looking from the far end back and stopping at the first in view finds the same cell, and
+    // looking no more than PULL_REACH cells ahead bounds it. Testing every cell against every other (as before) swept
+    // tens of thousands of points through the obstacles on a long route, and was the whole of a 20 to 37 ms plan.
+    const nodes:{x:number;z:number}[]=[];let anchor={x,z};
+    for(let i=0;i<cells.length;){
+      let far=i;
+      for(let j=Math.min(cells.length-1,i+PULL_REACH);j>i;j--)if(segmentClear(anchor.x,anchor.z,cells[j].x,cells[j].z,clearance)){far=j;break;}
+      nodes.push(cells[far]);anchor=cells[far];i=far+1;
+    }
     searchSteps+=iterations;
     const viaGrid:Trial={nodes,left:nodes.length?left(nodes[nodes.length-1]):Math.hypot(x-to.x,z-to.z),clearance};
     return viaGaps&&viaGaps.left<viaGrid.left-.4?viaGaps:viaGrid;

@@ -111,7 +111,8 @@ export function createEncounters(
   let frozen=0;
   const FROZEN_AFTER=2,FROZEN_IN_VIEW=6;
   let placed=false,materializeIn=0,lookIn=0,lineOfSight=false,beamOnIt=false,reach=Infinity,strikePending=false,grabbing=false,strikePose=0,blackout=false;
-  let lastReveal=-Infinity,lastCall=-Infinity,nextBranch=150,nextClicks=40,nextKnock=240,lastPresence=-Infinity,nearSince=-1,stillFor=0,lastSpot={x:0,z:0},stuck=0,detourUntil=0,detourSide=1;
+  const lastSpot={x:0,z:0};
+  let lastReveal=-Infinity,lastCall=-Infinity,nextBranch=150,nextClicks=40,nextKnock=240,lastPresence=-Infinity,nearSince=-1,stillFor=0,stuck=0,detourUntil=0,detourSide=1;
   // What the player has had of it: the last time it was seen or heard (for the no-dead-air rule) and the last sighting.
   let lastEvidence=0,lastSighted=-Infinity,deadAirAt=0,lastRoar=-Infinity,lastHuntEnd=-Infinity,lastLoud=-Infinity,lastBeam=-Infinity,hissArmed=true;
   /** A creature sound was played: it counts as evidence, and an ambient one opens the PRESENCE_GAP; a loud one (reveal, hiss, roar, grab) quietens the ambient ones for a while. */

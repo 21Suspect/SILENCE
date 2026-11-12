@@ -4,6 +4,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createRiver } from './river';
 import { textureVariationGLSL } from './texture-variation';
+import { perfOn } from './perf-flags';
 import { createRockGeometry, createRockMaterial, createWeatheredWoodMaterial } from './surfaces';
 import { roadSurface } from './road-surface';
 import { roadMarkerSpot } from './road-geometry';
@@ -66,7 +67,10 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
   const roadMap=texture('road-diff',true),roadNormal=texture('/textures/road-normal-rough.png');
   const stoneMap=texture('/plantassets/forest-variety/granite-diff.jpg',true),stoneNormal=texture('/plantassets/forest-variety/granite-normal.jpg');
   const coastalMap=texture('/textures/coastal-diff.webp',true),coastalNormal=texture('/textures/coastal-normal-rough.png');
+  // Read when the shader is built: a dev switch for measuring the ground's texture reads with and without the savings.
+  let GROUND_TAPS=perfOn('groundTaps');
   material.onBeforeCompile = (shader) => {
+    GROUND_TAPS=perfOn('groundTaps');
     // The rebuilt world's road is worked out in game/road-surface.ts; the original keeps its narrow dirt track.
     const road=WORLD_V2?roadSurface():undefined;
     shader.uniforms.uNearCenter={value:nearCenter};shader.uniforms.uNearCoverage=nearCoverage;shader.uniforms.uDistantTint={value:distantTint};
@@ -111,6 +115,9 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
       TexturePatch leafPatch=groundTexturePatch(groundUv/1.3+vec2(57.,9.));
       vec3 slopeNormal=abs(normalize(cross(dFdx(vGroundPosition),dFdy(vGroundPosition))));
       vec3 stoneWeights=pow(slopeNormal,vec3(4.));stoneWeights/=max(dot(stoneWeights,vec3(1.)),.0001);
+      ${GROUND_TAPS?`// A rock face is drawn from three projections. One that carries under 3% of the blend is let go (the
+      // others are scaled up to make up for it, and the hand-over is gradual), so flat ground pays for one, not three.
+      stoneWeights=max(stoneWeights-.03,0.);stoneWeights/=max(dot(stoneWeights,vec3(1.)),.0001);`:''}
       TexturePatch stoneX=groundTexturePatch(vGroundPosition.zy/3.+vec2(21.,48.));
       TexturePatch stoneY=groundTexturePatch(vGroundPosition.xz/3.+vec2(21.,48.));
       TexturePatch stoneZ=groundTexturePatch(vGroundPosition.xy/3.+vec2(21.,48.));
@@ -126,7 +133,11 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
         leafColor=coastPatch(uCoastalMap,leafPatch,2.).rgb;
         if(leafBlend>.002)groundColor=mix(groundColor,leafColor*.74,leafBlend);
         if(stoneBlend>.002){
-          vec3 stoneTone=(samplePatch(uStoneMap,stoneX).rgb*stoneWeights.x+samplePatch(uStoneMap,stoneY).rgb*stoneWeights.y+samplePatch(uStoneMap,stoneZ).rgb*stoneWeights.z)*.85;
+          ${GROUND_TAPS?`vec3 stoneTone=vec3(0.);
+          if(stoneWeights.x>0.)stoneTone+=samplePatch(uStoneMap,stoneX).rgb*stoneWeights.x;
+          if(stoneWeights.y>0.)stoneTone+=samplePatch(uStoneMap,stoneY).rgb*stoneWeights.y;
+          if(stoneWeights.z>0.)stoneTone+=samplePatch(uStoneMap,stoneZ).rgb*stoneWeights.z;
+          stoneTone*=.85;`:'vec3 stoneTone=(samplePatch(uStoneMap,stoneX).rgb*stoneWeights.x+samplePatch(uStoneMap,stoneY).rgb*stoneWeights.y+samplePatch(uStoneMap,stoneZ).rgb*stoneWeights.z)*.85;'}
           ${WORLD_V2?'stoneTone*=mix(vec3(.34,.35,.31),vec3(.56,.57,.47),surfaceNoise(p*.3+11.));stoneTone=mix(stoneTone,vec3(.05,.07,.025)+stoneTone*.35,smoothstep(.56,.8,surfaceNoise(p*.55+3.))*slopeNormal.y);':''}
           groundColor=mix(groundColor,stoneTone,stoneBlend);
         }
@@ -198,7 +209,10 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
       diffuseColor.rgb=groundColor;
       `).replace('#include <roughnessmap_fragment>',`
       float roughnessFactor=roughness;
-      if(bank<1.)roughnessFactor*=samplePatch(normalMap,soilPatch).a;
+      // The soil's normal and roughness come from the same map: read it once here and use it again for the normal below.
+      vec4 soilNormalRough=vec4(0.,0.,1.,1.);
+      if(bank<1.)soilNormalRough=${GROUND_TAPS?'samplePatchNormalRough(normalMap,soilPatch)':'vec4(samplePatchNormal(normalMap,soilPatch),samplePatch(normalMap,soilPatch).a)'};
+      roughnessFactor*=soilNormalRough.w;
       roughnessFactor=mix(roughnessFactor,.89,max(leafBlend,dirtCoverage));roughnessFactor=mix(roughnessFactor,.92,stoneBlend);
       ${road?road.roughness:'if(road>.001)roughnessFactor=mix(roughnessFactor,samplePatch(uRoadNormal,roadPatch).a*.82+.08,road);'}
       if(bank>.001)roughnessFactor=mix(roughnessFactor,samplePatch(uBedNormal,gravelPatch).a*.72+.12,bank);
@@ -207,7 +221,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
       if(snowCover>.001)roughnessFactor=mix(roughnessFactor,.94,snowCover);
       `).replace('#include <normal_fragment_maps>',`
       vec3 detailNormal=vec3(0.,0.,1.);
-      if(bank<1.)detailNormal=samplePatchNormal(normalMap,soilPatch);
+      if(bank<1.)detailNormal=soilNormalRough.xyz;
       detailNormal.xy*=normalScale;
       float litterNormalBlend=max(leafBlend,dirtCoverage);
       if(litterNormalBlend>.002){vec3 n=coastNormal(leafPatch,2.);n.xy*=.72;detailNormal=mix(detailNormal,n,litterNormalBlend);}
@@ -220,7 +234,10 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
       vec3 groundBitangent=normalize(cross(worldGroundNormal,groundTangent));
       vec3 surfaceNormal=normalize(groundTangent*detailNormal.x+groundBitangent*detailNormal.y+worldGroundNormal*detailNormal.z);
       if(stoneBlend>.002){
-        vec3 nx=samplePatchNormal(uStoneNormal,stoneX),ny=samplePatchNormal(uStoneNormal,stoneY),nz=samplePatchNormal(uStoneNormal,stoneZ);
+        vec3 nx=vec3(0.,0.,1.),ny=vec3(0.,0.,1.),nz=vec3(0.,0.,1.);
+        if(stoneWeights.x>0.)nx=samplePatchNormal(uStoneNormal,stoneX);
+        if(stoneWeights.y>0.)ny=samplePatchNormal(uStoneNormal,stoneY);
+        if(stoneWeights.z>0.)nz=samplePatchNormal(uStoneNormal,stoneZ);
         nx.xy*=.8;ny.xy*=.8;nz.xy*=.8;
         vec3 nX=vec3(worldGroundNormal.x*abs(nx.z),worldGroundNormal.y+nx.y,worldGroundNormal.z+nx.x);
         vec3 nY=vec3(worldGroundNormal.x+ny.x,worldGroundNormal.y*abs(ny.z),worldGroundNormal.z+ny.y);
@@ -231,7 +248,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
       normal=normalize(mat3(viewMatrix)*mix(surfaceNormal,worldGroundNormal,distantBlend));
       `);
   };
-  material.customProgramCacheKey=()=> `silence-ground-coastal-snow-v12${WORLD_V2?`-w2-${WORLD_SEED}`:''}`;
+  material.customProgramCacheKey=()=> `silence-ground-coastal-snow-v12${WORLD_V2?`-w2-${WORLD_SEED}`:''}-${perfOn('groundTaps')?'taps':'all'}`;
   const terrainChunks=new Map<string,{tile:TerrainTile;mesh:THREE.Mesh}>();
   // The low-detail distant surface preserves the mountain silhouette and covers
   // teleports while near chunks stream. It is below the exact walkable surface.

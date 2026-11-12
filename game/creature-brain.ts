@@ -287,6 +287,10 @@ export type Lead = { id: number; kind: 'sight' | 'sound'; source: string; x: num
 // ------------------------------------------------------------------------------------------------------------
 // Behaviours.
 
+/** A behaviour's own working notes (waypoints, timers, sweep angles): each behaviour keeps different things in it. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Scratch = Record<string, any>;
+
 export type BrainContext = {
   now: number; dt: number; random: () => number; tuning: CreatureTuning;
   input: BrainInput; self: Vec2 & { yaw: number };
@@ -316,8 +320,8 @@ export type BrainContext = {
   distanceToPlayer: number;
   places: readonly Vec2[];
   /** Per-behaviour scratch state, cleared when the behaviour is entered. */
-  state: Record<string, any>;
-  stateOf(id: string): Record<string, any>;
+  state: Scratch;
+  stateOf(id: string): Scratch;
   setFlank(side: number): void;
   clearDismissed(): void;
   emit(event: BrainEvent): void;
@@ -565,7 +569,7 @@ export function createCreatureBrain(options: CreatureBrainOptions) {
   const random = options.random, places = options.places ?? [];
   const heard: NoiseEvent[] = [];
 
-  let now = 0, current = behaviours[0].id, enteredAt = 0, decideIn = 0, states: Record<string, Record<string, any>> = {};
+  let now = 0, current = behaviours[0].id, enteredAt = 0, decideIn = 0, states: Record<string, Scratch> = {};
   let exposure = 0, sees = false, sightTime = 0, watched = 0, lastSeen: Sighting | undefined, lead: Lead | undefined, leadIds = 0;
   // The stun: its phase and how long it has been in it, how long the held phase lasts this time, when a beam that has
   // left its face lets it go, how many uses have worn it down, and the pace it was slowing from.
