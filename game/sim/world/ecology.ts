@@ -79,8 +79,8 @@ type Anchors = {
   stumps: { x: number; z: number; r: number }[];
 };
 const N = 9;   // raster points per side of a cell
-// Raster channels: one niche density per flora, then fine grass, exclusion, broadleaf share, dryness.
-const CH = FLORA.length + 4, GRASS = FLORA.length, EXCL = GRASS + 1, LEAF = GRASS + 2, DRY = GRASS + 3;
+// Raster channels: one niche density per flora, then fine grass, exclusion, broadleaf share, dryness, leafy carpet, light.
+const CH = FLORA.length + 6, GRASS = FLORA.length, EXCL = GRASS + 1, LEAF = GRASS + 2, DRY = GRASS + 3, CARPET = GRASS + 4, LIGHT = GRASS + 5;
 
 export function createEcology(world: EcologyWorld, cellSize = 6.4) {
   const LAYOUT = 32;
@@ -141,6 +141,9 @@ export function createEcology(world: EcologyWorld, cellSize = 6.4) {
     for (let i = 0; i < FLORA.length; i++) out[at + i] = Math.min(1, niche[FLORA[i]] * wild * keep(FLORA[i]));
     out[at + GRASS] = smooth(light, .3, .75) * (.35 + .65 * (1 - moisture)) * (.25 + 1.4 * c.grass) * (1 + edge) * wild;
     out[at + EXCL] = e;
+    // The leafy carpet (ivy and low rosettes, undergrowth.ts): a shade plant of damp ground, the floor's lowest green layer.
+    out[at + CARPET] = smooth(moisture, .15, .55) * (1 - .6 * smooth(light, .75, 1)) * (.4 + 1.4 * c.herb + .6 * c.moss + .3 * c.fern) * wild * keep('celandine');
+    out[at + LIGHT] = light;
     out[at + LEAF] = b.grove + b.heath * .55;
     out[at + DRY] = b.heath * .83 + b.alpine * .45;
   }
@@ -263,6 +266,10 @@ export function createEcology(world: EcologyWorld, cellSize = 6.4) {
     grow,
     /** How strongly the short-grass layer (undergrowth's blades) belongs at a point, 0 to 1, bare gaps included. */
     grass: (x: number, z: number) => field(x, z, GRASS) * gap(x, z),
+    /** How strongly the leafy carpet belongs at a point, 0 to 1. */
+    carpet: (x: number, z: number) => Math.min(1, field(x, z, CARPET)),
+    /** Light reaching the floor through the crowns, 0 to 1 (gaps and path margins brighter). */
+    light: (x: number, z: number) => field(x, z, LIGHT),
     /** The niche of one plant at a point, for maps and tests. */
     niche: (x: number, z: number, flora: Flora) => field(x, z, FLORA.indexOf(flora)),
     exclusionAt: (x: number, z: number) => field(x, z, EXCL),

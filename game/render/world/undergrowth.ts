@@ -2,7 +2,7 @@ import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { SimplifyModifier } from 'three/addons/modifiers/SimplifyModifier.js';
-import { WORLD_RADIUS, biomeAt } from '../../sim/world/world';
+import { WORLD_RADIUS, biomeAt, noise } from '../../sim/world/world';
 import { createEcology, type Flora, type GrownPlant } from '../../sim/world/ecology';
 import type { LayoutCell } from '../../sim/world/placement';
 import { createVegetationBatcher, type VegetationBatchDefinition } from './vegetation-batches';
@@ -15,7 +15,7 @@ type Plant = {
   x: number; y: number; z: number; sx: number; sz: number;
   sine: number; cosine: number; size: number; stretch: number; tint: number; kind: number; dry: number; soilR:number; soilG:number; soilB:number;
 };
-type GroundCover = { fine: Plant[]; tussock: Plant[] };
+type GroundCover = { fine: Plant[]; tussock: Plant[]; ivy: Plant[]; rosette: Plant[] };
 type Batch = VegetationBatchDefinition;
 
 function hash(x: number, z: number, salt = 0) {
@@ -104,6 +104,48 @@ function grassPatch(variant: number, blades=32, segments=3, widthScale=1) {
   return geometry;
 }
 
+/**
+ * A patch of the leafy carpet: single leaves from an ambientCG leaf atlas (CC0), each a card bent once along its length.
+ * `regions` are the leaves' rectangles in the 2048 px atlas (x, y, width, height, measured from the opacity map). Ivy leaves
+ * lie scattered and nearly flat over a disc; rosette leaves arch out from one centre. 4 triangles a leaf, so a patch of
+ * 14 leaves is 56: cheap enough to carpet the floor near the player, where the ground texture alone reads flat.
+ */
+const IVY_LEAVES = [[92, 1420, 790, 603], [103, 33, 676, 636], [130, 756, 700, 633], [1211, 1415, 630, 586], [1283, 809, 580, 496], [1271, 109, 517, 539]];
+const ROSETTE_LEAVES = [[1191, 79, 326, 879], [1692, 74, 245, 869], [85, 104, 218, 803], [456, 134, 211, 768], [853, 133, 198, 798]];
+function leafPatch(variant: number, rosette: boolean, leaves: number, grow = 1) {
+  const regions = rosette ? ROSETTE_LEAVES : IVY_LEAVES, vertices: number[] = [], uvs: number[] = [], indices: number[] = [];
+  for (let leaf = 0; leaf < leaves; leaf++) {
+    const random = (salt: number) => hash(leaf + variant * 97, rosette ? 7 : 3, salt);
+    const [rx, ry, rw, rh] = regions[(leaf + variant) % regions.length];
+    const u0 = rx / 2048, u1 = (rx + rw) / 2048, vBase = 1 - (ry + rh) / 2048, vTip = 1 - ry / 2048;
+    // Ivy: 6 to 10 cm leaves over a 17 cm disc, close to the ground; rosette: 11 to 19 cm leaves from the middle.
+    const length = (rosette ? .11 + random(1) * .08 : .06 + random(1) * .04) * grow, width = length * rw / rh;
+    const yaw = rosette ? leaf * 2.399963 + variant + random(2) * .4 : random(2) * Math.PI * 2;
+    const reach = rosette ? random(3) * .015 : Math.sqrt(random(3)) * .19;
+    const bx = Math.cos(yaw + (rosette ? 0 : random(4) * 6.283)) * reach, bz = Math.sin(yaw + (rosette ? 0 : random(4) * 6.283)) * reach;
+    const by = rosette ? .004 : .004 + random(5) * .02;
+    const pitch = rosette ? .5 + random(6) * .5 : .12 + random(6) * .4, droop = rosette ? .5 + random(7) * .4 : .15 + random(7) * .2;
+    const dx = Math.cos(yaw), dz = Math.sin(yaw), sx = -dz, sz = dx;
+    const start = vertices.length / 3;
+    for (let row = 0; row <= 2; row++) {
+      const t = row / 2, angle = pitch - droop * t * t;
+      // Along the leaf: out by cos and up by sin of its angle, the angle falling toward the tip as it arches over.
+      const along = length * t, lift = Math.sin(pitch) * along - droop * length * t * t * t * .5;
+      const out = Math.cos(angle) * along;
+      for (const side of [-1, 1]) {
+        vertices.push(bx + dx * out + sx * width * .5 * side, by + Math.max(-.002, lift), bz + dz * out + sz * width * .5 * side);
+        uvs.push(side < 0 ? u0 : u1, vBase + (vTip - vBase) * t);
+      }
+      if (row < 2) { const a = start + row * 2; indices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices); geometry.computeVertexNormals();
+  return geometry;
+}
+
 /** Photographed botanical textures, original UVs, and a terrain-rooted streaming understory. */
 export function createUndergrowth(
   scene: THREE.Scene,
@@ -119,6 +161,8 @@ export function createUndergrowth(
   const geometries: THREE.BufferGeometry[] = [];
   const materials: THREE.MeshStandardMaterial[] = [];
   const fine: Batch[] = [], midFine: Batch[] = [], farFine: Batch[] = [], tussocks: Batch[] = [], farTussocks: Batch[] = [], ferns: Batch[] = [], farFerns: Batch[] = [];
+  // The leafy carpet, three detail levels each like the fine grass: [near, mid, far].
+  const ivy: Batch[][] = [[], [], []], rosettes: Batch[][] = [[], [], []];
   const groundCover = new Map<string, GroundCover>();
   // Two copies of the ring of plants. One is on screen while the other is rebuilt a few milliseconds per frame (game/core/time-slice.ts), and
   // they swap when it is whole; rebuilt in one go, the ring cost 8 to 60 ms every 4 m of walking.
@@ -131,7 +175,7 @@ export function createUndergrowth(
   const timeUniform = { value: 0 };
   const eyeUniform = { value: new THREE.Vector3(0, 2, 12) };
   const CELL = 6.4;
-  const GRASS_RANGE = 33, TUSSOCK_RANGE=20, FERN_RANGE = 48;
+  const GRASS_RANGE = 33, TUSSOCK_RANGE=20, FERN_RANGE = 48, CARPET_RANGE = 26;
   const STREAM_STEP=3.5, STREAM_BUFFER=4.5, FERN_LOD_START=12, FERN_LOD_END=16, TUSSOCK_LOD=[6,9] as const;
   const warmCells: {cx:number;cz:number;key:string;distance2:number}[] = [];
   const lastPosition = new THREE.Vector3(Infinity, 0, Infinity);
@@ -145,7 +189,9 @@ export function createUndergrowth(
     return texture;
   };
   /** `fernLOD` makes this one half of a pair that dissolve into each other across `band` metres from the eye. */
-  function prepareMaterial(source: THREE.MeshStandardMaterial, alpha: THREE.Texture, distance: number, breeze: number, fernLOD?:'near'|'far', band: readonly [number, number] = [FERN_LOD_START, FERN_LOD_END]) {
+  /** `rootShade`: darken the lowest few centimetres toward the soil (grass blade bases). Not for leaves lying on the ground,
+   * which are all within those centimetres. */
+  function prepareMaterial(source: THREE.MeshStandardMaterial, alpha: THREE.Texture, distance: number, breeze: number, fernLOD?:'near'|'far', band: readonly [number, number] = [FERN_LOD_START, FERN_LOD_END], rootShade = true) {
     const material = source.clone();
     const reflected=distance!==GRASS_RANGE, ditherRange={value:false};
     // Albedo photographed in daylight must not be emitted again as light.
@@ -212,7 +258,7 @@ export function createUndergrowth(
           transformed+=transpose(plantBasis)*pushWorld/max(inverseScale,vec3(.001));
           transformed.y-=h*.32*brush;
 
-          vPlantRootShade = smoothstep(.008,.13,h*plantScaleY);
+          vPlantRootShade = ${rootShade?'smoothstep(.008,.13,h*plantScaleY)':'1.'};
           vPlantSoil = plantSoil;
         #else
           vPlantFade=1.; vPlantRootShade=1.; vPlantSoil=vec3(.08,.07,.025);
@@ -251,7 +297,7 @@ export function createUndergrowth(
           #define RE_Direct RE_Direct_Plant
         `);
     };
-    material.customProgramCacheKey = () => `silence-understory-streamed-${distance}-${breeze}-${fernLOD??''}-${band[0]}-${band[1]}`;
+    material.customProgramCacheKey = () => `silence-understory-streamed-${distance}-${breeze}-${fernLOD??''}-${band[0]}-${band[1]}-${rootShade}`;
     materials.push(material);
     return material;
   }
@@ -288,7 +334,17 @@ export function createUndergrowth(
     meshes.sort((a, b) => a.name.localeCompare(b.name));
     return { gltf, alpha, meshes };
   }
-  const ready = Promise.all([source('grass_medium_02'), source('fern_02'), source('grass_medium_01', 'grass_medium_01.glb'),
+  // The carpet's leaf atlases (ambientCG LeafSet017 ivy and LeafSet020 rosette leaves, CC0), packed by hand into
+  // public/plantassets/{ivy,rosette}_leaves: colour, alpha, OpenGL normal.
+  const leafTexture = (folder: string, file: string, srgb = false) => textureLoader.loadAsync(`/plantassets/${folder}/${file}`).then(t => {
+    if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+    return trackedTexture(t);
+  });
+  const leafSet = (folder: string) => Promise.all([leafTexture(folder, 'color.jpg', true), leafTexture(folder, 'alpha.png'), leafTexture(folder, 'normal.jpg')])
+    .then(([color, alpha, normal]) => ({ color, alpha, normal }));
+  let leafSets: { color: THREE.Texture; alpha: THREE.Texture; normal: THREE.Texture }[] = [];
+  const leavesReady = Promise.all([leafSet('ivy_leaves'), leafSet('rosette_leaves')]).then(sets => { leafSets = sets; });
+  const ready = leavesReady.then(() => Promise.all([source('grass_medium_02'), source('fern_02'), source('grass_medium_01', 'grass_medium_01.glb'),
     source('celandine_01', 'celandine_01.glb'), source('shrub_01', 'shrub_01.glb'), source('shrub_04', 'shrub_04.glb')]).then(sources => {
     if (disposed) {
       for (const { meshes } of sources) for (const mesh of meshes) { mesh.geometry.dispose(); mesh.material.dispose(); }
@@ -297,6 +353,21 @@ export function createUndergrowth(
     }
     const [grass, fern, lushGrass, celandine, herb, shrub] = sources;
     const fineMaterial = prepareMaterial(grass.meshes[0].material, grass.alpha, 33, 1.4);
+    const leafMaterial = (set: typeof leafSets[number]) => {
+      // No roughness map: the scans were shot fresh and glossy (ivy reads .3), and lying nearly flat they mirrored the bright
+      // sky as grey-white flakes. Leaves on a forest floor carry a film of dust and damp; matte is right at this distance.
+      const base = new THREE.MeshStandardMaterial({ map: set.color, normalMap: set.normal, side: THREE.DoubleSide });
+      const material = prepareMaterial(base, set.alpha, CARPET_RANGE, .25, undefined, undefined, false);
+      material.roughness = .82;
+      base.dispose();
+      return material;
+    };
+    const ivyMaterial = leafMaterial(leafSets[0]), rosetteMaterial = leafMaterial(leafSets[1]);
+    // The rosette scan is dandelion-bright (mean linear albedo .37/.45/.11 against the ivy's .15/.23/.10); in the forest's
+    // shade it is the same kind of leaf, a little paler than ivy.
+    rosetteMaterial.color.multiplyScalar(.52);
+    // Ivy in the shade of the floor is a deeper, warmer green than the cool studio scan.
+    ivyMaterial.color.multiply(new THREE.Color(.72, .78, .6));
     // Tussocks are the deep green Grass Medium 01: the paler Medium 02 read as dry straw on the damp, mossy floor.
     const grassMaterial = prepareMaterial(lushGrass.meshes[0].material, lushGrass.alpha, TUSSOCK_RANGE, .6, 'near', TUSSOCK_LOD);
     const farGrassMaterial = prepareMaterial(lushGrass.meshes[0].material, lushGrass.alpha, TUSSOCK_RANGE, .6, 'far', TUSSOCK_LOD);
@@ -311,6 +382,11 @@ export function createUndergrowth(
     // A broad 32-blade cluster costs only 192 triangles and stays below 30cm after placement.
     for (let variant = 0; variant < 4; variant++) {
       fine.push(batch(grassPatch(variant), fineMaterial, 900, 2, 'Fine grass LOD'));
+      // Fewer, larger leaves further out: the carpet keeps its cover as each leaf shrinks on screen.
+      for (const [level, leaves, grow, capacity] of [[0, 22, 1, 900], [1, 13, 1.25, 1800], [2, 7, 1.6, 2400]] as const) {
+        ivy[level].push(batch(leafPatch(variant, false, leaves, grow), ivyMaterial, capacity, 2, 'Ivy carpet'));
+        rosettes[level].push(batch(leafPatch(variant, true, Math.max(3, Math.round(leaves * .55)), grow), rosetteMaterial, Math.round(capacity * .5), 2, 'Leaf rosettes'));
+      }
       midFine.push(batch(grassPatch(variant,20,2,1.2),fineMaterial,1800, 2, 'Fine grass LOD'));
       farFine.push(batch(grassPatch(variant,16,1,1.65),fineMaterial,7200, 2, 'Fine grass LOD'));
     }
@@ -360,7 +436,7 @@ export function createUndergrowth(
     loaded = true;
     group.userData.ready = true;
     lastPosition.set(Infinity, 0, Infinity);
-  }).catch(error => {
+  })).catch(error => {
     // Loading failures remain visible to diagnostics; they never create game HUD content.
     console.error('SILENCE: botanical assets could not be loaded.', error);
     group.userData.error = String(error);
@@ -396,7 +472,19 @@ export function createUndergrowth(
       const biome=biomeAt(x,z);
       // Short grass follows the ecology's grass field: light gaps, path margins and drier ground, none in the bare patches.
       const probability = (.30 + cover * .40) * (1 - Math.pow(e, 1.3) * .93) * (1-biome.alpine*.93) * (dune ? 1 : 1.2 * smooth01(ecology.grass(x, z), .22, .6));
-      if (hash(ix, iz, 5) > probability) continue;
+      // The leafy carpet competes for the same spots (one roll for both): in colonies a few metres across, where the
+      // ecology's carpet field says the floor is damp and shaded enough.
+      const carpet = dune ? 0 : 1.6 * ecology.carpet(x, z) * smooth01(noise(x * .19 + 3, z * .19 - 9) * .7 + noise(x * .9 - 5, z * .9) * .3, .26, .52) * (1 - Math.pow(e, 1.3) * .95) * (1 - biome.alpine);
+      const roll = hash(ix, iz, 5) * Math.max(1, probability + carpet);
+      if (roll >= probability) {
+        if (roll < probability + carpet && !(Math.abs(x + 18) < 1.55 && Math.abs(z + 46) < 1.05)) {
+          // Rosettes in the lighter places, ivy in the deeper shade.
+          const rosette = hash(ix, iz, 97) < .7 * smooth01(ecology.light(x, z), .35, .8);
+          const plant = makePlant(x, z, ix, iz, 40, Math.floor(hash(ix, iz, 41) * 4), .85 + hash(ix, iz, 42) * .45, biome);
+          if (Math.hypot(plant.sx, plant.sz) < .75) (rosette ? cell.rosette : cell.ivy).push(plant);
+        }
+        continue;
+      }
       if (Math.abs(x + 18) < 1.55 && Math.abs(z + 46) < 1.05 && hash(ix, iz, 93) > .12) continue;
       const size = Math.min(3, (1.8 + hash(ix, iz, 8) * 1.8) * (.72 + cover * .48) * (1 - e * .42));
       const plant=makePlant(x,z,ix,iz,20,Math.floor(hash(ix,iz,14)*4),size*(dune?1.2:1),biome);
@@ -425,7 +513,7 @@ export function createUndergrowth(
   /** Builds rows of the cell until it is complete (returned) or `budget` is used up (undefined; call again to carry on). */
   function growGroundCover(cx: number, cz: number, key: string, budget?: Slice): GroundCover | undefined {
     let partial = partialCover.get(key);
-    if (!partial) { partial = { cell: { fine: [], tussock: [] }, row: 0 }; partialCover.set(key, partial); }
+    if (!partial) { partial = { cell: { fine: [], tussock: [], ivy: [], rosette: [] }, row: 0 }; partialCover.set(key, partial); }
     while (partial.row <= 20) {
       if (partial.row < 20) groundCoverRow(cx, cz, partial.row, partial.cell); else tussockRow(cx, cz, partial.cell);
       partial.row++;
@@ -496,6 +584,12 @@ export function createUndergrowth(
           let cell = groundCover.get(key);
           if (!cell && sliced) while (!(cell = growGroundCover(cx, cz, key, slice))) yield;
           cell ??= buildGroundCover(cx, cz, key);
+          for (const [list, levels] of [[cell.ivy, ivy], [cell.rosette, rosettes]] as const) for (const plant of list) {
+            const d2 = (plant.x - player.x) ** 2 + (plant.z - player.z) ** 2;
+            if (d2 >= (CARPET_RANGE + STREAM_BUFFER) ** 2) continue;
+            const stagger = hash(Math.floor(plant.x * 20), Math.floor(plant.z * 20), 92) * 3 - 1;
+            place(plant, levels[d2 < (8 + stagger) ** 2 ? 0 : d2 < (16 + stagger) ** 2 ? 1 : 2], true);
+          }
           for(const plant of cell.fine){
             const distance2=(plant.x-player.x)**2+(plant.z-player.z)**2;
             if(distance2>=(GRASS_RANGE+STREAM_BUFFER)**2)continue;
@@ -539,7 +633,7 @@ export function createUndergrowth(
       if (Math.abs(cx - cx0) > 11 || Math.abs(cz - cz0) > 11) partialCover.delete(key);
     }
     const built = vegetation, total=(list:Batch[])=>list.reduce((n,b)=>n+built.count(b),0);
-    group.userData.counts = { fine: total([...fine,...midFine,...farFine]), closeGrass:total(fine), detailedFerns: total(ferns),
+    group.userData.counts = { fine: total([...fine,...midFine,...farFine]), closeGrass:total(fine), detailedFerns: total(ferns), ivy: total(ivy.flat()), rosettes: total(rosettes.flat()),
       ...Object.fromEntries(kinds.map(k => [k.flora, total([...k.near, ...k.far])])) };
     lastPosition.copy(player);
     // The ring just finished goes on screen; the one that was showing is the next to rebuild.

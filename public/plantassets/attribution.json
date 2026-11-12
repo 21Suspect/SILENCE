@@ -233,6 +233,40 @@
         "shrub_01_a_d": 1800,
         "shrub_01_a_e": 1799
       }
+    },
+    {
+      "asset": "LeafSet017",
+      "provider": "ambientCG",
+      "source": "https://ambientcg.com/a/LeafSet017",
+      "license": "CC0-1.0",
+      "license_url": "https://docs.ambientcg.com/license/",
+      "files": {
+        "zip": {
+          "source_url": "https://ambientcg.com/get?file=LeafSet017_2K-PNG.zip",
+          "md5": "0bfad61404ec9921af4f7c42a277234b"
+        }
+      },
+      "packed": "ivy_leaves/: color.jpg (Color, 1024 px), alpha.png (Opacity), normal.jpg (NormalGL)",
+      "use": "ivy carpet (undergrowth.ts leafPatch)"
+    },
+    {
+      "asset": "LeafSet020",
+      "provider": "ambientCG",
+      "source": "https://ambientcg.com/a/LeafSet020",
+      "license": "CC0-1.0",
+      "license_url": "https://docs.ambientcg.com/license/",
+      "files": {
+        "zip": {
+          "source_url": "https://ambientcg.com/get?file=LeafSet020_2K-PNG.zip",
+          "md5": "4972e158f75a987e1406909d7eac7e18"
+        }
+      },
+      "packed": "rosette_leaves/: color.jpg (Color, 1024 px), alpha.png (Opacity), normal.jpg (NormalGL)",
+      "use": "leaf rosettes (undergrowth.ts leafPatch)"
     }
-  ]
+  ],
+  "providers": {
+    "Poly Haven": "https://polyhaven.com/license",
+    "ambientCG": "https://docs.ambientcg.com/license/"
+  }
 }
