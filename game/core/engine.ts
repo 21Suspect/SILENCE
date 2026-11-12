@@ -469,6 +469,8 @@ export function createGame(container:HTMLElement) {
       warmup(){return{pending:gpuWarmup.pending,log:gpuWarmup.log()};},
       /** What the camera would submit, grouped by mesh name (frustum and layer tests only). */
       drawList(){return drawList(scene,camera);},
+      /** The scene itself, for one-off inspection from the console (instance positions, materials). */
+      scene(){return scene;},
       /** What the sun's shadow pass would draw right now: casters inside the shadow camera's frustum. */
       shadowList(){sun.shadow.updateMatrices(sun);return drawList(scene,camera,sun.shadow.camera);},
       /** Of the instances the sun's shadow pass submits, how many reach the shadow frustum. */

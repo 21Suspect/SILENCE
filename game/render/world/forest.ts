@@ -1,6 +1,5 @@
 import { WORLD_V2 } from '../../sim/world/world-flags';
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createUndergrowth } from './undergrowth';
 import { createRockGeometry, createRockMaterial } from './surfaces';
 import { varyDirectionalTexture } from './texture-variation';
@@ -8,18 +7,20 @@ import { WORLD_RADIUS, biomeAt, groundMasks, riverX, riverPresence, roadZ } from
 import { naturalLayout, groundedOrigin, type LayoutCell as ForestCell } from '../../sim/world/placement';
 import type { SolidCollider } from '../../sim/world/collision';
 import { createMeshSurface } from './surface-support';
-import { branchSpec, broadleafGeometry, crownBranches, crownGeometry, stumpGeometry } from './forest-assets';
+import { stumpGeometry } from './forest-assets';
 import { createVegetationBatcher, type VegetationBatchDefinition, type VegetationBatchHandle } from './vegetation-batches';
 import { perfOn } from '../../core/perf-flags';
 import { TRUNK_RINGS, TRUNK_SEGMENTS, buildConiferVariants } from './conifer';
+import { buildBroadleafVariants } from './broadleaf';
 import { loadNature, type NatureVariant } from './nature-assets';
 import { createSlice, runSlice, runToEnd } from '../../core/time-slice';
 
 type Collider = { x: number; z: number; radius: number };
 type Tree = { x: number; z: number; y: number; height: number; width: number; yaw: number; kind: number; seed: number };
 type Scatter = { x: number; z: number; y: number; size: number; yaw: number; variant: number };
-// Pines and spruces are grown by conifer.ts, several per species; a tree takes one by its seed.
-const CONIFER_VARIANTS = 4;
+// Every tree is grown from a seed, several per species (pines and spruces by conifer.ts, birches and oaks by broadleaf.ts); a
+// tree takes one by its own seed.
+const VARIANTS = 4;
 // Trees are placed out to TREE_RANGE+FOREST_BUFFER round the point the forest was last rebuilt at and faded by distance from the eye in
 // the shader, so the placement stays valid until the player is FOREST_BUFFER from that point. A rebuild starts every FOREST_STEP and
 // is spread over a few frames; the 1.5 m between the two is the room it has to finish in.
@@ -28,7 +29,6 @@ const FOREST_STEP=6, FOREST_BUFFER=FOREST_STEP+1.5, TREE_RANGE=98, TREE_COLLISIO
 const ROCK_RANGE=58, BRANCH_RANGE=42, STUMP_RANGE=65, TRUNK_RANGE=77, PEBBLE_RANGE=24;
 // Trees within this distance cast crown shadows (the sun's shadow map spans 72 m round the player, shadows.ts).
 const SHADOW_RANGE=60;
-const branchesByKind = Array.from({length:8}, (_,kind) => Array.from({length:36}, (_,branch) => branchSpec(kind,branch)));
 
 // All vegetation is deterministic; only objects concealed by the fog are recycled.
 function random(seed: number) {
@@ -78,61 +78,6 @@ function endgrainTextures() {
   return { map, normalMap, roughnessMap };
 }
 
-function trunkGeometry(seed: number, kind=0, lowDetail=false) {
-  const rnd = random(seed); const positions: number[] = []; const colors: number[] = []; const uvs: number[] = []; const indices: number[] = [];
-  const rings = TRUNK_RINGS, segments = TRUNK_SEGMENTS;
-  const rootIndices: number[] = []; const phase = rnd() * Math.PI * 2; const bend = rnd() * .45;
-  for (let r = 0; r < rings.length; r++) {
-    const y = rings[r]; const taper = Math.pow(1 - y / 33, .72);
-    const radius = .44 * taper + .48 * Math.exp(-y * 2.9);
-    for (let i = 0; i <= segments; i++) {
-      const a = i / segments * Math.PI * 2;
-      const groove = 1 + .11 * Math.sin(a * 5 + phase) + .035 * Math.sin(y * 2 + a * 7);
-      const root = Math.exp(-y * 3) * Math.pow(Math.max(0, Math.cos(a * 4 + phase)), 5) * .43;
-      positions.push(Math.cos(a) * (radius * groove + root) + Math.sin(y * .045) * bend, y - .08, Math.sin(a) * (radius * groove + root) + Math.sin(y * .06 + phase) * bend * y / 31);
-      uvs.push(i / segments * (kind>=4&&kind<6?1.5:3.1), y * (kind>=4&&kind<6?.38:.78)); rootIndices.push(i % segments);
-      const moss = Math.max(0, 1 - y / (1.6 + .6 * Math.sin(a * 3 + phase))) * (.65 + .35 * Math.cos(a + phase));
-      const barkAge=kind>=4&&kind<6?Math.max(0,1-y/2.4)*(.65+.35*Math.sin(a*3+phase)):0;
-      colors.push((.86-moss*.2)*(1-barkAge*.53),(.84-moss*.12)*(1-barkAge*.52),(.76-moss*.28)*(1-barkAge*.67));
-      if (r < rings.length - 1 && i < segments) {
-        const a0 = r * (segments + 1) + i; const b0 = a0 + segments + 1;
-        indices.push(a0, b0, a0 + 1, a0 + 1, b0, b0 + 1);
-      }
-    }
-  }
-  const trunk = new THREE.BufferGeometry(); trunk.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3)); trunk.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3)); trunk.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2)); trunk.setAttribute('rootIndex', new THREE.Float32BufferAttribute(rootIndices, 1)); trunk.setIndex(indices); trunk.computeVertexNormals();
-  trunk.setAttribute('streamDetail',new THREE.Float32BufferAttribute(new Float32Array(positions.length/3),1));
-  const parts = [trunk];
-  const species=Math.floor(kind/2);
-  const addBranch=(start:THREE.Vector3,end:THREE.Vector3,radius:number,nearOnly=false)=>{
-    if(nearOnly&&lowDetail)return;
-    const g=new THREE.CylinderGeometry(radius*.19,radius,start.distanceTo(end),species>1&&nearOnly?7:5,species>1&&nearOnly?2:1,false);
-    const p=g.attributes.position,uv=g.attributes.uv;
-    for(let i=0;i<p.count;i++){const y=p.getY(i),f=y/start.distanceTo(end)+.5;p.setX(i,p.getX(i)+Math.sin(f*Math.PI)*radius*.9);uv.setY(i,f*start.distanceTo(end)*.78);}
-    g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0),end.clone().sub(start).normalize()));
-    const c=start.clone().add(end).multiplyScalar(.5);g.translate(c.x,c.y,c.z);
-    g.setAttribute('color',new THREE.Float32BufferAttribute(new Float32Array(p.count*3).fill(.84),3));
-    g.setAttribute('rootIndex',new THREE.Float32BufferAttribute(new Float32Array(p.count),1));
-    g.setAttribute('streamDetail',new THREE.Float32BufferAttribute(new Float32Array(p.count).fill(nearOnly?1:0),1));
-    parts.push(g);
-  };
-  // Old broken limbs and irregular lateral shoots below the live crown.
-  for(let j=0;j<(species<2?17:7);j++){
-    const y=3+rnd()*(species<2?19:9),a=rnd()*Math.PI*2,length=.26+rnd()*(y<11?.9:1.8);
-    addBranch(new THREE.Vector3(Math.cos(a)*.25,y,Math.sin(a)*.25),new THREE.Vector3(Math.cos(a)*(length+.25),y+.1+rnd()*.5,Math.sin(a)*(length+.25)),.018+(31-y)*.0014,j%2===1);
-  }
-  for(const j of crownBranches){
-    const b=branchesByKind[kind][j],v=new THREE.Vector3(Math.cos(b.angle),b.rise,Math.sin(b.angle)).normalize();
-    const start=new THREE.Vector3(0,b.height,0),end=start.clone().addScaledVector(v,b.length*.99);
-    addBranch(start,end,species<2?.022+(1-j/36)*.05:.055+(1-j/36)*.15);
-    if(species>1&&!lowDetail&&j%2===0){
-      const mid=start.clone().lerp(end,.56),side=new THREE.Vector3(-v.z,.4,v.x).normalize();
-      addBranch(mid,mid.clone().addScaledVector(v,b.length*.37).addScaledVector(side,b.length*.31),.035+(1-j/36)*.045,true);
-    }
-  }
-  const geometry = mergeGeometries(parts, false)!; parts.forEach(g => g.dispose()); return geometry;
-}
-
 function leafGeometry() {
   // A cupped, weathered birch leaf, smaller than a boot print and partly buried.
   const points = [
@@ -149,39 +94,6 @@ function leafGeometry() {
     indices.push(0, i + 1, (i + 1) % points.length + 1);
   }
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));const uv:number[]=[];for(let i=0;i<positions.length;i+=3)uv.push(.055+(positions[i]+.027)/.049*.14,1-(.05+(positions[i+2]+.065)/.108*.095));g.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2)); g.setIndex(indices); g.computeVertexNormals(); return g;
-}
-
-function canopyGeometry(shootCount: number, shootScale = 1) {
-  const parts: THREE.BufferGeometry[] = [], rnd = random(6301);
-  // Each atlas image is a real 20–50cm pine shoot. A woody branch carries many
-  // separate shoots with open air between them instead of one giant leaf card.
-  for (let i = 0; i < shootCount; i++) {
-    const t = .28 + i / (shootCount - 1) * .68, side = i % 2 ? 1 : -1;
-    const spread = (.045 + (1 - t) * .22) * side;
-    const length = (.205 + rnd() * .085) * shootScale, angle = side * (.29 + rnd() * .65);
-    for (const crossAngle of [0, Math.PI / 2]) {
-      const g = new THREE.PlaneGeometry(length * .49, length, 1, 1);
-      g.rotateY(crossAngle); g.rotateZ(-angle);
-      g.translate(spread, t - .5, Math.sin(t * 5) * .025 + (rnd() - .5) * .075); parts.push(g);
-    }
-  }
-  const tip = new THREE.PlaneGeometry(.11, .23); tip.translate(0, .46, 0); parts.push(tip);
-  const geometry = mergeGeometries(parts)!; parts.forEach(p => p.dispose()); return geometry;
-}
-
-function canopyWoodGeometry() {
-  const parts: THREE.BufferGeometry[] = [], up = new THREE.Vector3(0, 1, 0);
-  const stem = (a: THREE.Vector3, b: THREE.Vector3, radius: number) => {
-    const g = new THREE.CylinderGeometry(radius * .45, radius, a.distanceTo(b), 5, 1, true);
-    g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(up, b.clone().sub(a).normalize()));
-    const c = a.clone().add(b).multiplyScalar(.5); g.translate(c.x, c.y, c.z); parts.push(g);
-  };
-  stem(new THREE.Vector3(0, -.5, 0), new THREE.Vector3(0, .48, -.025), .010);
-  for (let i = 0; i < 9; i++) {
-    const t = .34 + i / 8 * .61, side = i % 2 ? 1 : -1;
-    stem(new THREE.Vector3(0, t - .56, 0), new THREE.Vector3((.045 + (1 - t) * .22) * side, t - .48, Math.sin(t * 5) * .025), .0035);
-  }
-  const geometry = mergeGeometries(parts)!; parts.forEach(p => p.dispose()); return geometry;
 }
 
 function logGeometry() {
@@ -328,6 +240,12 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
         transformed.z += cos(wind*.83) * tip * tip * .018;
       #endif
     `);
+    // Leaves and needles let light through. A sprig lit from behind (light on the far side of the face turned to the eye)
+    // glows a yellower green instead of going black: a thin leaf passes on roughly as much light as it reflects, shifted to
+    // the yellow. The light's colour already carries its shadow, so only leaves the sun reaches through the crown glow.
+    shader.fragmentShader = shader.fragmentShader.replace('#include <lights_physical_pars_fragment>', THREE.ShaderChunk.lights_physical_pars_fragment.replace(
+      'reflectedLight.directDiffuse += irradiance * BRDF_Lambert( material.diffuseColor );',
+      '$&\n\treflectedLight.directDiffuse += saturate( - dot( geometryNormal, directLight.direction ) ) * directLight.color * BRDF_Lambert( material.diffuseColor ) * vec3( .6, .68, .3 );'));
   };
   needlesMaterial.onBeforeCompile=foliageWind;pineNeedles.onBeforeCompile=foliageWind;spruceNeedles.onBeforeCompile=foliageWind;
   broadleafMaterial.onBeforeCompile=shader=>{
@@ -364,8 +282,16 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
   const stonesMaterial=stoneMaterials[0];
   const leafMaterial = new THREE.MeshStandardMaterial({map:broadleafMaterial.map,normalMap:broadleafMaterial.normalMap,normalScale:new THREE.Vector2(.25,.25), vertexColors: true, side: THREE.DoubleSide, roughness: .78 });
   fadeInstances(leafMaterial,26,34);
-  const crownBark=logBark.clone();
-  varyDirectionalTexture(crownBark);fadeInstances(crownBark,20,25,'branch');
+  // Oak and birch wear leaf sprays composed from scanned leaves (tools/assets/trees/sprays.py: ambientCG LeafSet016 and
+  // LeafSet004, CC0). The oak scans are a pale spring green: the material colour brings them to a deep summer leaf.
+  const broadleafLeaves=(folder:string,name:string,color:number)=>{
+    const m=new THREE.MeshStandardMaterial({map:texture(`/world/trees/${folder}/spray-color.jpg`,true,false),alphaMap:texture(`/world/trees/${folder}/spray-alpha.png`,false,false),
+      normalMap:texture(`/world/trees/${folder}/spray-normal.jpg`,false,false),normalScale:new THREE.Vector2(.7,.7),alphaTest:.3,alphaToCoverage:true,side:THREE.DoubleSide,
+      roughness:.74,vertexColors:true,color});
+    m.name=name;m.onBeforeCompile=foliageWind;fadeInstances(m,83,TREE_RANGE,'crown');
+    return m;
+  };
+  const oakLeaves=broadleafLeaves('oak','Composed oak sprays',0x7f9070),birchLeaves=broadleafLeaves('birch','Composed birch sprays',0xa8b494);
   const grain = endgrainTextures(); textures.push(grain.map, grain.normalMap, grain.roughnessMap);
   const woodMaterial = new THREE.MeshStandardMaterial({ ...grain, color: 0xd9d3bf, normalScale: new THREE.Vector2(.6, .6), roughness: .94, side: THREE.DoubleSide });
   const geometries: THREE.BufferGeometry[] = [];
@@ -385,24 +311,26 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
   }
   const rootAttributeNames = ['rootHeightsA', 'rootHeightsB', 'rootHeightsC', 'rootHeightsD'];
   const trunkCapacity=320;
-  // Models: CONIFER_VARIANTS pines, as many spruces, then the four broadleaf kinds (still grown by trunkGeometry/crownGeometry).
-  const conifers=[...buildConiferVariants('pine',CONIFER_VARIANTS),...buildConiferVariants('spruce',CONIFER_VARIANTS)];
-  const MODELS=conifers.length+4;
-  const modelOf=(tree:Tree)=>tree.kind<4?(tree.kind<2?0:CONIFER_VARIANTS)+tree.seed%CONIFER_VARIANTS:conifers.length+tree.kind-4;
-  // A conifer's crown scales with its trunk, so its sprays would stretch on a squat, wide tree: its width is held within a
-  // quarter of its height. Every use of a tree's width below (collider, bark contact, ground under the roots) takes this.
-  const girth=(tree:Tree)=>tree.kind<4?Math.min(1.25*tree.height,Math.max(.75*tree.height,tree.width)):tree.width;
-  const kindOfModel=(m:number)=>m<CONIFER_VARIANTS?0:m<conifers.length?2:m-conifers.length+4;
+  // Models: VARIANTS of each species in kind order (pine, spruce, birch, oak); a tree's species is its kind/2.
+  const models=[...buildConiferVariants('pine',VARIANTS),...buildConiferVariants('spruce',VARIANTS),...buildBroadleafVariants('birch',VARIANTS),...buildBroadleafVariants('oak',VARIANTS)];
+  const MODELS=models.length,SPECIES=['Scots pine','Norway spruce','Silver birch','English oak'];
+  const modelOf=(tree:Tree)=>Math.floor(tree.kind/2)*VARIANTS+tree.seed%VARIANTS;
+  const kindOfModel=(m:number)=>Math.floor(m/VARIANTS)*2;
+  // A grown tree's crown scales with its trunk, so its sprays would stretch on a squat, wide tree: a conifer's width is held
+  // within a quarter of its height, a broadleaf's (its model is already broad) within .9 to 1.2 of it, wider trees wider.
+  // Every use of a tree's width below (collider, bark contact, ground under the roots) takes this.
+  const girth=(tree:Tree)=>tree.kind<4?Math.min(1.25*tree.height,Math.max(.75*tree.height,tree.width))
+    :tree.height*(.9+.3*Math.min(1,Math.max(0,tree.kind<6?(tree.width-.42)/.38:(tree.width-1.12)/.75)));
   const trunkBatches=(lowDetail:boolean)=>Array.from({length:MODELS},(_,m)=>{
-    const conifer=conifers[m],kind=kindOfModel(m);
-    const geometry=conifer?(lowDetail?conifer.farTrunk:conifer.trunk):trunkGeometry(482+kind*394,kind,lowDetail);
+    const model=models[m],kind=kindOfModel(m),geometry=lowDetail?model.farTrunk:model.trunk;
     for(const name of rootAttributeNames)geometry.setAttribute(name,new THREE.InstancedBufferAttribute(new Float32Array(trunkCapacity*4),4).setUsage(THREE.DynamicDrawUsage));
-    const name=(kind<2?'Scots pine':kind<4?'Norway spruce':kind<6?'Silver birch':'Old oak')+(conifer?` ${m%CONIFER_VARIANTS+1}`:'')+(lowDetail?' distant':'');
-    const definition=instances(geometry,kind<2?pineBark:kind<4?spruceBark:kind<6?birchBark:oakBark,trunkCapacity,true,name);
+    const definition=instances(geometry,kind<2?pineBark:kind<4?spruceBark:kind<6?birchBark:oakBark,trunkCapacity,true,`${SPECIES[kind/2]} ${m%VARIANTS+1}${lowDetail?' distant':''}`);
     definition.customDepthMaterial=rootDepth; definition.customDistanceMaterial=rootDistance; definition.sectorSize=192;
     return definition;
   });
   const trunks=trunkBatches(false),farTrunks=trunkBatches(true);
+  // How far each model's wood reaches from its axis, for culling: an oak's limbs spread 12 m and more.
+  const trunkReach=trunks.map(d=>{const {min,max}=d.geometry.boundingBox!;return Math.hypot(Math.max(-min.x,max.x),Math.max(-min.z,max.z));});
   const barkContacts = new WeakMap<Tree, NonNullable<SolidCollider['barkContact']>>();
   const barkRay = new THREE.Ray();
   const barkA = new THREE.Vector3(), barkB = new THREE.Vector3(), barkC = new THREE.Vector3(), barkHit = new THREE.Vector3();
@@ -438,33 +366,23 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
     barkContacts.set(tree, contact);
     return contact;
   }
-  // The rebuilt world spends more on crowns, so a canopy reads as a canopy rather than bare limbs.
-  const needleBough=canopyGeometry(WORLD_V2?30:16,WORLD_V2?1.35:1),leafBough=broadleafGeometry(WORLD_V2?36:22);
-  const crownMaterial=(kind:number)=>kind<2?pineNeedles:kind<4?spruceNeedles:broadleafMaterial;
+  const crownMaterial=(kind:number)=>kind<2?pineNeedles:kind<4?spruceNeedles:kind<6?birchLeaves:oakLeaves;
   const crowns=Array.from({length:MODELS},(_,m)=>{
-    const conifer=conifers[m],kind=kindOfModel(m);
-    const geometry=conifer?conifer.crown:crownGeometry(kind,kind<4?needleBough:leafBough);
-    geometry.setAttribute('crownLod',new THREE.BufferAttribute(new Float32Array(geometry.attributes.position.count),1));
+    const geometry=models[m].crown,kind=kindOfModel(m);
     const {min,max}=geometry.boundingBox!;
     const horizontalRadius=Math.hypot(Math.max(-min.x,max.x),Math.max(-min.z,max.z));
     const definition=instances(geometry,crownMaterial(kind),512,false,kind<4?'Canopy conifer':'Canopy broadleaf');
     definition.sectorSize=56;
     return {definition,horizontalRadius,centerY:(min.y+max.y)*.5,verticalRadius:(max.y-min.y)*.5};
   });
-  needleBough.dispose();leafBough.dispose();
-  // Distant crowns. A crown is about 3,500 triangles and every tree out to 98 m drew all of them: trees were half the
-  // frame. Past CROWN_DETAIL_END a crown carries a third as many sprays, each larger, so it covers the same sky with
-  // about a third of the triangles; at that range single shoots are smaller than a pixel anyway.
-  const farNeedleBough=canopyGeometry(10,WORLD_V2?2.25:1.7),farLeafBough=broadleafGeometry(12,1.7);
+  // Distant crowns: past CROWN_DETAIL_END a crown carries about a third of its sprays, each larger, so it covers the same
+  // sky with a fraction of the triangles; at that range single sprays are a few pixels anyway.
   const farCrowns=crowns.map((near,m)=>{
-    const conifer=conifers[m],kind=kindOfModel(m);
-    const geometry=conifer?conifer.farCrown:crownGeometry(kind,kind<4?farNeedleBough:farLeafBough);
-    geometry.setAttribute('crownLod',new THREE.BufferAttribute(new Float32Array(geometry.attributes.position.count).fill(1),1));
-    const definition=instances(geometry,crownMaterial(kind),512,false,(kind<4?'Canopy conifer':'Canopy broadleaf')+' distant');
+    const kind=kindOfModel(m);
+    const definition=instances(models[m].farCrown,crownMaterial(kind),512,false,(kind<4?'Canopy conifer':'Canopy broadleaf')+' distant');
     definition.sectorSize=56;
     return {...near,definition};
   });
-  farNeedleBough.dispose();farLeafBough.dispose();
   // Crown shadows. Without them the floor under a closed canopy lay in full sun with only the limbs' stripes across it. The
   // detailed crowns are far too heavy to draw into the shadow map as well (it is redrawn several times a second as the sun
   // moves: 30 to 60 ms more a redraw at the canopy station), so every tree in shadow range casts from its light crown
@@ -485,7 +403,6 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
     definition.sectorSize=56;
     return definition;
   });
-  const crownWood = instances(canopyWoodGeometry(), crownBark, 6000, false, 'Canopy wood', 2, 5);
   const stones = Array.from({length:9},(_,i)=>{
     const g=createRockGeometry(182+i*83),type=Math.floor(i/3);
     if(type===1)g.scale(1.18,.82,.96);if(type===2)g.scale(1.35,.56,.88);
@@ -579,27 +496,8 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
     dummy.quaternion.setFromRotationMatrix(basis.makeBasis(basisX,basisY,basisZ));
   }
   const matrix = new THREE.Matrix4(); const dummy = new THREE.Object3D();
-  const radialDirection = new THREE.Vector3(), across = new THREE.Vector3(), normal = new THREE.Vector3(), canopyScale = new THREE.Vector3();
   const up = new THREE.Vector3(0, 1, 0), direction = new THREE.Vector3();
-  const crownTransforms=new WeakMap<Tree,Float32Array>();
   const litterTransforms=new WeakMap<Scatter,Float32Array>();
-  function crownFor(tree:Tree){
-    let transforms=crownTransforms.get(tree);
-    if(transforms)return transforms;
-    const branches=branchesByKind[tree.kind];
-    transforms=new Float32Array(branches.length*16);
-    for(let i=0;i<branches.length;i++){
-      const b=branches[i],h=b.height*tree.height,a=tree.yaw+b.angle,length=b.length*tree.width;
-      const c=Math.cos(a),s=Math.sin(a);
-      radialDirection.set(c*tree.width,b.rise*tree.height,s*tree.width).normalize();
-      across.set(-s,0,c);normal.crossVectors(across,radialDirection).normalize();
-      matrix.makeBasis(across,radialDirection,normal);matrix.scale(canopyScale.setScalar(length));
-      matrix.setPosition(tree.x+radialDirection.x*length*.52,tree.y+h+radialDirection.y*length*.52,tree.z+radialDirection.z*length*.52);
-      matrix.toArray(transforms,i*16);
-    }
-    crownTransforms.set(tree,transforms);
-    return transforms;
-  }
   function litterFor(item:Scatter){
     let transforms=litterTransforms.get(item);
     if(transforms)return transforms;
@@ -667,15 +565,15 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
       const distance2 = (tree.x - player.x) ** 2 + (tree.z - player.z) ** 2;
       if(pause())yield;
       if(updateColliders&&distance2<=TREE_COLLISION_RANGE**2){
-        const radius=.44*girth(tree)+.08;nextColliders.push({x:tree.x,z:tree.z,radius});
-        nextSolid.push({kind:'capsule',ax:tree.x,az:tree.z,bx:tree.x,bz:tree.z,radius,minY:tree.y-.15,maxY:tree.y+31*tree.height,tag:'tree',barkContact:barkContactFor(tree),crownBase:tree.y+(conifers[modelOf(tree)]?.crownBase??branchSpec(tree.kind,0).height)*tree.height});
+        const radius=models[modelOf(tree)].boleRadius*girth(tree)+.08;nextColliders.push({x:tree.x,z:tree.z,radius});
+        nextSolid.push({kind:'capsule',ax:tree.x,az:tree.z,bx:tree.x,bz:tree.z,radius,minY:tree.y-.15,maxY:tree.y+31*tree.height,tag:'tree',barkContact:barkContactFor(tree),crownBase:tree.y+models[modelOf(tree)].crownBase*tree.height});
       }
       if (!rendering||distance2>(TREE_RANGE+FOREST_BUFFER)**2) continue;
       dummy.position.set(tree.x, tree.y, tree.z); dummy.rotation.set(0, tree.yaw, 0); dummy.scale.set(girth(tree), tree.height, girth(tree));
       dummy.updateMatrix();
       const model=modelOf(tree);
       const trunkDefinition=distance2<(TRUNK_DETAIL_END+FOREST_BUFFER)**2?trunks[model]:farTrunks[model];
-      const treeInstance=vegetation.allocate(trunkDefinition,tree.x,tree.z,7*girth(tree),tree.y+15.5*tree.height,16.5*tree.height+2.5);
+      const treeInstance=vegetation.allocate(trunkDefinition,tree.x,tree.z,trunkReach[model]*girth(tree)+.5,tree.y+15.5*tree.height,16.5*tree.height+2.5);
       if(treeInstance){
         treeInstance.mesh.setMatrixAt(treeInstance.index,dummy.matrix);
         groundRoots(tree,treeInstance.index,treeInstance.mesh);
@@ -691,11 +589,6 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
       if(distance2<SHADOW_RANGE**2){
         const shadow=farCrowns[model],caster=vegetation.allocate(crownShadows[model],tree.x,tree.z,shadow.horizontalRadius*girth(tree)+.5,tree.y+shadow.centerY*tree.height,shadow.verticalRadius*tree.height+.5);
         if(caster)caster.mesh.setMatrixAt(caster.index,dummy.matrix);
-      }
-      // The conifers carry their limbs in their own trunk mesh; the broadleaf crowns still hang on these instanced ones.
-      if(tree.kind>=4&&distance2<(25+FOREST_BUFFER)**2){
-        const transforms=crownFor(tree);
-        for(const branch of crownBranches)placeMatrix(crownWood,matrix.fromArray(transforms,branch*16),5);
       }
     }
     if (rendering) for(const cell of nearby)for (const item of cell.scatter) {
@@ -853,7 +746,7 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
     dispose() {
       if (disposed) return; disposed = true; job = undefined; undergrowth.dispose(); scene.remove(group); for (const b of batchers) b.dispose(); geometries.forEach(g => g.dispose()); textures.forEach(t => t.dispose());
       for (const map of [stonesMaterial.map, stonesMaterial.normalMap, stonesMaterial.roughnessMap]) map?.dispose();
-      [bark, birchBark, oakBark, logBark, crownBark, needlesMaterial, broadleafMaterial, pineBark, spruceBark, pineNeedles, spruceNeedles, ...crownCasters.values(), ...stoneMaterials, leafMaterial, woodMaterial, rootDepth, rootDistance, ...natureMaterials].forEach(m => m.dispose());cells.clear();
+      [bark, birchBark, oakBark, logBark, needlesMaterial, broadleafMaterial, pineBark, spruceBark, pineNeedles, spruceNeedles, oakLeaves, birchLeaves, ...crownCasters.values(), ...stoneMaterials, leafMaterial, woodMaterial, rootDepth, rootDistance, ...natureMaterials].forEach(m => m.dispose());cells.clear();
     },
   };
 }

@@ -3,7 +3,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 const {buildTreeGroundMask,treeGroundInfluence,treeGroundRadius} = await import('../../../game/sim/world/tree-ground.ts');
 const {createNaturalLayout} = await import('../../../game/sim/world/placement.ts');
-const {broadleafGeometry,crownBranches,crownGeometry} = await import('../../../game/render/world/forest-assets.ts');
 const {heightAt,vegetationExclusion,biomeAt,riverX,riverPresence,roadZ,WORLD_RADIUS} = await import('../../../game/sim/world/world.ts');
 
 test('root litter has a soft irregular edge around the exact trunk footprint',()=>{
@@ -37,34 +36,3 @@ test('root-mask chunks agree on all shared border vertices, including trees in n
   assert.ok(buildTreeGroundMask({cell:()=>({trees:[]})},32,48,0,0).every(v=>v===0),'no tree means no phantom dirt patch');
 });
 
-test('small curved sprays keep physical leaf size and crown extent across branch scales',()=>{
-  const g=broadleafGeometry(48),p=g.attributes.position,c=g.attributes.leafCenter,uv=g.attributes.uv;
-  assert.equal(g.index.count/3,192,'the full near bough stays within its triangle budget');
-  let minCenterY=Infinity,maxCenterY=-Infinity,maxRadius=0;
-  for(let i=0;i<p.count;i++){
-    const offset=[p.getX(i)-c.getX(i),p.getY(i)-c.getY(i),p.getZ(i)-c.getZ(i)];
-    const radius=Math.hypot(...offset);maxRadius=Math.max(maxRadius,radius);
-    for(const scale of [.8,3,8]){
-      // Match the vertex shader: centers scale with branches, spray offsets do not.
-      const actual=Math.hypot(...offset.map(v=>(v/scale)*scale));
-      assert.ok(Math.abs(actual-radius)<1e-7);
-    }
-    minCenterY=Math.min(minCenterY,c.getY(i));maxCenterY=Math.max(maxCenterY,c.getY(i));
-    assert.ok(uv.getX(i)>=.5499&&uv.getX(i)<=.8501&&uv.getY(i)>=.3649&&uv.getY(i)<=.9651,'avoid bark islands in the leaf atlas');
-  }
-  assert.ok(maxRadius<.61,'individual sprays must never turn into metre-wide leaves');
-  assert.ok(maxCenterY-minCenterY>.65,'small leaves must still cover the complete bough');
-  g.dispose();
-});
-
-test('baked broadleaf crowns retain every bough and physical leaf sizes',()=>{
-  const bough=broadleafGeometry(22),crown=crownGeometry(6,bough);
-  const {position,leafCenter}=crown.attributes;
-  assert.equal(crown.index.count,bough.index.count*crownBranches.length);
-  assert.ok(crown.boundingBox.max.y-crown.boundingBox.min.y>17);
-  for(let i=0;i<position.count;i++){
-    const radius=Math.hypot(position.getX(i)-leafCenter.getX(i),position.getY(i)-leafCenter.getY(i),position.getZ(i)-leafCenter.getZ(i));
-    assert.ok(radius<.61,'baking the bough must leave the photographed spray at physical size');
-  }
-  bough.dispose();crown.dispose();
-});

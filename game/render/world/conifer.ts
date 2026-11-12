@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Parts, TRUNK_SEGMENTS, card, random, ringTrunk, smooth, tube, v3, type SprayRect } from './tree-parts';
 
 /**
  * The forest's conifers, grown from a seed: Scots pine and Norway spruce. Each seed gives a different tree (lean, crown base
@@ -15,11 +16,10 @@ import * as THREE from 'three';
  * ground under each tree is sampled from the base ring, and the creature's bark contact walks the rings). Below the rings sit
  * buttress lobes and surface roots that dive into the soil, so a trunk grows out of the ground instead of standing on it.
  */
-export const TRUNK_RINGS = [0, .16, .45, .9, 1.5, 2.4, 4, 6, 8.5, 11, 14, 17, 20, 23, 26, 29, 31];
-export const TRUNK_SEGMENTS = 16;
+export { TRUNK_RINGS, TRUNK_SEGMENTS } from './tree-parts';
 export type ConiferSpecies = 'pine' | 'spruce';
 /** Sprays in the 2048 px twig atlases: x, y, width, height, and whether the spray lies sideways (stem at the left). */
-const SPRAYS: Record<ConiferSpecies, readonly (readonly [number, number, number, number, boolean])[]> = {
+const SPRAYS: Record<ConiferSpecies, readonly SprayRect[]> = {
   pine: [[72, 90, 378, 815, false], [1334, 701, 584, 360, true]],
   spruce: [[626, 819, 694, 769, false], [1299, 926, 662, 774, false], [1336, 82, 585, 673, false], [387, 95, 491, 543, false], [1010, 532, 282, 287, false], [792, 592, 149, 191, false]],
 };
@@ -29,75 +29,9 @@ export type Conifer = {
   crown: THREE.BufferGeometry; farCrown: THREE.BufferGeometry;
   /** Height of the lowest live branch, in model units (the tree is 31 tall). */
   crownBase: number;
+  /** Bark radius a metre and a half up, in model units: the collider. */
+  boleRadius: number;
 };
-
-function random(seed: number) {
-  let s = seed >>> 0;
-  return () => { s = (s + 0x6d2b79f5) >>> 0; let t = Math.imul(s ^ (s >>> 15), s | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
-}
-const smooth = (x: number, a: number, b: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
-
-/** A buffer of one kind of part: wood (bark uv, colour, root index, stream detail) or foliage (atlas uv, colour, lod). */
-class Parts {
-  p: number[] = []; n: number[] = []; uv: number[] = []; c: number[] = []; root: number[] = []; detail: number[] = []; idx: number[] = [];
-  geometry(foliage: boolean, lod = 0) {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(this.p, 3));
-    if (this.n.length) g.setAttribute('normal', new THREE.Float32BufferAttribute(this.n, 3));
-    g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
-    g.setAttribute('color', new THREE.Float32BufferAttribute(this.c, 3));
-    if (foliage) g.setAttribute('crownLod', new THREE.Float32BufferAttribute(new Float32Array(this.p.length / 3).fill(lod), 1));
-    else { g.setAttribute('rootIndex', new THREE.Float32BufferAttribute(this.root, 1)); g.setAttribute('streamDetail', new THREE.Float32BufferAttribute(this.detail, 1)); }
-    g.setIndex(this.idx);
-    if (!this.n.length) g.computeVertexNormals();
-    g.computeBoundingBox(); g.computeBoundingSphere();
-    return g;
-  }
-}
-
-const v3 = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
-
-/** A tapered tube along a curve, for branches and roots: `at(t)` the centre, `radius(t)`, rootIndex for the ground deform. */
-function tube(out: Parts, at: (t: number) => THREE.Vector3, radius: (t: number) => number, sides: number, segments: number, rootIndex: number, nearOnly: number, shade: (t: number) => number, vScale = .9) {
-  const start = out.p.length / 3, tangent = v3(), side = v3(), up = v3(0, 1, 0), normal = v3();
-  let length = 0, last = at(0);
-  for (let s = 0; s <= segments; s++) {
-    const t = s / segments, centre = at(t);
-    length += centre.distanceTo(last); last = centre;
-    tangent.subVectors(at(Math.min(1, t + .02)), at(Math.max(0, t - .02))).normalize();
-    side.crossVectors(tangent, Math.abs(tangent.y) > .95 ? v3(1, 0, 0) : up).normalize();
-    normal.crossVectors(side, tangent).normalize();
-    const r = radius(t), k = shade(t);
-    for (let i = 0; i <= sides; i++) {
-      const a = i / sides * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a);
-      const nx = side.x * ca + normal.x * sa, ny = side.y * ca + normal.y * sa, nz = side.z * ca + normal.z * sa;
-      out.p.push(centre.x + nx * r, centre.y + ny * r, centre.z + nz * r);
-      out.uv.push(i / sides, length * vScale);
-      out.c.push(k, k * .99, k * .95); out.root.push(rootIndex); out.detail.push(nearOnly);
-      if (s < segments && i < sides) { const a0 = start + s * (sides + 1) + i, b0 = a0 + sides + 1; out.idx.push(a0, b0, a0 + 1, a0 + 1, b0, b0 + 1); }
-    }
-  }
-}
-
-/** One spray card: `along` from stem to tip, `across` its width; bent along its length; `rows` 1 (far) or 2 (near). */
-function card(out: Parts, base: THREE.Vector3, along: THREE.Vector3, across: THREE.Vector3, length: number, rect: readonly [number, number, number, number, boolean], bend: number, rows: number, light: (p: THREE.Vector3) => [number, THREE.Vector3]) {
-  const [x, y, w, h, sideways] = rect, aspect = sideways ? h / w : w / h, width = length * aspect;
-  const u0 = x / 2048, u1 = (x + w) / 2048, vb = 1 - (y + h) / 2048, vt = 1 - y / 2048;
-  const lift = v3().crossVectors(across, along).normalize(), start = out.p.length / 3, p = v3();
-  for (let r = 0; r <= rows; r++) {
-    const t = r / rows;
-    for (const s of [-1, 1]) {
-      p.copy(base).addScaledVector(along, length * t).addScaledVector(across, width * .5 * s).addScaledVector(lift, bend * length * t * t);
-      out.p.push(p.x, p.y, p.z);
-      const [ao, n] = light(p);
-      out.n.push(n.x, n.y, n.z); out.c.push(ao, ao, ao);
-      // Stem at the card's base: the bottom of an upright spray, the left of a sideways one.
-      if (sideways) out.uv.push(u0 + (u1 - u0) * t, s < 0 ? vb : vt);
-      else out.uv.push(s < 0 ? u0 : u1, vb + (vt - vb) * t);
-    }
-    if (r < rows) { const a = start + r * 2; out.idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
-  }
-}
 
 export function buildConifer(species: ConiferSpecies, seed: number): Conifer {
   const rnd = random(seed * 7919 + (species === 'pine' ? 11 : 23)), pick = <T,>(list: readonly T[]) => list[Math.floor(rnd() * list.length)];
@@ -112,26 +46,18 @@ export function buildConifer(species: ConiferSpecies, seed: number): Conifer {
   const radiusAt = (y: number) => .44 * Math.pow(Math.max(0, 1 - y / 33), .72) + .5 * Math.exp(-y * 2.6);
   const wood = new Parts(), farWood = new Parts(), crown = new Parts(), farCrown = new Parts();
 
-  // ---- Trunk: the ring layout first (see the module comment), with buttress lobes at the foot.
-  for (const [out, rings] of [[wood, TRUNK_RINGS], [farWood, TRUNK_RINGS]] as const) {
-    for (let r = 0; r < rings.length; r++) {
-      const y = rings[r], c = axis(y);
-      for (let i = 0; i <= TRUNK_SEGMENTS; i++) {
-        const a = i / TRUNK_SEGMENTS * Math.PI * 2;
-        const groove = 1 + .09 * Math.sin(a * 5 + phase) + .03 * Math.sin(y * 2 + a * 7);
-        const buttress = Math.exp(-y * 2.1) * Math.pow(Math.max(0, Math.cos(a * lobes + phase)), 3) * .62;
-        const rad = radiusAt(y) * groove + buttress;
-        out.p.push(c.x + Math.cos(a) * rad, y - .08, c.z + Math.sin(a) * rad);
-        out.uv.push(i / TRUNK_SEGMENTS * 2.2, y * .42);
-        // Damp, darker and mossier near the ground and on one side; occluded where the lobes meet.
-        const moss = Math.max(0, 1 - y / (1.3 + .7 * Math.sin(a * 2 + phase))) * (.55 + .45 * Math.cos(a - phase));
-        const ao = .62 + .38 * smooth(y, 0, 1.4) + buttress * .25;
-        out.c.push(ao * (.9 - moss * .18), ao * (.88 - moss * .06), ao * (.8 - moss * .22));
-        out.root.push(i % TRUNK_SEGMENTS); out.detail.push(0);
-        if (r < rings.length - 1 && i < TRUNK_SEGMENTS) { const a0 = r * (TRUNK_SEGMENTS + 1) + i, b0 = a0 + TRUNK_SEGMENTS + 1; out.idx.push(a0, b0, a0 + 1, a0 + 1, b0, b0 + 1); }
-      }
-    }
-  }
+  // ---- Trunk: the ring layout first (see the module comment), with buttress lobes at the foot. The lobes are broad swells
+  // ((1 + cos)/2 squared, about a third of the way round each): a sharper cos^3 peak spanned one of the 16 segments and
+  // stood out of the ground as a flat fin.
+  const buttressAt = (y: number, a: number) => Math.exp(-y * 2.4) * Math.pow(.5 + .5 * Math.cos(a * lobes + phase), 2.2) * .5;
+  for (const out of [wood, farWood]) ringTrunk(out, axis,
+    (y, a) => radiusAt(y) * (1 + .09 * Math.sin(a * 5 + phase) + .03 * Math.sin(y * 2 + a * 7)) + buttressAt(y, a), 2.2,
+    (y, a) => {
+      // Damp, darker and mossier near the ground and on one side; occluded where the lobes meet.
+      const moss = Math.max(0, 1 - y / (1.3 + .7 * Math.sin(a * 2 + phase))) * (.55 + .45 * Math.cos(a - phase));
+      const ao = .62 + .38 * smooth(y, 0, 1.4) + buttressAt(y, a) * .3;
+      return [ao * (.9 - moss * .18), ao * (.88 - moss * .06), ao * (.8 - moss * .22)];
+    });
   // Surface roots along the lobes: out from the foot, arching once and diving under the soil.
   for (let k = 0; k < lobes + 2; k++) {
     const a = (k < lobes ? (k * 2 * Math.PI - phase) / lobes : rnd() * Math.PI * 2) + (rnd() - .5) * .3;
@@ -139,7 +65,7 @@ export function buildConifer(species: ConiferSpecies, seed: number): Conifer {
     const dir = v3(Math.cos(a), 0, Math.sin(a)), sideDir = v3(-dir.z, 0, dir.x);
     const index = ((Math.round(a / (Math.PI * 2) * TRUNK_SEGMENTS) % TRUNK_SEGMENTS) + TRUNK_SEGMENTS) % TRUNK_SEGMENTS;
     tube(wood, t => v3().addScaledVector(dir, .3 + reach * t).addScaledVector(sideDir, wander * t * t).setY(.42 * Math.pow(1 - t, 1.7) + .05 * Math.sin(t * Math.PI) - .28 * t * t - .06),
-      t => thick * Math.pow(1 - t, 1.2) + .025, 6, 6, index, 1, t => .55 + .25 * t, .8);
+      t => thick * Math.pow(1 - t, 1.2) + .025, 6, 6, index, 1, t => .55 + .25 * t);
   }
 
   // ---- Crown. The light at a point in it: outer and upper cards bright, inner and lower ones shaded; normals lean outward.
@@ -189,17 +115,18 @@ export function buildConifer(species: ConiferSpecies, seed: number): Conifer {
       }
     }
     for (let j = 0; j < 12; j++) {
-      const y = .8 + rnd() * Math.max(.5, crownBase - .8), a = rnd() * Math.PI * 2, dir = v3(Math.cos(a), 0, Math.sin(a)), s = axis(y).addScaledVector(dir, radiusAt(y) * .9), l = .3 + rnd() * 1.1;
-      branchList.push({ start: s, path: t => s.clone().addScaledVector(dir, l * t).setY(s.y + l * (-.25 * t)), length: l, dir, live: false });
+      const y = 2.2 + rnd() * Math.max(.5, crownBase - 2.2), a = rnd() * Math.PI * 2, dir = v3(Math.cos(a), 0, Math.sin(a)), s = axis(y).addScaledVector(dir, radiusAt(y) * .9), l = .3 + rnd() * .8;
+      branchList.push({ start: s, path: t => s.clone().addScaledVector(dir, l * t).setY(s.y + l * (-.12 * t - .3 * t * t)), length: l, dir, live: false });
     }
   }
   // ---- Wood for the limbs, then the sprays along them.
   const across = v3(), along = v3(), up = v3(0, 1, 0), tangent = v3();
   for (const b of branchList) {
     // Limbs taper from a few centimetres at the trunk: a 4 m spruce limb is about 12 cm thick at its base.
-    const r0 = (b.live ? .016 : .014) + b.length * (pine ? .015 : .012);
-    tube(wood, b.path, t => r0 * (1 - t * .8), 5, b.length > 1.5 ? 4 : 2, 0, b.length < 1.2 ? 1 : 0, () => b.live ? .85 : .72, .9);
-    if (b.length > 1.8) tube(farWood, b.path, t => r0 * (1 - t * .7), 3, 2, 0, 0, () => .8, .9);
+    // Dead limbs are thinner, bark long gone: they read as grey sticks, not spears.
+    const r0 = b.live ? .016 + b.length * (pine ? .015 : .012) : .009 + b.length * .007;
+    tube(wood, b.path, t => r0 * (1 - t * (b.live ? .8 : .9)), 5, b.length > 1.5 ? 4 : 2, 0, b.length < 1.2 ? 1 : 0, () => b.live ? .85 : .72);
+    if (b.length > 1.8) tube(farWood, b.path, t => r0 * (1 - t * .7), 3, 2, 0, 0, () => .8);
     if (!b.live) continue;
     const spacing = pine ? .16 : .2 / density;
     const from = pine ? .55 : .1;
@@ -237,7 +164,7 @@ export function buildConifer(species: ConiferSpecies, seed: number): Conifer {
   const tint = pine ? [.98 + rnd() * .08, 1, .9 + rnd() * .08] : [.9 + rnd() * .06, .96 + rnd() * .06, .95 + rnd() * .08];
   for (const parts of [crown, farCrown]) for (let i = 0; i < parts.c.length; i += 3) { parts.c[i] *= tint[0]; parts.c[i + 1] *= tint[1]; parts.c[i + 2] *= tint[2]; }
   const trunk = wood.geometry(false), farTrunk = farWood.geometry(false);
-  return { trunk, farTrunk, crown: crown.geometry(true, 0), farCrown: farCrown.geometry(true, 1), crownBase };
+  return { trunk, farTrunk, crown: crown.geometry(true, 0), farCrown: farCrown.geometry(true, 1), crownBase, boleRadius: radiusAt(1.5) };
 }
 
 /** Several trees per species: the forest picks one by each tree's seed. */
