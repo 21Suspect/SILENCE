@@ -1,8 +1,9 @@
+import '../../helpers/register-ts-hooks.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { solarDirection, nightVisibility, DAY_SKY_HEX, skyDisplayRadiance, starCatalog } from '../../../game/render/world/sky.ts';
-import { createStableSunShadow } from '../../../game/render/world/shadows.ts';
+const { solarDirection, starCatalog } = await import('../../../game/render/world/sky.ts');
+const { createStableSunShadow } = await import('../../../game/render/world/shadows.ts');
 
 test('the solar orbit rises in the east, passes south and sets in the west',()=>{
   const dawn=solarDirection(6),noon=solarDirection(12),dusk=solarDirection(18),night=solarDirection(0);
@@ -23,16 +24,6 @@ test('a stationary player receives new shadows when the sun rotates',()=>{
   assert.ok(new THREE.Vector3().subVectors(sun.position,sun.target.position).normalize().distanceTo(solarDirection(7.1))<1e-10);
 });
 
-test('ambient illumination remains usable throughout the entire night cycle',()=>{
-  for(let hour=0;hour<24;hour+=.025){
-    const elevation=solarDirection(hour).y,daylight=THREE.MathUtils.smoothstep(elevation,-.14,.16);
-    const light=nightVisibility(daylight);
-    assert.ok(light.hemisphere>=.1&&light.environment>=.025,'ambient light was extinguished');
-    assert.ok(light.hemisphere<=1&&light.environment<.2,'night floor changed the day exposure');
-  }
-  assert.ok(nightVisibility(0).hemisphere<nightVisibility(1).hemisphere*.25);
-});
-
 test('contact shadow offsets stay below a centimetre without enlarging the 4K map',()=>{
   const sun=new THREE.DirectionalLight(),shadow=createStableSunShadow(sun,8192);
   const depthRange=sun.shadow.camera.far-sun.shadow.camera.near;
@@ -41,16 +32,6 @@ test('contact shadow offsets stay below a centimetre without enlarging the 4K ma
   assert.equal(shadow.size,4096);assert.ok(shadow.texel<.018);
 });
 
-
-test('the daytime sky reproduces the exact sampled reference endpoints after exposure',()=>{
-  assert.equal(DAY_SKY_HEX[0],0x88b9e6);assert.equal(DAY_SKY_HEX.at(-1),0x185197);
-  for(const hex of DAY_SKY_HEX){
-    const reference=new THREE.Color(hex),radiance=skyDisplayRadiance(reference);
-    const aces=x=>(x*(2.51*x+.03))/(x*(2.43*x+.59)+.14);
-    const resolved=new THREE.Color(aces(radiance.r*1.24),aces(radiance.g*1.24),aces(radiance.b*1.24));
-    assert.equal(resolved.getHex(),hex,'the exact source color was changed by exposure');
-  }
-});
 
 test('stellar points cover a sphere without pole streaks and have a restrained brightness hierarchy',()=>{
   const {positions,colors,flux,size}=starCatalog();let yMean=0,bright=0;

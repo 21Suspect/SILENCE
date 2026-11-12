@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import type { createRiver } from './river';
 import { WORLD_V2 } from '../../sim/world/world-flags';
+import { SKY_LUT_GLSL } from './sky-model';
+import { createFinalImage, type Grade, type ToneMapper } from '../post/final-image';
 
 // Integrate the participating medium at half resolution, then reconstruct it
 // against full-resolution surface depth. Scene textures and silhouettes stay sharp.
@@ -17,6 +19,9 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
   waterTarget.depthTexture=new THREE.DepthTexture(1,1,THREE.UnsignedIntType);
   const fogTarget=new THREE.WebGLRenderTarget(1,1,{type:THREE.HalfFloatType,depthBuffer:false,minFilter:THREE.NearestFilter,magFilter:THREE.NearestFilter});
   const resolvedTarget=new THREE.WebGLRenderTarget(1,1,{depthBuffer:false,minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter});
+  // The fogged scene in linear light, for the final-image stage (exposure, bloom, grade, tone curve: game/render/post).
+  const hdrTarget=new THREE.WebGLRenderTarget(1,1,{type:THREE.HalfFloatType,depthBuffer:false,minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter});
+  const finalImage=createFinalImage(renderer);
   const aaMaterial=new THREE.ShaderMaterial({uniforms:THREE.UniformsUtils.clone(FXAAShader.uniforms),vertexShader:FXAAShader.vertexShader,fragmentShader:FXAAShader.fragmentShader,depthTest:false,depthWrite:false});
   aaMaterial.uniforms.tDiffuse.value=resolvedTarget.texture;
   const waterResolution=new THREE.Vector2();
@@ -33,6 +38,10 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
     // The torch as the spot light itself has it: shadow camera near and far, cone and penumbra cosines, decay, and its cookie.
     flashRange:{value:new THREE.Vector2(.06,48)},flashCone:{value:new THREE.Vector2(.866,.9945)},flashDecay:{value:1.35},flashCookie:{value:null as THREE.Texture|null},flashHasCookie:{value:0},
     sunShadow:{value:null as THREE.Texture|null},sunMatrix:{value:sun.shadow.matrix},shadowTexel:{value:1/sun.shadow.mapSize.x},
+    // The sky model's view table (game/render/world/sky-model.ts): the haze takes the sky's own colour towards the horizon.
+    skyLut:{value:null as THREE.Texture|null},fogAmbient:{value:.8},fogDensity:{value:1},aerialDensity:{value:1/2600},
+    // The ground mist is lit by the whole sky dome (and the ground below it), not by the bright horizon: its colour comes from the sky model.
+    mistColor:{value:new THREE.Color(.1,.12,.14)},
   };
   // A top-down map of the tree crowns round the player, built from the trees' own colliders: 1 under a crown, 0 in a gap.
   // It is redrawn on the CPU only when the player has walked a few metres; the fog reads it along the sun's direction.
@@ -80,8 +89,13 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
     uniform mat4 inverseProjection,cameraWorld,sunMatrix;
     uniform vec3 cameraPositionWorld,fogColor,sunDirection,sunScatterColor;
     uniform vec2 fogSize;uniform float fogSteps;
-    uniform float time,darkness,shadowTexel,sunLevel;
+    uniform float time,darkness,shadowTexel,sunLevel,fogDensity;
+    uniform sampler2D skyLut;uniform float fogAmbient,aerialDensity;uniform vec3 mistColor;
     varying vec2 vUv;
+    ${SKY_LUT_GLSL}
+    // The light the mist itself is lit with from the sky: the sky's colour just above the horizon in this direction (so the haze
+    // in front of a ridge is the colour of the sky behind it, warmer towards a low sun).
+    vec3 hazeColor(vec3 ray){vec3 d=normalize(vec3(ray.x,max(ray.y,0.)*.35+.04,ray.z));return skyLookup(skyLut,d,sunDirection);}
     float hash(vec3 p){p=fract(p*.3183099+vec3(.1,.2,.3));p*=17.;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}
     float surfaceDepth(vec2 uv){
       float opaqueDepth=texture2D(tDepth,uv).r;
@@ -120,7 +134,7 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
         vec3 p=cameraPositionWorld+ray*distanceAlongRay;
         float billow=noise((p+vec3(time*.10,0.,time*.035))*.085);
         float heightDensity=exp(-max(p.y-1.5,0.)*.050);
-        float density=(.014+billow*.03)*heightDensity*smoothstep(1.5,16.,distanceAlongRay);
+        float density=(.014+billow*.03)*fogDensity*heightDensity*smoothstep(1.5,16.,distanceAlongRay);
         float extinction=density*stepLength;
         if(day>.025)illuminatedFog+=exp(-opticalDepth)*(1.-exp(-extinction))*sunlight(p);
         if(flashPower>0.){
@@ -153,6 +167,9 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
       vec3 view=viewAt(vUv,depth);
       float distanceToSurface=min(length(view),180.);
       vec3 ray=normalize(mat3(cameraWorld)*view);
+      // Long-range haze beyond the mist: the air itself, a few kilometres of visibility, tinted by the same sky. The sky
+      // already contains its own air, so it is left alone.
+      if(depth<.999999)color=mix(hazeColor(ray),color,exp(-length(view)*aerialDensity));
       // The HDR sky draws the moving solar disc, moon and stars before fog.
       if(fogEnabled){
 `;
@@ -173,22 +190,11 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
         }
         fog/=max(weights,.00001);
         float forwardScatter=.17+1.12*pow(max(dot(ray,sunDirection),0.),5.);
-        color=color*fog.r+fogColor*mix(.72,1.,darkness)*(1.-fog.r);
+        color=color*fog.r+mistColor*(1.-fog.r);
         color+=vec3(1.,.88,.70)*fog.z;
         color+=sunScatterColor*fog.g*forwardScatter*.50*pow(1.-darkness,2.);
 `;
   const resolveTail=`      }
-      float luminance=dot(color,vec3(.2126,.7152,.0722));
-      // The original sky is calibrated from exact sRGB palette samples. Leave
-      // its chroma intact; the forest retains its cinematic color treatment.
-      // Both paths already received the same physically integrated fog above.
-      float sky=step(.999999,depth);
-      color=mix(mix(vec3(luminance),color,.76)*vec3(.94,1.,1.01),color,sky);
-      // Modest dark adaptation preserves terrain/prop contrast in the darkest
-      // part of the cycle. A tiny cool toe keeps even occluded surfaces legible.
-      color+=vec3(.00065,.00085,.0011)*darkness;
-      color=linearSrgb(aces(color*mix(1.24,1.65,darkness)));
-      color*=1.-smoothstep(.16,.75,length((vUv-.5)*vec2(1.,.86)))*.24*(1.-sky*(1.-darkness));
       gl_FragColor=vec4(max(color,0.),1.);
     }`;
   const resolveSource=(extra:string,fog:string)=>common+extra+resolveHead+fog+resolveTail;
@@ -276,7 +282,7 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
         vec3 p=cameraPositionWorld+ray*distanceAlongRay;
         float billow=noise((p+vec3(time*.10,0.,time*.035))*.085);
         float heightDensity=exp(-max(p.y-1.5,0.)*.050);
-        float density=(.014+billow*.03)*heightDensity*smoothstep(1.5,16.,distanceAlongRay);
+        float density=(.014+billow*.03)*fogDensity*heightDensity*smoothstep(1.5,16.,distanceAlongRay);
         float extinction=density*sliceLength;
         float scatter=exp(-opticalDepth)*(1.-exp(-extinction));
         if(sunLevel>.01){
@@ -297,7 +303,7 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
           if(t0>=reach)break;
           float t1=.4+(reach-.4)*pow(float(i+1)/10.,1.5),sliceLength=t1-t0,along=t0+beamJitter*sliceLength;
           vec3 p=cameraPositionWorld+ray*along;
-          float extinction=.029*exp(-max(p.y-1.5,0.)*.050)*smoothstep(1.5,16.,along)*sliceLength;
+          float extinction=.029*fogDensity*exp(-max(p.y-1.5,0.)*.050)*smoothstep(1.5,16.,along)*sliceLength;
           float scatter=exp(-beamDepth)*(1.-exp(-extinction));
           beamDepth+=extinction;
           vec3 fromLamp=p-flashPosition;float lampDistance=length(fromLamp);vec3 lampRay=fromLamp/max(lampDistance,1e-4);
@@ -369,7 +375,7 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
         }
         fog/=max(weights,1e-6);
         float forwardScatter=.17+1.12*pow(max(dot(ray,sunDirection),0.),5.);
-        color=color*fog.r+fogColor*mix(.72,1.,darkness)*(1.-fog.r);
+        color=color*fog.r+mistColor*(1.-fog.r);
         color+=vec3(1.,.88,.70)*fog.z;
         // As strong as the sun's direct light is: nothing once it is down, still full at a low golden sun.
         color+=sunScatterColor*fog.g*forwardScatter*.60*pow(sunLevel,.6);
@@ -425,7 +431,8 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
   const quadScene=new THREE.Scene(),quadCamera=new THREE.Camera();
   const quad=new THREE.Mesh(new THREE.PlaneGeometry(2,2),resolveMaterial);quad.frustumCulled=false;quadScene.add(quad);
   const dawn=new THREE.Color(0x879b98),night=new THREE.Color(0x071015),clearColor=new THREE.Color();
-  let useFxaa=true;
+  let useFxaa=true,lastFrame=-1;
+  const toneMapper=((typeof location!=='undefined'&&new URLSearchParams(location.search).get('tonemap'))||'aces') as ToneMapper;
   let measureStage:((name:string,draw:()=>void)=>void)|undefined;
   const stage=(name:string,draw:()=>void)=>{if(measureStage)measureStage(name,draw);else draw();};
   return {
@@ -445,6 +452,7 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
     /** Every target follows the render size the player chose (game/core/quality.ts): the scene at full size, the fog at a fraction of it. */
     resize(width:number,height:number,ratio:number){
       const w=Math.round(width*ratio),h=Math.round(height*ratio);
+      hdrTarget.setSize(w,h);finalImage.resize(w,h);
       const requested=scene.userData.graphicsAA??4;const samples=Math.min(requested<=1?0:requested,4,renderer.capabilities.maxSamples);if(target.samples!==samples){target.samples=samples;target.dispose();}
       // FXAA runs on top of every MSAA level (the calibrated look is 4x MSAA + FXAA); "Off" is the only setting without it.
       useFxaa=requested!==0;
@@ -473,6 +481,10 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
       if(!scene.userData.hasSky)scene.background=uniforms.fogColor.value;
       scene.userData.skyColor=uniforms.fogColor.value;
       uniforms.inverseProjection.value.copy(camera.projectionMatrixInverse);
+      if(scene.userData.skyLut)uniforms.skyLut.value=scene.userData.skyLut as THREE.Texture;
+      uniforms.fogDensity.value=(scene.userData.fogDensity as number|undefined)??1;
+      uniforms.fogAmbient.value=(scene.userData.fogAmbient as number|undefined)??.8;
+      if(scene.userData.mistColor)uniforms.mistColor.value.copy(scene.userData.mistColor as THREE.Color);
       water.prepare(camera);uniforms.hasWater.value=water.visible;
       stage('opaque',()=>{renderer.setRenderTarget(target);renderer.render(scene,camera);});
       if(water.visible)stage('water',()=>{
@@ -487,7 +499,7 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
         stage('terrainSun',()=>{terrainSun.update(uniforms.sunDirection.value,camera.position,uniforms.terrainSunBias.value);});
         uniforms.terrainSun.value=terrainSun.texture;uniforms.terrainSunMatrix.value.copy(terrainSun.matrix);uniforms.terrainSunOn.value=1;
       }else uniforms.terrainSunOn.value=0;
-      uniforms.sunLevel.value=Math.min(1,sun.intensity/1.32);
+      uniforms.sunLevel.value=(scene.userData.sunLevel as number|undefined)??Math.min(1,sun.intensity/1.32);
       canopy.update(camera.position);
       const flash=scene.userData.flashlight as THREE.SpotLight|null;
       uniforms.flashPower.value=flash?.intensity??0;
@@ -505,9 +517,14 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
           blurUniforms.tSrc.value=fogBlurTarget.texture;blurUniforms.axis.value.set(0,1);renderer.setRenderTarget(fogTarget);renderer.render(quadScene,quadCamera);
         }
       }});
-      stage('resolve',()=>{quad.material=WORLD_V2?resolveMaterial2:resolveMaterial;renderer.setRenderTarget(useFxaa?resolvedTarget:null);renderer.render(quadScene,quadCamera);});
+      stage('resolve',()=>{quad.material=WORLD_V2?resolveMaterial2:resolveMaterial;renderer.setRenderTarget(hdrTarget);renderer.render(quadScene,quadCamera);});
+      const now=performance.now(),dt=lastFrame<0?0:(now-lastFrame)/1000;lastFrame=now;
+      const grade=scene.userData.grade as Grade|undefined;
+      if(grade)stage('final',()=>{finalImage.render(hdrTarget.texture,useFxaa?resolvedTarget:null,grade,dt,toneMapper);});
       stage('antialias',()=>{if(useFxaa){quad.material=aaMaterial;renderer.setRenderTarget(null);renderer.render(quadScene,quadCamera);}});
     },
-    dispose(){canopy.dispose();resolvedTarget.dispose();aaMaterial.dispose();target.dispose();waterTarget.dispose();fogTarget.dispose();fogBlurTarget.dispose();terrainSun?.dispose();fogMaterial.dispose();fogMaterial2.dispose();fogBlurMaterial.dispose();resolveMaterial.dispose();resolveMaterial2.dispose();quad.geometry.dispose();}
+    /** The eye starts adapting afresh (teleports, loading). */
+    resetExposure(){finalImage.resetExposure();},
+    dispose(){canopy.dispose();resolvedTarget.dispose();hdrTarget.dispose();finalImage.dispose();aaMaterial.dispose();target.dispose();waterTarget.dispose();fogTarget.dispose();fogBlurTarget.dispose();terrainSun?.dispose();fogMaterial.dispose();fogMaterial2.dispose();fogBlurMaterial.dispose();resolveMaterial.dispose();resolveMaterial2.dispose();quad.geometry.dispose();}
   };
 }
