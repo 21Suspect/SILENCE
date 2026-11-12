@@ -116,41 +116,6 @@
       ]
     },
     {
-      "asset": "pine_tree_01",
-      "source": "https://polyhaven.com/a/pine_tree_01",
-      "license": "CC0-1.0",
-      "license_url": "https://polyhaven.com/license",
-      "modification": "Isolated top-left connected shoot component with 8px padding; cropped all maps to matching bounds; diffuse contains alpha; other UV islands removed from mask.",
-      "crop_box": [
-        28,
-        37,
-        233,
-        460
-      ],
-      "files": [
-        {
-          "source_url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/pine_tree_01/pine_tree_01_twig_diff_1k.png",
-          "source_md5": "a4fa4a55aab9231915a4023ea9841577",
-          "file": "pine/pine-diff.png"
-        },
-        {
-          "source_url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/pine_tree_01/pine_tree_01_twig_alpha_1k.png",
-          "source_md5": "641911a5a3f543911dad04ebb26e7bca",
-          "file": "pine/pine-alpha.png"
-        },
-        {
-          "source_url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/pine_tree_01/pine_tree_01_twig_nor_gl_1k.png",
-          "source_md5": "1c437201b679e4b5e6a10af8e9b9b523",
-          "file": "pine/pine-normal.png"
-        },
-        {
-          "source_url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/pine_tree_01/pine_tree_01_twig_rough_1k.png",
-          "source_md5": "8ef8f0d1cbd36b1e4578eb729fa6f0b7",
-          "file": "pine/pine-rough.png"
-        }
-      ]
-    },
-    {
       "asset": "grass_medium_01",
       "authors": [
         "Rob Tuytel",

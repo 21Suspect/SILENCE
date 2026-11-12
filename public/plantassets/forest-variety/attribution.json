@@ -9,18 +9,8 @@
     },
     {
       "source": "https://polyhaven.com/a/tree_small_02",
-      "source_url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/tree_small_02/tree_small_02_leaves_alpha_1k.jpg",
-      "file": "broadleaf-alpha.jpg"
-    },
-    {
-      "source": "https://polyhaven.com/a/tree_small_02",
       "source_url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/tree_small_02/tree_small_02_leaves_nor_gl_1k.jpg",
       "file": "broadleaf-normal.jpg"
-    },
-    {
-      "source": "https://polyhaven.com/a/tree_small_02",
-      "source_url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/tree_small_02/tree_small_02_leaves_rough_1k.jpg",
-      "file": "broadleaf-rough.jpg"
     },
     {
       "source": "https://polyhaven.com/a/rock_boulder_dry",
