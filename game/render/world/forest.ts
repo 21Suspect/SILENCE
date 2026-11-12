@@ -176,6 +176,9 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
   const coniferBark=(folder:string,name:string)=>{
     const m=new THREE.MeshStandardMaterial({map:texture(`/world/trees/${folder}/bark-color.jpg`,true),normalMap:texture(`/world/trees/${folder}/bark-normal.jpg`),roughnessMap:texture(`/world/trees/${folder}/bark-roughness.jpg`),
       roughness:1,normalScale:new THREE.Vector2(1.1,1.1),vertexColors:true});
+    // The scans' bark averages 0.035 to 0.045 linear albedo with their occlusion baked in (texture audit), half of real dry bark
+    // and of the forest floor, and with the relief's own cavity occlusion on top every trunk read as a blue-black silhouette.
+    m.color.setScalar(2);
     m.name=name;return m;
   };
   const coniferNeedles=(folder:string,name:string)=>{
