@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SILENCE / SOUNDS</title>
+    <style>
+      body { margin: 0; background: #0d1210; color: #dfe6dc; font: 16px/1.5 system-ui, sans-serif; padding: 40px 24px; }
+      .page { max-width: 600px; margin: 0 auto; }
+      h1 { font-size: 22px; letter-spacing: .18em; font-weight: 500; margin: 0 0 6px; }
+      h2 { font-size: 16px; font-weight: 600; margin: 0 0 2px; }
+      p { color: #8fa196; margin: 0 0 30px; }
+      section p { font-size: 13px; margin: 0 0 10px; }
+      section { margin: 0 0 30px; }
+      button { display: block; width: 100%; text-align: left; padding: 12px 16px; margin: 0 0 8px; background: #1b2420; color: inherit; border: 1px solid #34413a; border-radius: 6px; font: inherit; cursor: pointer; }
+      button[aria-pressed="true"] { background: #2c3a33; border-color: #7f9588; }
+    </style>
+  </head>
+  <body>
+    <!-- Dev soundboard: every creature sound and ambience bed, so one of each can be chosen by ear. Run `npm run dev` and open /tools/sounds/. -->
+    <div class="page">
+      <h1>SILENCE / SOUNDS</h1>
+      <p>Every creature sound in the game. In play each comes from where the creature is; here they are plain.</p>
+      <div id="groups"></div>
+    </div>
+    <script type="module">
+      const takes = (group, labels) => labels.map((label, i) => [`creature/${group}_${i + 1}`, `${i + 1} · ${label}`]);
+      const GROUPS = [
+        ["Roar", "the grab, and (quieter, from a distance) the start of a hunt. The game picks a different take each time.",
+          takes("screech", ["take", "take", "take", "take", "take"])],
+        ["Hiss", "when the flashlight pins it", takes("hiss", ["through teeth", "through teeth", "rattle only", "rattle only", "wet growl", "wet growl"])],
+        ["Clicks", "it has been close for a while and you have not found it",
+          takes("clicks", ["short, ends on an in-breath", "slow, swelling once", "stops as if listening, then picks up", "very slow single ticks", "long, runs together near the end", "starts fast and winds down", "with a held breath, ends on an in-breath", "sparse and patient"])],
+        ["Knocks on a tree trunk", "rare: when you have stopped to listen and are not looking at it", takes("knock_trunk", ["two, then one late", "two, slow", "three, a long wait, one more", "once"])],
+        ["Branch", "it moving in the trees, out of sight", takes("branch", ["dry stick", "dry stick", "dry stick", "green limb tearing", "green limb tearing", "heavy break dropping through brush"])],
+        ["Distant call", "when it has lost you", takes("call", ["moan", "moan", "from the recording, slowed", "from the recording, slowed"])],
+        ["Forest ambience (real recordings, CC0)", "in the game these cross-fade with the light, start at random points and swap every minute or two", [
+          ["ambience/day_1", "Day · forest with birds and wind"], ["ambience/day_2", "Day · second forest"],
+          ["ambience/night_1", "Night · countryside at night"], ["ambience/night_2", "Night · forest after rain"],
+          ["ambience/wind", "Wind in the trees (always on, rising and falling)"], ["ambience/owls", "Owls · far off, now and then at night"],
+        ]],
+        ["Already in the game", "", [["scary sound", "Reveal recording"]]],
+      ];
+
+
+      const root = document.getElementById('groups');
+      let player, playing;
+      for (const [title, when, sounds] of GROUPS) {
+        const section = document.createElement('section');
+        const h = document.createElement('h2'); h.textContent = title; section.appendChild(h);
+        if (when) { const p = document.createElement('p'); p.textContent = when; section.appendChild(p); }
+        for (const [file, label] of sounds) {
+          const button = document.createElement('button'); button.textContent = label; button.setAttribute('aria-pressed', 'false');
+          button.onclick = () => {
+            player?.pause(); playing?.setAttribute('aria-pressed', 'false');
+            player = new Audio(`/audio/${encodeURIComponent(file).replace('%2F', '/')}.mp3`); playing = button;
+            button.setAttribute('aria-pressed', 'true');
+            player.addEventListener('ended', () => { if (playing === button) button.setAttribute('aria-pressed', 'false'); });
+            void player.play();
+          };
+          section.appendChild(button);
+        }
+        root.appendChild(section);
+      }
+    </script>
+  </body>
+</html>

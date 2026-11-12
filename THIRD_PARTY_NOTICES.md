@@ -12,8 +12,6 @@ Third-party content retains its own license; the MIT license does not replace it
   Fourteen prop atlases include baked derivatives of the additional scans.
 - Original creature and sky provenance: `public/creature/attribution.json` and
   `public/sky/attribution.json`.
-- Vendored software notices: `vendor/shadcn-tailwind-4.13.0.LICENSE.md` and
-  `scripts/vite/sites-vite-plugin.LICENSE`.
 - npm dependencies retain the licenses distributed in their respective packages.
 
 The recording `public/audio/scary sound.mp3` was supplied by Fabian Vinke, who

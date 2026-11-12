@@ -1,18 +1,14 @@
 import { defineConfig, globalIgnores } from "eslint/config";
-import nextVitals from "eslint-config-next/core-web-vitals";
-import nextTs from "eslint-config-next/typescript";
+import tseslint from "typescript-eslint";
 
-const eslintConfig = defineConfig([
-  ...nextVitals,
-  ...nextTs,
-  globalIgnores([
-    "dist/**",
-    ".vinext/**",
-    ".wrangler/**",
-    ".sites-runtime/**",
-    "outputs/**",
-    "work/**",
-  ]),
+// typescript-eslint's recommended rules, with unused variables and expressions as warnings (what the project used before).
+export default defineConfig([
+  ...tseslint.configs.recommended,
+  {
+    rules: {
+      "@typescript-eslint/no-unused-vars": "warn",
+      "@typescript-eslint/no-unused-expressions": "warn",
+    },
+  },
+  globalIgnores(["dist/**", "work/**", "output/**", "outputs/**"]),
 ]);
-
-export default eslintConfig;
