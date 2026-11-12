@@ -1,0 +1,28 @@
+{
+ "provider": "Poly Haven",
+ "license": "CC0-1.0",
+ "license_url": "https://polyhaven.com/license",
+ "built_by": "tools/assets/trees/pack.py (textures only; the trees are grown by game/render/world/conifer.ts)",
+ "assets": [
+  {
+   "asset": "pine_tree_01",
+   "authors": [
+    "Rico Cilliers",
+    "Rob Tuytel"
+   ],
+   "source": "https://polyhaven.com/a/pine_tree_01",
+   "license": "CC0-1.0",
+   "used": "pine/: twig atlas (needle sprays) and bark"
+  },
+  {
+   "asset": "fir_tree_01",
+   "authors": [
+    "Rico Cilliers",
+    "Rob Tuytel"
+   ],
+   "source": "https://polyhaven.com/a/fir_tree_01",
+   "license": "CC0-1.0",
+   "used": "spruce/: twig atlas (needle sprays) and bark"
+  }
+ ]
+}

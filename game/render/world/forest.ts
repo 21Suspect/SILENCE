@@ -11,20 +11,23 @@ import { createMeshSurface } from './surface-support';
 import { branchSpec, broadleafGeometry, crownBranches, crownGeometry, stumpGeometry } from './forest-assets';
 import { createVegetationBatcher, type VegetationBatchDefinition, type VegetationBatchHandle } from './vegetation-batches';
 import { perfOn } from '../../core/perf-flags';
+import { TRUNK_RINGS, TRUNK_SEGMENTS, buildConiferVariants } from './conifer';
 import { loadNature, type NatureVariant } from './nature-assets';
 import { createSlice, runSlice, runToEnd } from '../../core/time-slice';
 
 type Collider = { x: number; z: number; radius: number };
 type Tree = { x: number; z: number; y: number; height: number; width: number; yaw: number; kind: number; seed: number };
 type Scatter = { x: number; z: number; y: number; size: number; yaw: number; variant: number };
-const TRUNK_RINGS = [0, .16, .45, .9, 1.5, 2.4, 4, 6, 8.5, 11, 14, 17, 20, 23, 26, 29, 31];
-const TRUNK_SEGMENTS = 16;
+// Pines and spruces are grown by conifer.ts, several per species; a tree takes one by its seed.
+const CONIFER_VARIANTS = 4;
 // Trees are placed out to TREE_RANGE+FOREST_BUFFER round the point the forest was last rebuilt at and faded by distance from the eye in
 // the shader, so the placement stays valid until the player is FOREST_BUFFER from that point. A rebuild starts every FOREST_STEP and
 // is spread over a few frames; the 1.5 m between the two is the room it has to finish in.
 const FOREST_STEP=6, FOREST_BUFFER=FOREST_STEP+1.5, TREE_RANGE=98, TREE_COLLISION_RANGE=94, TRUNK_DETAIL_END=43, CROWN_DETAIL_START=30, CROWN_DETAIL_END=40;
 // How far the scanned ground pieces are drawn. Each dissolves out over the last 8 m, so a rebuild never pops one in or out.
 const ROCK_RANGE=58, BRANCH_RANGE=42, STUMP_RANGE=65, TRUNK_RANGE=77, PEBBLE_RANGE=24;
+// Trees within this distance cast crown shadows (the sun's shadow map spans 72 m round the player, shadows.ts).
+const SHADOW_RANGE=60;
 const branchesByKind = Array.from({length:8}, (_,kind) => Array.from({length:36}, (_,branch) => branchSpec(kind,branch)));
 
 // All vegetation is deterministic; only objects concealed by the fog are recycled.
@@ -256,6 +259,21 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
     roughnessMap: texture('/plantassets/pine/pine-rough.png', false, false),
     normalScale: new THREE.Vector2(.4, .4), alphaTest: .20, alphaToCoverage: true, side: THREE.DoubleSide, roughness: .94, color: 0xaab39b,
   });
+  // The conifers wear the bark and needle sprays of Poly Haven's scanned pine and fir (CC0; tools/assets/trees, packed in
+  // public/world/trees): the bark's own occlusion baked into its colour, its normals and roughness, the twig atlases at 2K.
+  const coniferBark=(folder:string,name:string)=>{
+    const m=new THREE.MeshStandardMaterial({map:texture(`/world/trees/${folder}/bark-color.jpg`,true),normalMap:texture(`/world/trees/${folder}/bark-normal.jpg`),roughnessMap:texture(`/world/trees/${folder}/bark-roughness.jpg`),
+      roughness:1,normalScale:new THREE.Vector2(1.1,1.1),vertexColors:true});
+    m.name=name;return m;
+  };
+  const coniferNeedles=(folder:string,name:string)=>{
+    const m=new THREE.MeshStandardMaterial({map:texture(`/world/trees/${folder}/twig-color.jpg`,true,false),alphaMap:texture(`/world/trees/${folder}/twig-alpha.png`,false,false),
+      normalMap:texture(`/world/trees/${folder}/twig-normal.jpg`,false,false),roughnessMap:texture(`/world/trees/${folder}/twig-roughness.jpg`,false,false),
+      normalScale:new THREE.Vector2(.5,.5),alphaTest:.3,alphaToCoverage:true,side:THREE.DoubleSide,roughness:1,vertexColors:true});
+    m.name=name;return m;
+  };
+  const pineBark=coniferBark('pine','Scanned Scots pine bark'),spruceBark=coniferBark('spruce','Scanned fir bark');
+  const pineNeedles=coniferNeedles('pine','Scanned pine sprays'),spruceNeedles=coniferNeedles('spruce','Scanned fir sprays');
   const birchBark=new THREE.MeshStandardMaterial({map:texture('/plantassets/forest-variety/birch-diff.png',true),normalMap:texture('/plantassets/forest-variety/birch-normal.png'),roughnessMap:texture('/plantassets/forest-variety/birch-rough.png'),roughness:.96,normalScale:new THREE.Vector2(.85,-.85),vertexColors:true,color:0xe5e4d8});
   birchBark.name='Scanned silver birch — peeling bark and fissures';
   const oakBark=new THREE.MeshStandardMaterial({map:texture('/plantassets/forest-variety/oak-diff.jpg',true),normalMap:texture('/plantassets/forest-variety/oak-normal.jpg'),roughnessMap:texture('/plantassets/forest-variety/oak-rough.jpg'),roughness:1,normalScale:new THREE.Vector2(.9,.9),vertexColors:true,color:0xdbd6bd});
@@ -311,7 +329,7 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
       #endif
     `);
   };
-  needlesMaterial.onBeforeCompile=foliageWind;
+  needlesMaterial.onBeforeCompile=foliageWind;pineNeedles.onBeforeCompile=foliageWind;spruceNeedles.onBeforeCompile=foliageWind;
   broadleafMaterial.onBeforeCompile=shader=>{
     foliageWind(shader);
     shader.vertexShader='attribute vec3 leafCenter;\n'+shader.vertexShader;
@@ -327,16 +345,16 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
   broadleafMaterial.customProgramCacheKey=()=> 'silence-fixed-scale-broadleaf-crown';
   const rootDepth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
   const rootDistance = new THREE.MeshDistanceMaterial();
-  for (const material of [bark, birchBark, oakBark, rootDepth, rootDistance]) {
+  for (const material of [bark, birchBark, oakBark, pineBark, spruceBark, rootDepth, rootDistance]) {
     material.onBeforeCompile = shader => {
       shader.vertexShader = ROOT_SHADER_HEADER + shader.vertexShader;
       shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', ROOT_SHADER_DEFORM);
     };
   }
-  varyDirectionalTexture(bark);varyDirectionalTexture(birchBark);varyDirectionalTexture(oakBark);
+  varyDirectionalTexture(bark);varyDirectionalTexture(birchBark);varyDirectionalTexture(oakBark);varyDirectionalTexture(pineBark);varyDirectionalTexture(spruceBark);
   varyDirectionalTexture(logBark);
-  for(const m of [bark,birchBark,oakBark,rootDepth,rootDistance])fadeInstances(m,83,TREE_RANGE,'trunk');
-  for(const m of [needlesMaterial,broadleafMaterial])fadeInstances(m,83,TREE_RANGE,'crown');
+  for(const m of [bark,birchBark,oakBark,pineBark,spruceBark,rootDepth,rootDistance])fadeInstances(m,83,TREE_RANGE,'trunk');
+  for(const m of [needlesMaterial,broadleafMaterial,pineNeedles,spruceNeedles])fadeInstances(m,83,TREE_RANGE,'crown');
   const stoneMaterials=[createRockMaterial(false),createRockMaterial(false),createRockMaterial(false)];
   for(let i=1;i<3;i++){
     const m=stoneMaterials[i],prefix=i===1?'granite':'slate';
@@ -367,11 +385,20 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
   }
   const rootAttributeNames = ['rootHeightsA', 'rootHeightsB', 'rootHeightsC', 'rootHeightsD'];
   const trunkCapacity=320;
-  const trunkBatches=(lowDetail:boolean)=>Array.from({length:8},(_,i)=>{
-    const geometry=trunkGeometry(482+i*394,i,lowDetail);
+  // Models: CONIFER_VARIANTS pines, as many spruces, then the four broadleaf kinds (still grown by trunkGeometry/crownGeometry).
+  const conifers=[...buildConiferVariants('pine',CONIFER_VARIANTS),...buildConiferVariants('spruce',CONIFER_VARIANTS)];
+  const MODELS=conifers.length+4;
+  const modelOf=(tree:Tree)=>tree.kind<4?(tree.kind<2?0:CONIFER_VARIANTS)+tree.seed%CONIFER_VARIANTS:conifers.length+tree.kind-4;
+  // A conifer's crown scales with its trunk, so its sprays would stretch on a squat, wide tree: its width is held within a
+  // quarter of its height. Every use of a tree's width below (collider, bark contact, ground under the roots) takes this.
+  const girth=(tree:Tree)=>tree.kind<4?Math.min(1.25*tree.height,Math.max(.75*tree.height,tree.width)):tree.width;
+  const kindOfModel=(m:number)=>m<CONIFER_VARIANTS?0:m<conifers.length?2:m-conifers.length+4;
+  const trunkBatches=(lowDetail:boolean)=>Array.from({length:MODELS},(_,m)=>{
+    const conifer=conifers[m],kind=kindOfModel(m);
+    const geometry=conifer?(lowDetail?conifer.farTrunk:conifer.trunk):trunkGeometry(482+kind*394,kind,lowDetail);
     for(const name of rootAttributeNames)geometry.setAttribute(name,new THREE.InstancedBufferAttribute(new Float32Array(trunkCapacity*4),4).setUsage(THREE.DynamicDrawUsage));
-    const name=(i<2?'Scots pine':i<4?'Norway spruce':i<6?'Silver birch':'Old oak')+(lowDetail?' distant':'');
-    const definition=instances(geometry,i<4?bark:i<6?birchBark:oakBark,trunkCapacity,true,name);
+    const name=(kind<2?'Scots pine':kind<4?'Norway spruce':kind<6?'Silver birch':'Old oak')+(conifer?` ${m%CONIFER_VARIANTS+1}`:'')+(lowDetail?' distant':'');
+    const definition=instances(geometry,kind<2?pineBark:kind<4?spruceBark:kind<6?birchBark:oakBark,trunkCapacity,true,name);
     definition.customDepthMaterial=rootDepth; definition.customDistanceMaterial=rootDistance; definition.sectorSize=192;
     return definition;
   });
@@ -382,7 +409,7 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
   function barkContactFor(tree: Tree) {
     const cached = barkContacts.get(tree);
     if (cached) return cached;
-    const geometry = trunks[tree.kind].geometry;
+    const geometry = trunks[modelOf(tree)].geometry;
     const position = geometry.getAttribute('position'), index = geometry.index!;
     const cos = Math.cos(tree.yaw), sin = Math.sin(tree.yaw);
     const contact = (angle: number, y: number) => {
@@ -405,20 +432,22 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
         if (radial > nearest) { nearest = radial; x = barkHit.x; z = barkHit.z; }
       }
       if (!Number.isFinite(nearest)) return;
-      return {x: tree.x + (x * cos + z * sin) * tree.width + Math.cos(angle) * .025,
-        y, z: tree.z + (z * cos - x * sin) * tree.width + Math.sin(angle) * .025};
+      return {x: tree.x + (x * cos + z * sin) * girth(tree) + Math.cos(angle) * .025,
+        y, z: tree.z + (z * cos - x * sin) * girth(tree) + Math.sin(angle) * .025};
     };
     barkContacts.set(tree, contact);
     return contact;
   }
   // The rebuilt world spends more on crowns, so a canopy reads as a canopy rather than bare limbs.
   const needleBough=canopyGeometry(WORLD_V2?30:16,WORLD_V2?1.35:1),leafBough=broadleafGeometry(WORLD_V2?36:22);
-  const crowns=Array.from({length:8},(_,kind)=>{
-    const geometry=crownGeometry(kind,kind<4?needleBough:leafBough);
+  const crownMaterial=(kind:number)=>kind<2?pineNeedles:kind<4?spruceNeedles:broadleafMaterial;
+  const crowns=Array.from({length:MODELS},(_,m)=>{
+    const conifer=conifers[m],kind=kindOfModel(m);
+    const geometry=conifer?conifer.crown:crownGeometry(kind,kind<4?needleBough:leafBough);
     geometry.setAttribute('crownLod',new THREE.BufferAttribute(new Float32Array(geometry.attributes.position.count),1));
     const {min,max}=geometry.boundingBox!;
     const horizontalRadius=Math.hypot(Math.max(-min.x,max.x),Math.max(-min.z,max.z));
-    const definition=instances(geometry,kind<4?needlesMaterial:broadleafMaterial,512,false,kind<4?'Canopy conifer':'Canopy broadleaf');
+    const definition=instances(geometry,crownMaterial(kind),512,false,kind<4?'Canopy conifer':'Canopy broadleaf');
     definition.sectorSize=56;
     return {definition,horizontalRadius,centerY:(min.y+max.y)*.5,verticalRadius:(max.y-min.y)*.5};
   });
@@ -427,14 +456,35 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
   // frame. Past CROWN_DETAIL_END a crown carries a third as many sprays, each larger, so it covers the same sky with
   // about a third of the triangles; at that range single shoots are smaller than a pixel anyway.
   const farNeedleBough=canopyGeometry(10,WORLD_V2?2.25:1.7),farLeafBough=broadleafGeometry(12,1.7);
-  const farCrowns=crowns.map((near,kind)=>{
-    const geometry=crownGeometry(kind,kind<4?farNeedleBough:farLeafBough);
+  const farCrowns=crowns.map((near,m)=>{
+    const conifer=conifers[m],kind=kindOfModel(m);
+    const geometry=conifer?conifer.farCrown:crownGeometry(kind,kind<4?farNeedleBough:farLeafBough);
     geometry.setAttribute('crownLod',new THREE.BufferAttribute(new Float32Array(geometry.attributes.position.count).fill(1),1));
-    const definition=instances(geometry,kind<4?needlesMaterial:broadleafMaterial,512,false,(kind<4?'Canopy conifer':'Canopy broadleaf')+' distant');
+    const definition=instances(geometry,crownMaterial(kind),512,false,(kind<4?'Canopy conifer':'Canopy broadleaf')+' distant');
     definition.sectorSize=56;
     return {...near,definition};
   });
   farNeedleBough.dispose();farLeafBough.dispose();
+  // Crown shadows. Without them the floor under a closed canopy lay in full sun with only the limbs' stripes across it. The
+  // detailed crowns are far too heavy to draw into the shadow map as well (it is redrawn several times a second as the sun
+  // moves: 30 to 60 ms more a redraw at the canopy station), so every tree in shadow range casts from its light crown
+  // instead. three.js draws a shadow caster wherever it draws the object, so the stand-in's material sends every vertex
+  // outside the view (nothing is rasterised). The shadow pass takes its alpha map, cut-off and side (three.js copies them
+  // from the object's material into the depth material), so it carries the crown's: the sprays cast sprays, not cards.
+  const crownCasters=new Map<THREE.Material,THREE.MeshBasicMaterial>();
+  const crownShadows=farCrowns.map((far,m)=>{
+    const visible=crownMaterial(kindOfModel(m)) as THREE.MeshStandardMaterial;
+    let caster=crownCasters.get(visible);
+    if(!caster){
+      caster=new THREE.MeshBasicMaterial({alphaMap:visible.alphaMap,alphaTest:.3,side:THREE.DoubleSide});caster.shadowSide=THREE.DoubleSide;caster.name=`${visible.name} (shadow only)`;
+      caster.onBeforeCompile=shader=>{shader.vertexShader=shader.vertexShader.replace('#include <project_vertex>','#include <project_vertex>\ngl_Position=vec4(2.,2.,2.,1.);');};
+      caster.customProgramCacheKey=()=>'silence-shadow-only';
+      crownCasters.set(visible,caster);
+    }
+    const definition=instances(far.definition.geometry,caster,512,true,`${far.definition.name} shadow`);
+    definition.sectorSize=56;
+    return definition;
+  });
   const crownWood = instances(canopyWoodGeometry(), crownBark, 6000, false, 'Canopy wood', 2, 5);
   const stones = Array.from({length:9},(_,i)=>{
     const g=createRockGeometry(182+i*83),type=Math.floor(i/3);
@@ -583,7 +633,7 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
       const position = mesh.geometry.getAttribute('position');
       const c = Math.cos(tree.yaw), s = Math.sin(tree.yaw);
       for (let i = 0; i < offsets.length; i++) {
-        const x = position.getX(i) * tree.width, z = position.getZ(i) * tree.width;
+        const x = position.getX(i) * girth(tree), z = position.getZ(i) * girth(tree);
         rootSample.set(tree.x + c * x + s * z, 0, tree.z - s * x + c * z);
         offsets[i] = (heightAt(rootSample.x, rootSample.z) - tree.y) / tree.height;
       }
@@ -617,27 +667,33 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
       const distance2 = (tree.x - player.x) ** 2 + (tree.z - player.z) ** 2;
       if(pause())yield;
       if(updateColliders&&distance2<=TREE_COLLISION_RANGE**2){
-        const radius=.44*tree.width+.08;nextColliders.push({x:tree.x,z:tree.z,radius});
-        nextSolid.push({kind:'capsule',ax:tree.x,az:tree.z,bx:tree.x,bz:tree.z,radius,minY:tree.y-.15,maxY:tree.y+31*tree.height,tag:'tree',barkContact:barkContactFor(tree),crownBase:tree.y+branchSpec(tree.kind,0).height*tree.height});
+        const radius=.44*girth(tree)+.08;nextColliders.push({x:tree.x,z:tree.z,radius});
+        nextSolid.push({kind:'capsule',ax:tree.x,az:tree.z,bx:tree.x,bz:tree.z,radius,minY:tree.y-.15,maxY:tree.y+31*tree.height,tag:'tree',barkContact:barkContactFor(tree),crownBase:tree.y+(conifers[modelOf(tree)]?.crownBase??branchSpec(tree.kind,0).height)*tree.height});
       }
       if (!rendering||distance2>(TREE_RANGE+FOREST_BUFFER)**2) continue;
-      dummy.position.set(tree.x, tree.y, tree.z); dummy.rotation.set(0, tree.yaw, 0); dummy.scale.set(tree.width, tree.height, tree.width);
+      dummy.position.set(tree.x, tree.y, tree.z); dummy.rotation.set(0, tree.yaw, 0); dummy.scale.set(girth(tree), tree.height, girth(tree));
       dummy.updateMatrix();
-      const trunkDefinition=distance2<(TRUNK_DETAIL_END+FOREST_BUFFER)**2?trunks[tree.kind]:farTrunks[tree.kind];
-      const treeInstance=vegetation.allocate(trunkDefinition,tree.x,tree.z,7*tree.width,tree.y+15.5*tree.height,16.5*tree.height+2.5);
+      const model=modelOf(tree);
+      const trunkDefinition=distance2<(TRUNK_DETAIL_END+FOREST_BUFFER)**2?trunks[model]:farTrunks[model];
+      const treeInstance=vegetation.allocate(trunkDefinition,tree.x,tree.z,7*girth(tree),tree.y+15.5*tree.height,16.5*tree.height+2.5);
       if(treeInstance){
         treeInstance.mesh.setMatrixAt(treeInstance.index,dummy.matrix);
         groundRoots(tree,treeInstance.index,treeInstance.mesh);
       }
       // Inside the band both crowns are placed and the shader dissolves one into the other.
       const lod=true;
-      for(const crown of [!lod||distance2<(CROWN_DETAIL_END+FOREST_BUFFER)**2?crowns[tree.kind]:undefined,lod&&distance2>(CROWN_DETAIL_START-FOREST_BUFFER)**2?farCrowns[tree.kind]:undefined]){
+      for(const crown of [!lod||distance2<(CROWN_DETAIL_END+FOREST_BUFFER)**2?crowns[model]:undefined,lod&&distance2>(CROWN_DETAIL_START-FOREST_BUFFER)**2?farCrowns[model]:undefined]){
         if(!crown)continue;
-        const crownInstance=vegetation.allocate(crown.definition,tree.x,tree.z,crown.horizontalRadius*tree.width+.5,
+        const crownInstance=vegetation.allocate(crown.definition,tree.x,tree.z,crown.horizontalRadius*girth(tree)+.5,
           tree.y+crown.centerY*tree.height,crown.verticalRadius*tree.height+.5);
         if(crownInstance)crownInstance.mesh.setMatrixAt(crownInstance.index,dummy.matrix);
       }
-      if(distance2<(25+FOREST_BUFFER)**2){
+      if(distance2<SHADOW_RANGE**2){
+        const shadow=farCrowns[model],caster=vegetation.allocate(crownShadows[model],tree.x,tree.z,shadow.horizontalRadius*girth(tree)+.5,tree.y+shadow.centerY*tree.height,shadow.verticalRadius*tree.height+.5);
+        if(caster)caster.mesh.setMatrixAt(caster.index,dummy.matrix);
+      }
+      // The conifers carry their limbs in their own trunk mesh; the broadleaf crowns still hang on these instanced ones.
+      if(tree.kind>=4&&distance2<(25+FOREST_BUFFER)**2){
         const transforms=crownFor(tree);
         for(const branch of crownBranches)placeMatrix(crownWood,matrix.fromArray(transforms,branch*16),5);
       }
@@ -797,7 +853,7 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
     dispose() {
       if (disposed) return; disposed = true; job = undefined; undergrowth.dispose(); scene.remove(group); for (const b of batchers) b.dispose(); geometries.forEach(g => g.dispose()); textures.forEach(t => t.dispose());
       for (const map of [stonesMaterial.map, stonesMaterial.normalMap, stonesMaterial.roughnessMap]) map?.dispose();
-      [bark, birchBark, oakBark, logBark, crownBark, needlesMaterial, broadleafMaterial, ...stoneMaterials, leafMaterial, woodMaterial, rootDepth, rootDistance, ...natureMaterials].forEach(m => m.dispose());cells.clear();
+      [bark, birchBark, oakBark, logBark, crownBark, needlesMaterial, broadleafMaterial, pineBark, spruceBark, pineNeedles, spruceNeedles, ...crownCasters.values(), ...stoneMaterials, leafMaterial, woodMaterial, rootDepth, rootDistance, ...natureMaterials].forEach(m => m.dispose());cells.clear();
     },
   };
 }
