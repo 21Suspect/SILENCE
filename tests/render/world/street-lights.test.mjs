@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import './helpers/register-ts-hooks.mjs';
-const { LAMP, lampTraits, lampsWanted, failingLevel, pickLights, createStreetLights } = await import('../game/street-lights.ts');
+import '../../helpers/register-ts-hooks.mjs';
+const { LAMP, lampTraits, lampsWanted, failingLevel, pickLights, createStreetLights } = await import('../../../game/render/world/street-lights.ts');
 
 const ids = n => Array.from({ length: n }, (_, i) => `streetlight-${i}`);
 

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { createShadowProgramWarmer } from '../game/shadow-programs.ts';
+import { createShadowProgramWarmer } from '../../../game/render/gpu/shadow-programs.ts';
 
 // A stand-in for WebGLRenderer.compile: records which depth materials it was asked to build, and with which meshes.
 function stubRenderer() {

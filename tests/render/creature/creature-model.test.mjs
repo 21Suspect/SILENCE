@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as THREE from 'three';
-const file=fs.readFileSync(new URL('../public/creature/silence-creature.glb',import.meta.url));
+const file=fs.readFileSync(new URL('../../../public/creature/silence-creature.glb',import.meta.url));
 const jsonLength=file.readUInt32LE(12),gltf=JSON.parse(file.subarray(20,20+jsonLength).toString());
 const bin=file.subarray(28+jsonLength),bodyMesh=gltf.meshes.findIndex(m=>m.primitives.some(p=>gltf.accessors[p.indices].count>30000)),primitive=gltf.meshes[bodyMesh].primitives[0];
 const components={SCALAR:1,VEC2:2,VEC3:3,VEC4:4,MAT4:16};

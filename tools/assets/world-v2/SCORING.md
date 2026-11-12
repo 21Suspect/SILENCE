@@ -9,7 +9,7 @@ Each prop gets `assets/world-v2/review/<asset>.jpg` (six views of the exported G
 ## Automatic gates (any failure caps the overall score at 5)
 - `floatingGroups` is 0, or every listed group is a deliberate hanging or wall-mounted part.
 - Triangles within budget: hero building 45k, machine 15k, interactable small prop 8k, background small prop 2.5k.
-- Stairs and ladders pass the walk-through tests in `tests/traversal.test.mjs`.
+- Stairs and ladders pass the walk-through tests in `tests/sim/player/traversal.test.mjs`.
 
 ## Score each from 0 to 10; 10 is shipped indie-horror quality, 5 is a blockout
 1. **Silhouette**: instantly recognisable from any angle, believable proportions.

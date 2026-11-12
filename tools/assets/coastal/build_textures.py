@@ -63,6 +63,6 @@ credits = json.loads(credits_file.read_text())
 for asset in credits['assets']:
     if asset['asset'] in ['sand_02', 'snow_02', 'brown_mud_leaves_01']:
         asset['files'] = ['coastal-diff.webp', 'coastal-normal-rough.png']
-        asset['processing'] = 'Sand/snow/leaf-litter atlas; 16px wrapped gutters; roughness in normal alpha. Rebuild: scripts/assets/coastal/build_textures.py'
+        asset['processing'] = 'Sand/snow/leaf-litter atlas; 16px wrapped gutters; roughness in normal alpha. Rebuild: tools/assets/coastal/build_textures.py'
 credits_file.write_text(json.dumps(credits, indent=2) + '\n')
 print('Rebuilt 3-layer terrain atlas and packed ground normal/roughness.')

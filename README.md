@@ -79,7 +79,7 @@ Source URLs, original hashes, dimensions, and licenses are in `public/textures/t
 
 Validated with TypeScript, a production build, and Chromium browser checks. Browser QA covers initial rendering, movement, pause/resume, river and road views, night progression, rare encounter scheduling, viewport changes, an empty visible interface, close-up material inspection, riverbank continuity, and a numerical tree-root grounding audit. Development-only inspection helpers are removed from the production build.
 
-Run the shadow stability regression checks with `node --experimental-strip-types --test tests/stable-shadows.test.mjs`. They check world-locked shadow sampling along hilly routes at two map resolutions and static cache reuse.
+Run the shadow stability regression checks with `node --experimental-strip-types --test tests/render/world/stable-shadows.test.mjs`. They check world-locked shadow sampling along hilly routes at two map resolutions and static cache reuse.
 
 Run all rendering regressions with `node --experimental-strip-types --test tests/*.test.mjs`. These also cover pixel-budget limits and adaptation/recovery hysteresis. A local Chromium comparison at 1440×900 CSS pixels and a **fixed 1.5 render ratio** reduced submitted triangles from 7.62M to 4.71M in the starting forest view, and 14.15M to 8.03M beside the river. On the same nine-second walking route, mean frame time improved from 20.56ms to 16.67ms, and the 95th percentile from 33.4ms to 16.7ms. These are one-machine measurements, not a universal frame-rate guarantee. Normal game-update CPU time was around 0.1ms median; most pressure came from rendering. Development-only `record`, `inventory`, and GPU timer-query `benchmark` helpers support repeatable checks; per-pass GPU measurements can vary with GPU scheduling, so paced walking traces are the reported smoothness comparison.
 
@@ -90,7 +90,7 @@ Escape opens the pause menu and freezes the game clock, encounters and audio. Th
 
 ## Integrated world v2
 
-The seeded world is now the default (`?seed=7741`); `?classic-world` keeps the original geography. Cabin, relay station, generator, lookout, logging and hunter camps, chapel, mine and road bridge are connected by graded trails. Terrain chunks are generated in a bundled worker. Blender model sources and rebuild scripts live in `scripts/assets/world-v2`; deployable assets are in `public/world`.
+The seeded world is now the default (`?seed=7741`); `?classic-world` keeps the original geography. Cabin, relay station, generator, lookout, logging and hunter camps, chapel, mine and road bridge are connected by graded trails. Terrain chunks are generated in a bundled worker. Blender model sources and rebuild scripts live in `tools/assets/world-v2`; deployable assets are in `public/world`.
 
 Find the camp jerrycan, refuel and pull-start the relay generator, collect fuses from the mine, lookout and logging area, insert all three into the hut fuse box, then transmit. One objective item can be carried at a time. Ladders use forward/backward movement. Touch devices show a contextual Drop / Leave ladder button when needed.
 

@@ -11,7 +11,7 @@ const WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eig
 const word = (n: number) => WORDS[n] ?? String(n);
 
 /**
- * The current step, read off the real state machine (game/objectives.ts) and what the local player is carrying:
+ * The current step, read off the real state machine (game/sim/objectives/objectives.ts) and what the local player is carrying:
  * fuel the generator, start it, carry the fuses into the relay hut's fuse box, send the signal from the radio there.
  * Plain and imperative, no lore. `held` is `heldKind(state, me)`.
  */

@@ -2,11 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as THREE from 'three';
-// game/spider-rig.ts uses extensionless and JSON imports that only the bundler understands;
+// game/render/creature/spider-rig.ts uses extensionless and JSON imports that only the bundler understands;
 // this test-only loader hook lets Node import it unchanged.
-import './helpers/register-ts-hooks.mjs';
-const { twoBone, solveSpiderLeg, LEG_SEGMENTS, LEG_REACH, LEG_COUNT, SPIDER_LEGS, SPIDER_SCALE } = await import('../game/spider-rig.ts');
-const layout = JSON.parse(fs.readFileSync(new URL('../game/spider-rig.json', import.meta.url), 'utf8'));
+import '../../helpers/register-ts-hooks.mjs';
+const { twoBone, solveSpiderLeg, LEG_SEGMENTS, LEG_REACH, LEG_COUNT, SPIDER_LEGS, SPIDER_SCALE } = await import('../../../game/render/creature/spider-rig.ts');
+const layout = JSON.parse(fs.readFileSync(new URL('../../../game/data/spider-rig.json', import.meta.url), 'utf8'));
 const [L1, L2, L3, L4] = LEG_SEGMENTS;
 
 // ---------------------------------------------------------------- helpers
@@ -163,7 +163,7 @@ test('solveSpiderLeg is finite and keeps the three rigid segments when the foot 
 });
 
 // ---------------------------------------------------------------- GLB
-const glbPath = new URL('../public/creature/silence-creature-v2.glb', import.meta.url);
+const glbPath = new URL('../../../public/creature/silence-creature-v2.glb', import.meta.url);
 const file = fs.readFileSync(glbPath);
 const jsonLength = file.readUInt32LE(12), gltf = JSON.parse(file.subarray(20, 20 + jsonLength).toString());
 const bin = file.subarray(28 + jsonLength), view = new DataView(bin.buffer, bin.byteOffset, bin.byteLength);

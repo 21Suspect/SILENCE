@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { POI_PLACEMENTS } from './world-layout';
-import { initialState, applyAction, heldKind, heldItem, firstEmptySlot, type ObjectiveState, type ObjectiveAction, type ObjectiveEvent, type ItemKind } from './objectives';
+import { POI_PLACEMENTS } from '../../sim/world/world-layout';
+import { initialState, applyAction, heldKind, heldItem, firstEmptySlot, type ObjectiveState, type ObjectiveAction, type ObjectiveEvent, type ItemKind } from '../../sim/objectives/objectives';
 import type { Interaction } from './interaction';
 import type { Pois } from './pois';
 

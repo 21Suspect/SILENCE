@@ -1,6 +1,6 @@
 /**
- * Frame statistics for the performance overlay (game/perf-overlay.ts). Pure: the overlay feeds it one sample per drawn frame and
- * asks for a summary a few times a second. Tested in tests/frame-stats.test.mjs.
+ * Frame statistics for the performance overlay (game/ui/perf-overlay.ts). Pure: the overlay feeds it one sample per drawn frame and
+ * asks for a summary a few times a second. Tested in tests/ui/frame-stats.test.mjs.
  *
  * - FPS and frame time are averages over the last second of frames.
  * - 1% and 0.1% low are the frame rates at the 99th and 99.9th percentile frame time over the whole window (the last

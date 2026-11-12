@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createSlice, runSlice, runToEnd } from '../game/time-slice.ts';
+import { createSlice, runSlice, runToEnd } from '../../game/core/time-slice.ts';
 
 // A job that does 100 units of work one at a time and may stop between any two of them.
 function* job(slice, log) {

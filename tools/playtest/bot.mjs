@@ -1,6 +1,6 @@
 /**
- * A headless player that plays a whole night against the real creature (scripts/playtest/world.mjs), the way
- * game/engine.ts drives a player: the same walking, sprinting and crouching speeds and easing, moveCharacter against
+ * A headless player that plays a whole night against the real creature (tools/playtest/world.mjs), the way
+ * game/core/engine.ts drives a player: the same walking, sprinting and crouching speeds and easing, moveCharacter against
  * the real colliders, footsteps into the real noise stream by surface, the torch switch, the senses the creature is
  * given, the grab, three lives and waking at the cabin. Each play style is a small controller that decides, every
  * frame, where to go, where to look, and what to do with the torch. Everything is seeded: one style, one seed, one
@@ -12,7 +12,7 @@
 import * as THREE from 'three';
 import { game, heightAt, darknessAt, createHeadlessWorld } from './world.mjs';
 // The player's real stamina: the bot gets out of breath exactly as a player does (9 s of sprint, then a walk).
-const { createStamina, gaitSpeed } = await import('../../game/stamina.ts');
+const { createStamina, gaitSpeed } = await import('../../game/sim/player/stamina.ts');
 
 const W = game.world, L = game.layout, V = game.v2, B = game.brain, LV = game.lives, VIS = game.visibility;
 const ENGINE = { walk: 1.8, hurry: 3.35, crouch: .95, wading: .55, offTrail: .88, stand: 1.69, low: 1.05, stride: .82 };
@@ -259,7 +259,7 @@ export async function playNight({ style, seed, minutes = 15, untilDawn = true, o
     const seen = probe.directSight ? { x: probe.x, y: probe.y, z: probe.z } : undefined;
     if (seen) encounters.headPosition(head);
     const intent = grab ? { yaw, pitch } : bot.decide({ t: elapsed, darkness, player, yaw, pitch, seen, head: seen ? { x: head.x, y: head.y, z: head.z } : undefined, heard, indoors, stun: probe.stun, moved, wanted: wantedSpeed, cover: threat => coverFrom(collisions, player, threat) });
-    // --- The engine's frame (game/engine.ts animate), for one player.
+    // --- The engine's frame (game/core/engine.ts animate), for one player.
     yaw = intent.yaw ?? yaw; pitch = THREE.MathUtils.clamp(intent.pitch ?? 0, -1.28, 1.32);
     if (!grab && intent.torch !== undefined && intent.torch !== torch) { torch = intent.torch; world2.noise.emit({ type: 'noise', loudness: B.FLASHLIGHT_CLICK_LOUDNESS, source: 'flashlight', x: player.x, z: player.z }); }
     const crouch = !grab && !!intent.crouch, run = stamina.update(dt, !grab && !!intent.sprint && !crouch, lastGroundSpeed), hurry = run.sprinting;

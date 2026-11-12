@@ -1,6 +1,6 @@
 import { buildTerrainTile, packTerrainTile, type PreparedTerrainTile, type TerrainTile } from './terrain-geometry';
-import { naturalLayout } from './placement';
-import { biomeAt, heightAt, riverPresence, riverX, roadZ, terrainBlock, vegetationExclusion, WORLD_RADIUS } from './world';
+import { naturalLayout } from '../../sim/world/placement';
+import { biomeAt, heightAt, riverPresence, riverX, roadZ, terrainBlock, vegetationExclusion, WORLD_RADIUS } from '../../sim/world/world';
 
 const layout = naturalLayout({heightAt,exclusion:vegetationExclusion,biomeAt,riverX,riverPresence,roadZ,radius:WORLD_RADIUS});
 

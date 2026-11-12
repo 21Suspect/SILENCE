@@ -4,7 +4,7 @@
 
 Sources: bigsoundbank.com (Joseph Sardin), all CC0. Download the MP3 of each sound number below into one folder
 as <number>.mp3. Each bed is levelled, trimmed and closed into a seamless loop (its tail is cross-faded into its
-head), then written to public/audio/ambience/. The game never plays a bed from the top: see game/audio.ts.
+head), then written to public/audio/ambience/. The game never plays a bed from the top: see game/audio/audio.ts.
 """
 import os
 import subprocess

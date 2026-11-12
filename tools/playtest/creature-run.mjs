@@ -1,6 +1,6 @@
 // How smoothly does the real creature travel? Runs the real body (navigation, gait, limb limits) through the real
 // forest at a commanded speed and reports how closely its actual speed follows, and how steadily.
-//   node --experimental-strip-types --no-warnings scripts/playtest/creature-run.mjs [--verbose]
+//   node --experimental-strip-types --no-warnings tools/playtest/creature-run.mjs [--verbose]
 import { createHeadlessWorld, heightAt } from './world.mjs';
 const DT = 1 / 60, verbose = process.argv.includes('--verbose');
 const w = await createHeadlessWorld({});
@@ -36,7 +36,7 @@ function run(name, x, z, yaw, profile, seconds = 9, steer) {
   return { mean, want: wantMean, jerk: jerk / n, worstDrop, stalls: stalls / n, held: held / n };
 }
 const ramp = (to, a = 10) => t => Math.min(to, t * a);
-const { roadZ, pathX } = (await import('../../game/world.ts'));
+const { roadZ, pathX } = (await import('../../game/sim/world/world.ts'));
 // Along the road it steers for the centre line a little way ahead; along the trail likewise. In the forest it holds a heading.
 const alongRoad = (x, z) => Math.atan2(14, roadZ(x + 14) - z), alongTrail = (x, z) => Math.atan2(pathX(z + 14) - x, 14);
 const places = [['forest by the start', -30, 40, .4], ['forest north-west', -120, 160, 2.2], ['along the road', -60, null, Math.PI / 2, alongRoad], ['along the main trail', null, 60, 0, alongTrail]];

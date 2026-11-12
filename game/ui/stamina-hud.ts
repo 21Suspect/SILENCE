@@ -1,7 +1,7 @@
 export type StaminaHudFrame = {
   /** False while paused, loading, taken or flying: the bar is gone at once. */
   allowed: boolean;
-  /** 1 full .. 0 empty (game/stamina.ts). */
+  /** 1 full .. 0 empty (game/sim/player/stamina.ts). */
   value: number;
   /** Out of breath and locked out of sprinting: drawn dimmer. */
   exhausted: boolean;

@@ -1,19 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import './helpers/register-ts-hooks.mjs';
+import '../../helpers/register-ts-hooks.mjs';
 // The valley road only exists in the rebuilt world, which game modules choose when they load.
 globalThis.location = { search: `?world-v2${process.env.WORLD_SEED ? `&seed=${process.env.WORLD_SEED}` : ''}` };
-const { roadZ, roadDistance, roadPresence, heightAt, vegetationExclusion } = await import('../game/world.ts');
-const { ROAD, roadArcTable } = await import('../game/road-profile.ts');
-const { GROUND_PADS, POI_PLACEMENTS, SCATTER_PLACEMENTS, TRAIL_LINES, ROAD_ENDS, ROAD_CROSSING: CROSSING } = await import('../game/world-layout.ts');
+const { roadZ, roadDistance, roadPresence, heightAt, vegetationExclusion } = await import('../../../game/sim/world/world.ts');
+const { ROAD, roadArcTable } = await import('../../../game/sim/world/road-profile.ts');
+const { GROUND_PADS, POI_PLACEMENTS, SCATTER_PLACEMENTS, TRAIL_LINES, ROAD_ENDS, ROAD_CROSSING: CROSSING } = await import('../../../game/sim/world/world-layout.ts');
 const ROAD_CROSSING = () => CROSSING;
-const { roadSurface } = await import('../game/road-surface.ts');
-const { roadGradeAt, roadGradeLegs, GRADE_LIMIT, RAMP_LENGTH, MOUTH_LEVEL, MOUTH_FLOOR } = await import('../game/road-grade.ts');
-const { ROAD_PLAN, roadSlope } = await import('../game/world-noise.ts');
-const { roadArcAt } = await import('../game/road-profile.ts');
-const { roadArc, roadXAtArc, roadGap } = await import('../game/road-geometry.ts');
-const { landform } = await import('../game/world-landform.ts');
-const { mountainFoot, coastDistance, beachWidth } = await import('../game/coastal-geography.ts');
+const { roadSurface } = await import('../../../game/render/world/road-surface.ts');
+const { roadGradeAt, roadGradeLegs, GRADE_LIMIT, RAMP_LENGTH, MOUTH_LEVEL, MOUTH_FLOOR } = await import('../../../game/sim/world/road-grade.ts');
+const { ROAD_PLAN, roadSlope } = await import('../../../game/sim/world/world-noise.ts');
+const { roadArcAt } = await import('../../../game/sim/world/road-profile.ts');
+const { roadArc, roadXAtArc, roadGap } = await import('../../../game/sim/world/road-geometry.ts');
+const { landform } = await import('../../../game/sim/world/world-landform.ts');
+const { mountainFoot, coastDistance, beachWidth } = await import('../../../game/sim/world/coastal-geography.ts');
 
 const tangent = x => { const m = roadZ(x + .5) - roadZ(x - .5), k = 1 / Math.hypot(1, m); return { tx: k, tz: m * k, nx: -m * k, nz: k }; };
 const stations = (from, to, step) => { const out = []; for (let x = from; x <= to; x += step) out.push(x); return out; };
@@ -282,7 +282,7 @@ test('the road profile table', () => {
     }
     rows.push('');
   }
-  mkdirSync(fileURLToPath(new URL('../work/world-review/', import.meta.url)), { recursive: true });
-  writeFileSync(fileURLToPath(new URL('../work/world-review/road-profile.txt', import.meta.url)), rows.join('\n'));
+  mkdirSync(fileURLToPath(new URL('../../../work/world-review', import.meta.url)), { recursive: true });
+  writeFileSync(fileURLToPath(new URL('../../../work/world-review/road-profile.txt', import.meta.url)), rows.join('\n'));
   assert.ok(rows.length > 40);
 });

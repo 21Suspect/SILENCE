@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { renderRatio, renderSize, pixelCostVs1080, resolutionLabel, RESOLUTIONS, DEFAULT_RESOLUTION } from '../game/quality.ts';
+import { renderRatio, renderSize, pixelCostVs1080, resolutionLabel, RESOLUTIONS, DEFAULT_RESOLUTION } from '../../game/core/quality.ts';
 
 test('a fixed resolution renders that many rows in the window\'s shape', () => {
   // A 14" MacBook window (CSS pixels) on a Retina screen.

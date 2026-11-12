@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { solidContact, type SolidCollider } from './collision';
+import { solidContact, type SolidCollider } from '../../sim/world/collision';
 
 const TORCH_MODEL = '/torch/small-plastic-torch.glb';
 
@@ -110,7 +110,7 @@ export function createFlashlight(scene:THREE.Scene,camera:THREE.PerspectiveCamer
   return {
     light,
     interact(pickupOnly=false){return owned ? !pickupOnly && toggle() : canPick() && pickUp();},
-    // WORLD_V2 only: game/interaction.ts owns the pickup prompt, so pickup and switch are separate calls
+    // WORLD_V2 only: game/render/props/interaction.ts owns the pickup prompt, so pickup and switch are separate calls
     // here instead of interact()'s combined silent behaviour, and the rebuilt cabin can relocate the bench.
     get owned(){return owned;},
     get available(){return available();},

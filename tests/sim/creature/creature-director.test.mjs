@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createOpeningDirector, OPENING } from '../game/creature-director.ts';
-import { createRandom } from '../game/creature-brain.ts';
+import { createOpeningDirector, OPENING } from '../../../game/sim/creature/creature-director.ts';
+import { createRandom } from '../../../game/sim/creature/creature-brain.ts';
 
 /**
  * A stand-in host: `seenAfter` seconds into each encounter the creature is recognised, and `goneAfter` seconds later it

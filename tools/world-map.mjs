@@ -1,4 +1,4 @@
-// Top-down maps of generated worlds. node --experimental-strip-types scripts/world-map.mjs <outDir> <seed> [seed ...]
+// Top-down maps of generated worlds. node --experimental-strip-types tools/world-map.mjs <outDir> <seed> [seed ...]
 // Each seed runs in its own process because every module computes its world once at load.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -11,17 +11,17 @@ if (process.argv[2] === '--child') {
   const seed = process.argv[3], out = process.argv[4];
   await import(path.join(root, 'tests/helpers/register-ts-hooks.mjs'));
   globalThis.location = { search: `?world-v2&seed=${seed}` };
-  const w = await import(path.join(root, 'game/world.ts'));
-  const l = await import(path.join(root, 'game/world-layout.ts'));
-  const n = await import(path.join(root, 'game/world-noise.ts'));
-  const { naturalLayout } = await import(path.join(root, 'game/placement.ts'));
+  const w = await import(path.join(root, 'game/sim/world/world.ts'));
+  const l = await import(path.join(root, 'game/sim/world/world-layout.ts'));
+  const n = await import(path.join(root, 'game/sim/world/world-noise.ts'));
+  const { naturalLayout } = await import(path.join(root, 'game/sim/world/placement.ts'));
   const STEP = 3, SIDE = 340, h = [], tree = [];
   for (let j = 0; j < SIDE; j++) for (let i = 0; i < SIDE; i++) h.push(+w.rawHeight((i - SIDE / 2) * STEP, (j - SIDE / 2) * STEP).toFixed(2));
   const layout = naturalLayout({ heightAt: w.rawHeight, exclusion: w.vegetationExclusion, biomeAt: w.biomeAt, riverX: w.riverX, riverPresence: w.riverPresence, roadZ: w.roadZ, radius: w.WORLD_RADIUS });
   for (let cx = -16; cx < 16; cx++) for (let cz = -16; cz < 16; cz++) for (const t of layout.cell(cx, cz).trees) tree.push(Math.round(t.x), Math.round(t.z));
   const river = [], road = [], main = [];
   for (let z = -470; z <= 470; z += 6) { river.push([w.riverX(z), z]); main.push([w.pathX(z), z]); }
-  const noise = await import('../game/world-noise.ts');
+  const noise = await import('../game/sim/world/world-noise.ts');
   const branches = noise.BRANCHES.map(b => { const out = []; for (let z = b.z0; z <= b.z1; z += 4) out.push([noise.branchX(b, z), z]); return { kind: b.kind, line: out }; });
   for (let x = -470; x <= 470; x += 6) road.push([x, w.roadZ(x)]);
   fs.writeFileSync(out, JSON.stringify({ seed, STEP, SIDE, h, tree, river, branches, road, main, trails: l.TRAIL_LINES, pois: l.POI_PLACEMENTS, scatter: l.SCATTER_PLACEMENTS.map(p => [p.asset, Math.round(p.x), Math.round(p.z)]), spawn: l.SPAWN }));

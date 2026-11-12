@@ -11,7 +11,7 @@ Baked micro-normal and roughness maps vary texture and specularity. Deep-set
 cold ivory eyes use a separate emissive surface; no dynamic point lights.
 
 Source: silence-creature.blend (packed images)
-Rebuild: /Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup --python scripts/assets/sculpt-creature.py
+Rebuild: /Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup --python tools/assets/sculpt-creature.py
 Runtime asset: public/creature/silence-creature.glb
 Runtime budget: below 80,000 triangles, two material draws, 50 bones.
 Skin maps: 2048 x 2048 baked color/cavity shading and tangent normals,
@@ -25,7 +25,7 @@ The procedural world-space gait supplies hip, knee and foot poses at runtime.
 
 Articulation update: weighted neck, head, jaw, forearms, wrists and two
 joints per finger. Rebuild only the rig (retaining mesh/UVs/textures) with:
-/Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup --python scripts/assets/articulate-creature.py
+/Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup --python tools/assets/articulate-creature.py
 The full sculpt generator calls this same rigging helper before export.
 Runtime head direction follows a clamped local attention target, with sparse
 listening tilts; jaw breathing and asynchronous grips deform actual skin.

@@ -2,15 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import * as THREE from 'three';
-// game/pois.ts uses extensionless and JSON imports that only the bundler understands.
-import './helpers/register-ts-hooks.mjs';
-const { doorPose, doorProblem, createDoors, DOOR_SECONDS, DOOR_CLOSED, DOOR_NOISE } = await import('../game/doors.ts');
-const { createPois } = await import('../game/pois.ts');
-const { createCollisionWorld, solidContact, moveCharacter } = await import('../game/collision.ts');
-const { lineOfSight, promptText } = await import('../game/interaction.ts');
-const { doorTestPlacements } = await import('../game/door-test.ts');
-const { createWorldV2 } = await import('../game/world-v2.ts');
-const shipped = (await import('../game/world-assets.json')).default;
+// game/render/props/pois.ts uses extensionless and JSON imports that only the bundler understands.
+import '../../helpers/register-ts-hooks.mjs';
+const { doorPose, doorProblem, createDoors, DOOR_SECONDS, DOOR_CLOSED, DOOR_NOISE } = await import('../../../game/render/props/doors.ts');
+const { createPois } = await import('../../../game/render/props/pois.ts');
+const { createCollisionWorld, solidContact, moveCharacter } = await import('../../../game/sim/world/collision.ts');
+const { lineOfSight, promptText } = await import('../../../game/render/props/interaction.ts');
+const { doorTestPlacements } = await import('../../../game/dev/door-test.ts');
+const { createWorldV2 } = await import('../../../game/render/props/world-v2.ts');
+const shipped = (await import('../../../game/data/world-assets.json')).default;
 // A door whose GLB cannot load, or an asset nobody listed, is warned about on purpose; the output is not what these test.
 { const warn = console.warn; console.warn = (...args) => { if (!String(args[0]).startsWith('SILENCE:')) warn(...args); }; }
 
@@ -471,7 +471,7 @@ test('every door in world-assets.json is well formed, points at a listed leaf as
     count++;
     assert.equal(doorProblem(d), undefined, `${name}.doors[${i}]`);
     assert.ok(shipped[d.asset], `${name}.doors[${i}] names ${d.asset}, which is not an asset`);
-    assert.ok(existsSync(new URL(`../public${shipped[d.asset].url}`, import.meta.url)), `${d.asset}.glb is in public/world`);
+    assert.ok(existsSync(new URL(`../../../public${shipped[d.asset].url}`, import.meta.url)), `${d.asset}.glb is in public/world`);
     assert.ok((d.start ?? 0) >= 0 && (d.start ?? 0) <= 1, 'start is 0..1');
     assert.ok(Math.abs(d.swing) > .5 && Math.abs(d.swing) <= Math.PI, 'swings a sensible way'); assert.ok(d.width > .5 && d.width < 1.6 && d.height > 1.6 && d.height < 3);
   }

@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import './helpers/register-ts-hooks.mjs';
-const { createObjectivesRuntime } = await import('../game/objectives-runtime.ts');
+import '../../helpers/register-ts-hooks.mjs';
+const { createObjectivesRuntime } = await import('../../../game/render/props/objectives-runtime.ts');
 
 // The places the runtime looks for, each a hook on an asset, matching the names in the brief.
 const placements = ['mine', 'lookout', 'logstack', 'camp', 'generator', 'hut', 'mast'].map((asset, i) => ({ id: `p-${asset}`, asset, x: i * 50, z: 10 }));

@@ -1,12 +1,12 @@
-import { roadZ, roadSlope, ROAD_NORM } from './world-noise';
-import { ROAD, roadArcTable } from './road-profile';
+import { roadZ, roadSlope, ROAD_NORM } from '../../sim/world/world-noise';
+import { ROAD, roadArcTable } from '../../sim/world/road-profile';
 
 /**
  * The valley road as ground shading: an old two-lane asphalt carriageway, its worn paint, and a verge that crumbles away into
  * gravel, moss and grass. Everything is drawn by the terrain's fragment shader from the road's own centre line, so it has no
  * mesh, no decal and no texture of its own beyond the scanned aggregate it borrows.
  *
- * Three pieces are spliced into game/terrain.ts: `functions` (before main), `mask` (the road's coverage, early on) and
+ * Three pieces are spliced into game/render/world/terrain.ts: `functions` (before main), `mask` (the road's coverage, early on) and
  * `colour` (its look, once the ground underneath has been worked out). `roughness` and `normal` finish the job in their own
  * chunks of the standard material. It expects `surfaceNoise`/`patchHash` (texture-variation) and `roadCenter`/`roadPresence`
  * (world.ts's geography) to be in scope.

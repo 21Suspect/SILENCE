@@ -1,41 +1,41 @@
-import { guardUnlitLights } from './light-guards';
+import { guardUnlitLights } from '../render/gpu/light-guards';
 import * as THREE from 'three';
-import { WORLD_V2, WORLD_SEED } from './world-flags';
-import { ROAD } from './road-profile';
-import { createWorldV2, doorAt } from './world-v2';
-import { channelOffset } from './world-noise';
+import { WORLD_V2, WORLD_SEED } from '../sim/world/world-flags';
+import { ROAD } from '../sim/world/road-profile';
+import { createWorldV2, doorAt } from '../render/props/world-v2';
+import { channelOffset } from '../sim/world/world-noise';
 import {readSettings,keyLabel,type Action} from './settings';
-import { createTerrain, heightAt, exclusion, riverX, roadZ, roadDistance, pathX } from './terrain';
-import { createForest } from './forest';
-import { createAtmosphere } from './atmosphere';
-import { ForestAudio } from './audio';
-import { createEncounters } from './encounters';
-import { createStory } from './story';
-import { createStableSunShadow } from './shadows';
+import { createTerrain, heightAt, exclusion, riverX, roadZ, roadDistance, pathX } from '../render/world/terrain';
+import { createForest } from '../render/world/forest';
+import { createAtmosphere } from '../render/world/atmosphere';
+import { ForestAudio } from '../audio/audio';
+import { createEncounters } from '../render/creature/encounters';
+import { createStory } from '../render/props/story';
+import { createStableSunShadow } from '../render/world/shadows';
 import { renderRatio } from './quality';
-import { createCollisionWorld, moveCharacter, characterSupportAt, solidContact } from './collision';
-import { createAdmin } from './admin';
-import { createSky } from './sky';
-import { biomeAt, riverSurfaceAt, WORLD_DESTINATIONS } from './world';
-import { createFlashlight } from './flashlight';
+import { createCollisionWorld, moveCharacter, characterSupportAt, solidContact } from '../sim/world/collision';
+import { createAdmin } from '../ui/admin';
+import { createSky } from '../render/world/sky';
+import { biomeAt, riverSurfaceAt, WORLD_DESTINATIONS } from '../sim/world/world';
+import { createFlashlight } from '../render/props/flashlight';
 import { createTapTracker } from './tap';
-import type { EncounterView } from './encounter-visibility';
-import { footstepLoudness, FLASHLIGHT_CLICK_LOUDNESS, type FootSurface, type NoiseEvent as CreatureNoise } from './creature-brain';
-import type { CreatureSenses, CreatureMode } from './encounters';
-import { heldKind, type ObjectiveEvent } from './objectives';
-import { createObjectiveHud, OBJECTIVE_KEY } from './objective-hud';
-import { createPerfOverlay, PERF_OVERLAY_KEY } from './perf-overlay';
-import { objectiveText } from './objective-text';
-import { POI_PLACEMENTS } from './world-layout';
-import { initialLives, loseLife, respawnHours, deathCard, grabTimeline, GRAB, NIGHT_START_HOURS, type DeathOutcome } from './lives';
-import { createPerfProbe, drawList, shadowInstanceCulling, textureReport } from './perf-probe';
+import type { EncounterView } from '../sim/creature/encounter-visibility';
+import { footstepLoudness, FLASHLIGHT_CLICK_LOUDNESS, type FootSurface, type NoiseEvent as CreatureNoise } from '../sim/creature/creature-brain';
+import type { CreatureSenses, CreatureMode } from '../render/creature/encounters';
+import { heldKind, type ObjectiveEvent } from '../sim/objectives/objectives';
+import { createObjectiveHud, OBJECTIVE_KEY } from '../ui/objective-hud';
+import { createPerfOverlay, PERF_OVERLAY_KEY } from '../ui/perf-overlay';
+import { objectiveText } from '../sim/objectives/objective-text';
+import { POI_PLACEMENTS } from '../sim/world/world-layout';
+import { initialLives, loseLife, respawnHours, deathCard, grabTimeline, GRAB, NIGHT_START_HOURS, type DeathOutcome } from '../sim/player/lives';
+import { createPerfProbe, drawList, shadowInstanceCulling, textureReport } from '../dev/perf-probe';
 import { perfOn, perfSwitches } from './perf-flags';
-import { createGpuWarmup } from './gpu-warmup';
-import { createTextureSlicer } from './texture-slicer';
-import { createShadowProgramWarmer } from './shadow-programs';
-import { createStamina, gaitSpeed, sprintFov } from './stamina';
-import { createStaminaHud } from './stamina-hud';
-import { waterDepthAt, wadeSpeedFactor, limitWading } from './water-depth';
+import { createGpuWarmup } from '../render/gpu/gpu-warmup';
+import { createTextureSlicer } from '../render/gpu/texture-slicer';
+import { createShadowProgramWarmer } from '../render/gpu/shadow-programs';
+import { createStamina, gaitSpeed, sprintFov } from '../sim/player/stamina';
+import { createStaminaHud } from '../ui/stamina-hud';
+import { waterDepthAt, wadeSpeedFactor, limitWading } from '../sim/world/water-depth';
 
 // Deep lakes and open sea support a swimming body, rather than a player
 // walking across the bottom with the camera below the water surface.
@@ -97,7 +97,7 @@ export function createGame(container:HTMLElement) {
   // both are the one saved setting, so the choice is still there after a reload.
   const saveSettings=()=>{try{localStorage.setItem('silence-settings',JSON.stringify(settings));}catch{}};
   const objectiveHud=world2?createObjectiveHud(container,{enabled:()=>settings.objectiveHints,setEnabled:on=>{settings.objectiveHints=on;saveSettings();}}):undefined;
-  // Sprint stamina (game/stamina.ts) and its bar, which only shows while stamina is below full (game/stamina-hud.ts).
+  // Sprint stamina (game/sim/player/stamina.ts) and its bar, which only shows while stamina is below full (game/ui/stamina-hud.ts).
   const stamina=createStamina(),staminaHud=createStaminaHud(container);
   const interact=(pickupOnly=false)=>grab?false:world2?world2.activate(pickupOnly)||(!pickupOnly&&flashlight.toggle()):flashlight.interact(pickupOnly);
   const mouseTap=createTapTracker(),touchTap=createTapTracker();
@@ -272,7 +272,7 @@ export function createGame(container:HTMLElement) {
   };
   const touchEnd=(e:TouchEvent)=>{lastTouch=performance.now();for(const t of Array.from(e.changedTouches)){if(t.identifier===touchTapId){if(e.type==='touchend'&&isActive()&&touchTap.end(performance.now())&&interact())shadowDirty=true;touchTap.cancel();touchTapId=undefined;}if(touches.get(t.identifier)?.side==='move')touchMove.set(0,0);touches.delete(t.identifier);}};
   const rendererSize=new THREE.Vector2();
-  // The render resolution is the player's choice and nothing else changes it (game/quality.ts): a fixed number of rows with the
+  // The render resolution is the player's choice and nothing else changes it (game/core/quality.ts): a fixed number of rows with the
   // window's shape, or Native, which follows the window and the screen it is on. The post chain sizes its targets from it.
   const resize=()=>{
     const w=Math.max(1,container.clientWidth),h=Math.max(1,container.clientHeight);
@@ -314,7 +314,7 @@ export function createGame(container:HTMLElement) {
   let frame=0;
   let filtered=new WeakMap<THREE.Texture,number>(),filteredAt=-1;const anisotropy=renderer.capabilities.getMaxAnisotropy();
   // Anisotropic filtering is paid on every texture read. The ground and the road, seen at a grazing angle to the horizon,
-  // need all of it and set their own (game/terrain.ts). Everything else was given the same 16x and it was the largest
+  // need all of it and set their own (game/render/world/terrain.ts). Everything else was given the same 16x and it was the largest
   // per-pixel cost found (1.3 ms of a 12 ms frame on the road): leaf, needle and grass cards face the camera and gain
   // nothing from it, so they get 2x; bark, props and the creature get 4x.
   const filterFor=(material:THREE.Material)=>{
@@ -328,7 +328,7 @@ export function createGame(container:HTMLElement) {
     if(filteredAt!==settings.anisotropy){filtered=new WeakMap();filteredAt=settings.anisotropy;}
     scene.traverse(o=>{if(!(o instanceof THREE.Mesh))return;for(const material of Array.isArray(o.material)?o.material:[o.material]){const af=filterFor(material);for(const value of Object.values(material))if(value instanceof THREE.Texture&&!value.isRenderTargetTexture&&value.image?.width>0&&value.image?.complete!==false&&(filtered.get(value)??-1)<af){filtered.set(value,af);value.anisotropy=af;value.needsUpdate=true;}}});}
   // Props stream in with textures of up to 4096 px and their own shader programs. pois.ts hands each model to this queue as it arrives; one
-  // texture or one light state's programs is built per step, with a pause that grows with the cost of the last step (game/gpu-warmup.ts).
+  // texture or one light state's programs is built per step, with a pause that grows with the cost of the last step (game/render/gpu/gpu-warmup.ts).
   const lampStates=()=>world2?.debug.streetLights.count?4:2,slicer=createTextureSlicer(renderer),shadowPrograms=createShadowProgramWarmer(renderer),lightSync=new THREE.Object3D();
   const gpuWarmup=createGpuWarmup({
     states:lampStates(),
@@ -440,7 +440,7 @@ export function createGame(container:HTMLElement) {
     setDoor(id:string,open:number|boolean,animate=false){return world2?world2.debug.doors.set(id,open,animate):false;},
     /** Run one whole engine frame now (sky, forest and colliders, drawing): a hidden tab may not run frames at all. */
     snap(){cancelAnimationFrame(raf);last=performance.now()-16;animate(performance.now());return camera.position.toArray();},
-    /** Dev measurement (game/perf-probe.ts, game/perf-flags.ts). drive() runs the real simulation without a focused tab; hold() presses scripted keys; start()/stop() record one row per frame. */
+    /** Dev measurement (game/dev/perf-probe.ts, game/core/perf-flags.ts). drive() runs the real simulation without a focused tab; hold() presses scripted keys; start()/stop() record one row per frame. */
     perf:{
       gpuTimer:!!probe?.gpuTimer,
       /** Changes whenever the game is rebuilt (a hot update remounts it without reloading the page); a measurement is only valid if it did not change. */
@@ -484,8 +484,8 @@ export function createGame(container:HTMLElement) {
 
   if(import.meta.env.DEV&&world2)(window as unknown as {__WORLD__:typeof world2.debug}).__WORLD__=world2.debug;
   // Dev-only creature review stage: open the game with ?spider-lab.
-  let spiderLab:Awaited<ReturnType<typeof import('./spider-lab')['createSpiderLab']>>|undefined;
-  if(import.meta.env.DEV&&new URLSearchParams(location.search).has('spider-lab'))void import('./spider-lab').then(m=>{
+  let spiderLab:Awaited<ReturnType<typeof import('../dev/spider-lab')['createSpiderLab']>>|undefined;
+  if(import.meta.env.DEV&&new URLSearchParams(location.search).has('spider-lab'))void import('../dev/spider-lab').then(m=>{
     spiderLab=m.createSpiderLab({scene,camera,heightAt,world:collisions,setHours:h=>{hours=h;},teleport,equip:()=>{flashlight.devEquip();},markShadows:()=>{shadowDirty=true;},darkness:()=>diagnostic.darkness});
     (window as unknown as {__SPIDER__:typeof spiderLab}).__SPIDER__=spiderLab;
   });
@@ -572,7 +572,7 @@ export function createGame(container:HTMLElement) {
     const directionX=grab?0:(held('right')?1:0)-(held('left')?1:0)+touchMove.x;
     const crouch=!grab&&!flying&&!world2?.climbing&&held('crouch');
     // Asked to sprint: the key, or on touch a firm push on the stick. Whether the player really sprints is up to the stamina model
-    // (game/stamina.ts): it needs breath, movement and no crouching, flying or ladder, and it drives speed, field of view, noise and breathing.
+    // (game/sim/player/stamina.ts): it needs breath, movement and no crouching, flying or ladder, and it drives speed, field of view, noise and breathing.
     const hurry=!grab&&((touchMove.lengthSq()>0&&touchPushed)||held('sprint'));
     const run=stamina.update(active?dt:0,hurry&&!crouch&&!flying&&!wasClimbing,lastSpeed);
     const waterDistance=WORLD_V2?channelOffset(player.x,player.z):Math.abs(player.x-riverX(player.z));

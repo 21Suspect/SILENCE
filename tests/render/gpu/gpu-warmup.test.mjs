@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createWarmQueue, createGpuWarmup } from '../game/gpu-warmup.ts';
-import { planTiles } from '../game/texture-slicer.ts';
+import { createWarmQueue, createGpuWarmup } from '../../../game/render/gpu/gpu-warmup.ts';
+import { planTiles } from '../../../game/render/gpu/texture-slicer.ts';
 
 const tex = name => ({ name });
 const run = (queue, now, cost, status) => { const item = queue.next(now); if (item) item.finished(cost, now + cost, status); return item; };

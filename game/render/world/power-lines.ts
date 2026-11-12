@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import assets from './world-assets.json';
-import { SCATTER_PLACEMENTS } from './world-layout';
+import assets from '../../data/world-assets.json';
+import { SCATTER_PLACEMENTS } from '../../sim/world/world-layout';
 
 const SEGMENTS = 10, SIDES = 3, RADIUS = .011, SAG = .55;
 

@@ -1,4 +1,4 @@
-import type {SolidCollider} from './collision';
+import type {SolidCollider} from '../world/collision';
 import type {EncounterView,ViewVector} from './encounter-visibility';
 
 /** Recognition uses the real image, not the generous bounds/reflection that

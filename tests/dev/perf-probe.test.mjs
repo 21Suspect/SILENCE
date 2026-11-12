@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { percentile, stat, summarize } from '../game/perf-probe.ts';
-import { perfOn, perfSwitches } from '../game/perf-flags.ts';
+import { percentile, stat, summarize } from '../../game/dev/perf-probe.ts';
+import { perfOn, perfSwitches } from '../../game/core/perf-flags.ts';
 
 const row = (frame, cpu = 3, gpu = 2) => ({ frame, cpu, sky: 0, move: 0, terrain: 0, forest: 0, world: 0, encounter: 0, shadowPrep: 0, audio: 0, submit: 1, shadowCpu: 0, gpu,
   calls: 100, triangles: 1e6, shadowCalls: 10, shadowTriangles: 1e5, sunShadow: false, programs: 5, textures: 6, geometries: 7 });

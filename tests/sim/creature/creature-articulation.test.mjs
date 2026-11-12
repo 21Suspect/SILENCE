@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createArticulationPose,updateArticulationPose,createSpiderGaze,advanceSpiderGaze} from '../game/creature-articulation.ts';
+import {createArticulationPose,updateArticulationPose,createSpiderGaze,advanceSpiderGaze} from '../../../game/sim/creature/creature-articulation.ts';
 test('joint targets remain anatomically bounded through long idle and running sequences',()=>{
   const p=createArticulationPose();let asymmetry=0;
   for(let i=0;i<2400;i++){

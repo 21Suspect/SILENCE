@@ -1,16 +1,16 @@
 // Can the creature get at a player who hides behind a tree, and does it go between two trunks that stand closer
 // together than its legs are wide? Real forest, real navigation and gait. For each case: did its head come within
 // grabbing distance, how long that took against a straight run, and how long it stood still on the way.
-//   node --experimental-strip-types --no-warnings scripts/playtest/nav-probe.mjs [--verbose]
+//   node --experimental-strip-types --no-warnings tools/playtest/nav-probe.mjs [--verbose]
 import { createHeadlessWorld, heightAt } from './world.mjs';
 const DT = 1 / 60, verbose = process.argv.includes('--verbose'), GRAB = 2.2, SPEED = 6.5;
 globalThis.__nav={gap:0,astar:0,pull:0,round:0,iter:0,searches:0};
 const w = await createHeadlessWorld({}); const e = w.encounters;
 const treesNear = (x, z, r) => w.collisions.nearby(x, z, r).filter(c => c.tag === 'tree');
 /** Drives the body at the player's position (as a hunt does) until its head is within reach or time runs out. */
-// The game keeps the terrain within 144 m of the player built (game/terrain.ts streams it); a probe that did not would
+// The game keeps the terrain within 144 m of the player built (game/render/world/terrain.ts streams it); a probe that did not would
 // charge every plan for building terrain the game already has.
-const { TERRAIN_CHUNK } = await import('../../game/world.ts');
+const { TERRAIN_CHUNK } = await import('../../game/sim/world/world.ts');
 function warmTerrain(at) { for (let x = at.x - 144; x <= at.x + 144; x += TERRAIN_CHUNK) for (let z = at.z - 144; z <= at.z + 144; z += TERRAIN_CHUNK) if (Math.hypot(x - at.x, z - at.z) < 144 + TERRAIN_CHUNK) heightAt(x, z); }
 function chase(start, player, seconds = 14) {
   warmTerrain(player);

@@ -1,5 +1,5 @@
 // A top-down map of the generated world: relief, water, road, trails and every placed thing.
-//   node --experimental-strip-types --no-warnings scripts/playtest/map.mjs [out.png]      (WORLD_SEED=n for another world)
+//   node --experimental-strip-types --no-warnings tools/playtest/map.mjs [out.png]      (WORLD_SEED=n for another world)
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';

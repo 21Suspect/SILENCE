@@ -1,9 +1,9 @@
-import './helpers/register-ts-hooks.mjs';
+import '../../helpers/register-ts-hooks.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createSurfaceClimb} from '../game/surface-climb.ts';
-const {createCreatureNavigation}=await import('../game/creature-navigation.ts');
-import {createCollisionWorld,moveCharacter,characterSupportAt} from '../game/collision.ts';
+import {createSurfaceClimb} from '../../../game/sim/creature/surface-climb.ts';
+const {createCreatureNavigation}=await import('../../../game/sim/creature/creature-navigation.ts');
+import {createCollisionWorld,moveCharacter,characterSupportAt} from '../../../game/sim/world/collision.ts';
 const ground=()=>0;
 const roof={kind:'box',x:0,z:8,halfX:3,halfZ:3,yaw:0,minY:3,maxY:5,tag:'climb roof',surfaceHeight:(x,z)=>Math.abs(x)<=3.01&&Math.abs(z-8)<=3.01?5-Math.abs(x)*.6:undefined};
 
@@ -39,8 +39,8 @@ test('visible rock shoulders are walkable and empty space inside their proxy doe
 
 test('articulated support feet allow the body to complete a wall/roof climb without freezing',async()=>{
   const THREE=await import('three');
-  const {createSpiderGait}=await import('../game/spider-gait.ts');
-  const {SPIDER_SCALE:S}=await import('../game/spider-rig.ts');
+  const {createSpiderGait}=await import('../../../game/render/creature/spider-gait.ts');
+  const {SPIDER_SCALE:S}=await import('../../../game/render/creature/spider-rig.ts');
   const root=new THREE.Group(),body=new THREE.Group();root.scale.setScalar(S);root.add(body);
   const gait=createSpiderGait(root,body,{setLeg(){}});
   const p=new THREE.Vector3(0,0,2),climb=createSurfaceClimb(roof,p,0,1,ground);

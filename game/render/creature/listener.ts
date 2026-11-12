@@ -1,9 +1,9 @@
 import * as THREE from 'three';
-import type { SolidCollider } from './collision';
-import { obstacleClearance, type createCreatureNavigation } from './creature-navigation';
+import type { SolidCollider } from '../../sim/world/collision';
+import { obstacleClearance, type createCreatureNavigation } from '../../sim/creature/creature-navigation';
 import { createSpiderGait, type Contact, type LimbClearance, type RestPose, type SpiderCommand, type SpiderSurface } from './spider-gait';
 import { createSpiderRig, SPIDER_SCALE as S, LEG_SEGMENTS, twoBone } from './spider-rig';
-import layout from './spider-rig.json';
+import layout from '../../data/spider-rig.json';
 
 const clamp = THREE.MathUtils.clamp, sstep = THREE.MathUtils.smoothstep, lerp = THREE.MathUtils.lerp, damp = THREE.MathUtils.damp;
 type Query = { nearby: (x: number, z: number, radius?: number) => SolidCollider[] };

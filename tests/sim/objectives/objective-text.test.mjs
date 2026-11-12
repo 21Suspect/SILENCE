@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import './helpers/register-ts-hooks.mjs';
-const { initialState, applyAction, heldKind, FUSE_SLOTS } = await import('../game/objectives.ts');
-const { objectiveText } = await import('../game/objective-text.ts');
+import '../../helpers/register-ts-hooks.mjs';
+const { initialState, applyAction, heldKind, FUSE_SLOTS } = await import('../../../game/sim/objectives/objectives.ts');
+const { objectiveText } = await import('../../../game/sim/objectives/objective-text.ts');
 
 const me = 'p1';
 const run = (state, ...actions) => actions.reduce((s, a) => applyAction(s, a).state, state);

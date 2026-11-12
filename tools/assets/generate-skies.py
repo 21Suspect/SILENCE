@@ -31,7 +31,7 @@ def day(x,y,w,h):
  # Rayleigh-dominated blue zenith, long path near-white horizon. No baked sun.
  t=elevation**.45
  return tuple((1-t)*a+t*b for a,b in zip((.72,.86,1.0),(.11,.28,.61)))
-# Star points now live in game/sky.ts and resolve at framebuffer resolution.
+# Star points now live in game/render/world/sky.ts and resolve at framebuffer resolution.
 # The original radiance panorama supplies only diffuse starlight / Milky Way.
 w,h=2048,1024
 def night(x,y,w,h):

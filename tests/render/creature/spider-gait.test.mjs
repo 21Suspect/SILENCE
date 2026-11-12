@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-// game/spider-gait.ts imports './spider-rig' without an extension and the rig imports JSON without an
+// game/render/creature/spider-gait.ts imports './spider-rig' without an extension and the rig imports JSON without an
 // attribute; this test-only loader hook lets Node import the unchanged game sources.
-import './helpers/register-ts-hooks.mjs';
-const { createSpiderGait } = await import('../game/spider-gait.ts');
-const { LEG_COUNT, SPIDER_SCALE: S } = await import('../game/spider-rig.ts');
+import '../../helpers/register-ts-hooks.mjs';
+const { createSpiderGait } = await import('../../../game/render/creature/spider-gait.ts');
+const { LEG_COUNT, SPIDER_SCALE: S } = await import('../../../game/render/creature/spider-rig.ts');
 
 // ---------------------------------------------------------------- harness
 const DT = 1 / 60;

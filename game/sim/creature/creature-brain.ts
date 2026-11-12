@@ -1,7 +1,7 @@
 /**
  * The Listener's mind: senses, memory and a utility selector over behaviours.
  *
- * Pure and deterministic. No three.js, no scene, no clock and no Math.random: the host (game/encounters.ts)
+ * Pure and deterministic. No three.js, no scene, no clock and no Math.random: the host (game/render/creature/encounters.ts)
  * measures the world for it (line of sight, where the torch beam points, how far its head is from the player)
  * and moves the body; this module only perceives and decides. Randomness comes from the injected `random`, and
  * time only from the `dt` of each tick, so a fixed seed and a fixed script of inputs replay exactly. That keeps

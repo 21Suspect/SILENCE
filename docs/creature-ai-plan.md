@@ -5,7 +5,7 @@ turning the creature from a scheduled apparition into a persistent, sensing, ada
 
 ## Why
 
-Today the creature (`game/encounters.ts`, body in `game/listener.ts`):
+Today the creature (`game/render/creature/encounters.ts`, body in `game/render/creature/listener.ts`):
 
 - never comes for the player: it aims for a point 14 m ahead and 7 m beside them, backs off inside 9-10 m and
   leaves a few seconds after being seen. There is no chase, grab, damage, death or lives anywhere in the game;
@@ -67,7 +67,7 @@ and drops after a chase. Early evening it only watches; by deep night it hunts.
 - **Distractions:** the radio or generator pulls it away.
 
 ### 7. Sound
-Synthesized for now (procedural, in `game/audio.ts`), each emitted from the creature's real position:
+Synthesized for now (procedural, in `game/audio/audio.ts`), each emitted from the creature's real position:
 low clicking/chitter when near but unseen; wet breathing when very close behind; claws on bark above; branches
 cracking that move with it; a distant call when it has lost the player; a screech when the hunt starts; a grab
 sting; and the forest going quiet when it is within about 25 m. No birds of any kind (standing rule).
@@ -83,12 +83,12 @@ unpredictable but tunable. Not a neural network.
 2. **It becomes creepy.** Watch (tree and treeline staring), Bluff, Cut off, the tension director, the full
    sound set.
 3. **It becomes smart and moves better.** Learning the player's habits; feet placed on stumps, rocks, logs and
-   trunk bases; knees that avoid obstacles (the three `todo` tests in `tests/spider-gait.test.mjs`).
+   trunk bases; knees that avoid obstacles (the three `todo` tests in `tests/render/creature/spider-gait.test.mjs`).
 
 ## Constraints
 
 - Creature v2 at `SPIDER_SCALE` 1.15 is the creature; never scale the head alone.
-- The procedural sound system that was removed (`game/sound/`) stays out; creature sounds live in `game/audio.ts`.
+- The procedural sound system that was removed (`game/sound/`) stays out; creature sounds live in `game/audio/audio.ts`.
 - CI must stay green: `npx tsc --noEmit` and `node --experimental-strip-types --test tests/*.test.mjs`.
 - Keep the brain pure and testable (no three.js scene access, injected random and clock), so a multiplayer host
   can own it later; all other game state already replays deterministically.
@@ -189,7 +189,7 @@ Built as above, with these differences and additions, each found by the playtest
   It recoils (crouched, head turned from the light) and steps back without turning; the listener rears for the roar.
 
 ### Tuning pass (2026-11-10): sounds, the stun's brake, lethality
-Measured with the playtest bot (`scripts/playtest/`), 20 seeds x 7 styles before and after; reports in `work/playtest/`
+Measured with the playtest bot (`tools/playtest/`), 20 seeds x 7 styles before and after; reports in `work/playtest/`
 (`report-before.txt`, `report-before-newrules.txt`, `report-after.txt`).
 
 - **Sounds mean something once.** The hiss belongs to the start of a stun sequence: it plays when the beam first pins it and

@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-// game/pois.ts uses extensionless and JSON imports that only the bundler understands.
-import './helpers/register-ts-hooks.mjs';
-const { createPois, worldColliders, worldHook, worldLadder, placePoint, seatPlacement, footprintOf } = await import('../game/pois.ts');
-const { solidContact, createCollisionWorld } = await import('../game/collision.ts');
+// game/render/props/pois.ts uses extensionless and JSON imports that only the bundler understands.
+import '../../helpers/register-ts-hooks.mjs';
+const { createPois, worldColliders, worldHook, worldLadder, placePoint, seatPlacement, footprintOf } = await import('../../../game/render/props/pois.ts');
+const { solidContact, createCollisionWorld } = await import('../../../game/sim/world/collision.ts');
 
 const flat = h => () => h;
 const hut = { url: '/world/hut.glb', radius: 5,

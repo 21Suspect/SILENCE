@@ -27,17 +27,17 @@ times).  Each finding is classed
             Listed separately, lower severity.
 
 Each finding also says how far away a gap of that size still flickers (24-bit depth buffer, camera
-near plane 0.075 m as in game/engine.ts): an exact 0 mm gap flickers at any range, 0.5 mm only from
+near plane 0.075 m as in game/core/engine.ts): an exact 0 mm gap flickers at any range, 0.5 mm only from
 about 25 m, 1.5 mm only from about 45 m.  Fix the 0 mm ones first.
 
 RUN
-  python3 scripts/assets/world-v2/zfight.py                  # every GLB in public/world, worst first
-  python3 scripts/assets/world-v2/zfight.py well ruin gate   # named assets (or paths to .glb)
-  python3 scripts/assets/world-v2/zfight.py --selftest       # synthetic calibration, writes nothing
-  python3 scripts/assets/world-v2/zfight.py -v cabin         # list every finding, not just the top few
+  python3 tools/assets/world-v2/zfight.py                  # every GLB in public/world, worst first
+  python3 tools/assets/world-v2/zfight.py well ruin gate   # named assets (or paths to .glb)
+  python3 tools/assets/world-v2/zfight.py --selftest       # synthetic calibration, writes nothing
+  python3 tools/assets/world-v2/zfight.py -v cabin         # list every finding, not just the top few
   # same script inside Blender's bundled python (it also ships numpy):
   /Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup \
-      --python scripts/assets/world-v2/zfight.py -- [asset ...]
+      --python tools/assets/world-v2/zfight.py -- [asset ...]
 
 Needs python3 with numpy (system python3 here: 3.9 with numpy 2.0.2).  Writes
 assets/world-v2/review/<asset>.zfight.json for each asset (not in --selftest).  Always exits 0:
@@ -65,7 +65,7 @@ DEFAULTS = dict(
     min_area_cm2=1.0,  # findings below this total overlapping area are ignored
     min_tri_area_m2=1e-7,  # triangles smaller than 0.1 mm^2 have no usable normal
     sat_eps_m=2e-5,    # overlap must be deeper than 0.02 mm to count as area (edge/vertex contact does not)
-    near_m=0.075,      # game camera near plane (game/engine.ts) - used only to estimate how far away a gap still flickers
+    near_m=0.075,      # game camera near plane (game/core/engine.ts) - used only to estimate how far away a gap still flickers
     depth_bits=24,
     exposure_checks=80,  # how many same-facing findings (largest first) get the buried-in-a-solid ray test
     ground_y_m=0.03,   # downward faces within +/-3 cm of the prop's y=0 base plane sit in the terrain and are never seen

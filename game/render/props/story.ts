@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { createRockGeometry, createRockMaterial, createWeatheredWoodMaterial } from './surfaces';
-import { varyDirectionalTexture } from './texture-variation';
-import type { SolidCollider } from './collision';
-import { WORLD_V2 } from './world-flags';
+import { createRockGeometry, createRockMaterial, createWeatheredWoodMaterial } from '../world/surfaces';
+import { varyDirectionalTexture } from '../world/texture-variation';
+import type { SolidCollider } from '../../sim/world/collision';
+import { WORLD_V2 } from '../../sim/world/world-flags';
 
 /** Quiet, unmarked traces of people who used to visit this part of the forest. */
 export function createStory(scene: THREE.Scene, heightAt: (x: number, z: number) => number) {

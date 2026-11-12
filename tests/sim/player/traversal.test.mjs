@@ -1,20 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-// game/pois.ts uses extensionless and JSON imports that only the bundler understands.
-import './helpers/register-ts-hooks.mjs';
-const { createCollisionWorld, moveCharacter, characterSupportAt, solidContact } = await import('../game/collision.ts');
-const { worldColliders, worldLadder, placePoint } = await import('../game/pois.ts');
-const { createLadderClimber, ladderBody, ladderFront, ladderAim, ladderReachable, ladderLength, LADDER_SPEED } = await import('../game/ladders.ts');
-const assets = (await import('../game/world-assets.json')).default;
+// game/render/props/pois.ts uses extensionless and JSON imports that only the bundler understands.
+import '../../helpers/register-ts-hooks.mjs';
+const { createCollisionWorld, moveCharacter, characterSupportAt, solidContact } = await import('../../../game/sim/world/collision.ts');
+const { worldColliders, worldLadder, placePoint } = await import('../../../game/render/props/pois.ts');
+const { createLadderClimber, ladderBody, ladderFront, ladderAim, ladderReachable, ladderLength, LADDER_SPEED } = await import('../../../game/sim/player/ladders.ts');
+const assets = (await import('../../../game/data/world-assets.json')).default;
 
 /*
  * Can the player actually walk and climb the new world? These run the real moveCharacter, characterSupportAt and the real
- * colliders from game/world-assets.json on flat ground, with a player driven the way game/engine.ts drives one: the velocity
+ * colliders from game/data/world-assets.json on flat ground, with a player driven the way game/core/engine.ts drives one: the velocity
  * eases toward the wanted velocity, moveCharacter moves it, and the visible height chases the support under the feet.
  */
 
-// What game/engine.ts does each frame. The first test below reads engine.ts and collision.ts to keep these honest.
+// What game/core/engine.ts does each frame. The first test below reads engine.ts and collision.ts to keep these honest.
 const ENGINE = { height: 1.69, radius: .24, yDamp: 18, accel: 6, decel: 10, walk: 1.8, hurry: 5.6 };
 const SPEEDS = [ENGINE.walk, ENGINE.hurry], FRAME_RATES = [60, 30];
 const flat = () => 0;
@@ -118,11 +118,11 @@ function noProblems(problems) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-test('the traversal simulation uses the movement constants game/engine.ts and game/collision.ts really have', () => {
-  const engine = readFileSync(new URL('../game/engine.ts', import.meta.url), 'utf8'), collision = readFileSync(new URL('../game/collision.ts', import.meta.url), 'utf8');
-  const number = (source, pattern, what) => { const m = source.match(pattern); assert.ok(m, `no longer found: ${what}; update ENGINE in tests/traversal.test.mjs`); return m.slice(1).map(Number); };
-  // The walking and sprint speeds live in the stamina model (game/stamina.ts); the engine steers between them with its blend.
-  const stamina = readFileSync(new URL('../game/stamina.ts', import.meta.url), 'utf8');
+test('the traversal simulation uses the movement constants game/core/engine.ts and game/sim/world/collision.ts really have', () => {
+  const engine = readFileSync(new URL('../../../game/core/engine.ts', import.meta.url), 'utf8'), collision = readFileSync(new URL('../../../game/sim/world/collision.ts', import.meta.url), 'utf8');
+  const number = (source, pattern, what) => { const m = source.match(pattern); assert.ok(m, `no longer found: ${what}; update ENGINE in tests/sim/player/traversal.test.mjs`); return m.slice(1).map(Number); };
+  // The walking and sprint speeds live in the stamina model (game/sim/player/stamina.ts); the engine steers between them with its blend.
+  const stamina = readFileSync(new URL('../../../game/sim/player/stamina.ts', import.meta.url), 'utf8');
   assert.deepEqual(number(stamina, /walkSpeed: ([\d.]+),\s*sprintSpeed: ([\d.]+)/, 'the walking and sprint speeds'), [ENGINE.walk, ENGINE.hurry]);
   assert.ok(/moveSpeed=crouch\?[\d.]+:gaitSpeed\(run\.blend\)/.test(engine), 'the engine no longer takes its ground speed from the stamina model; update this test');
   assert.deepEqual(number(engine, /moveCharacter\(player,velocity\.x\*dt,velocity\.z\*dt,crouch\?[\d.]+:([\d.]+),movementGround,collisions\)/, 'the standing height passed to moveCharacter'), [ENGINE.height]);

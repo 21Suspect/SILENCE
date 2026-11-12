@@ -1,9 +1,9 @@
 /**
  * The playtest: N seeds x play styles, each a whole night against the real creature, in parallel, then the report.
  *
- *   node --experimental-strip-types --no-warnings scripts/playtest/run.mjs [--seeds 20] [--from 1] [--styles trail,smart]
+ *   node --experimental-strip-types --no-warnings tools/playtest/run.mjs [--seeds 20] [--from 1] [--styles trail,smart]
  *        [--minutes 15] [--jobs 12] [--out work/playtest]
- *   node --experimental-strip-types --no-warnings scripts/playtest/run.mjs --report-only [--out work/playtest]
+ *   node --experimental-strip-types --no-warnings tools/playtest/run.mjs --report-only [--out work/playtest]
  *
  * Logs go to <out>/logs/<style>-<seed>.json, the report to <out>/report.txt and stdout. Exits 1 if a guarantee broke.
  */

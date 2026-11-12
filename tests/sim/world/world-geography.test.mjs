@@ -1,8 +1,8 @@
-import './helpers/register-ts-hooks.mjs';
+import '../../helpers/register-ts-hooks.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-const {WORLD_RADIUS, TERRAIN_CHUNK, TERRAIN_SEGMENTS, TERRAIN_STEP, cacheTerrainBlock, terrainBlock, heightAt, rawHeight, biomeAt, pathX, pathWidth, riverX, waterHeightAt, waterGradeAt, riverSurfaceAt, terrainHeightStats} = await import('../game/world.ts');
-const {createCollisionWorld, moveCharacter} = await import('../game/collision.ts');
+const {WORLD_RADIUS, TERRAIN_CHUNK, TERRAIN_SEGMENTS, TERRAIN_STEP, cacheTerrainBlock, terrainBlock, heightAt, rawHeight, biomeAt, pathX, pathWidth, riverX, waterHeightAt, waterGradeAt, riverSurfaceAt, terrainHeightStats} = await import('../../../game/sim/world/world.ts');
+const {createCollisionWorld, moveCharacter} = await import('../../../game/sim/world/collision.ts');
 
 test('walkable terrain samples the rendered float32 lattice across chunk seams',()=>{
   for(const [ix,iz] of [[-49,-1],[-1,-49],[0,0],[48,48],[768,-768]]){

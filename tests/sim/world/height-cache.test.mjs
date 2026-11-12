@@ -1,7 +1,7 @@
-import './helpers/register-ts-hooks.mjs';
+import '../../helpers/register-ts-hooks.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-const { cacheTerrainBlock, releaseTerrainBlock, terrainBlock, terrainHeightStats } = await import('../game/world.ts');
+const { cacheTerrainBlock, releaseTerrainBlock, terrainBlock, terrainHeightStats } = await import('../../../game/sim/world/world.ts');
 
 // Height blocks are 2,401 samples each and cost 11-28 ms to compute in the browser. The blocks of the terrain tiles built round
 // the player are held outside the small LRU, so that sampling heights all over the island (POI placement) cannot push them out.

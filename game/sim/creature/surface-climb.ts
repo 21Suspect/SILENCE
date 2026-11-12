@@ -1,4 +1,4 @@
-import type {SolidCollider} from './collision';
+import type {SolidCollider} from '../world/collision';
 
 type Point={x:number;y:number;z:number};
 type Box=Extract<SolidCollider,{kind:'box'}>;

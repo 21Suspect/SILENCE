@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { solidContact, type SolidCollider } from './collision';
+import { solidContact, type SolidCollider } from '../../sim/world/collision';
 import type { Interactable } from './interaction';
 import type { Pois, PoiSeat } from './pois';
 

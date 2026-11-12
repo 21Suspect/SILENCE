@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { solarDirection, nightVisibility, DAY_SKY_HEX, skyDisplayRadiance, starCatalog } from '../game/sky.ts';
-import { createStableSunShadow } from '../game/shadows.ts';
+import { solarDirection, nightVisibility, DAY_SKY_HEX, skyDisplayRadiance, starCatalog } from '../../../game/render/world/sky.ts';
+import { createStableSunShadow } from '../../../game/render/world/shadows.ts';
 
 test('the solar orbit rises in the east, passes south and sets in the west',()=>{
   const dawn=solarDirection(6),noon=solarDirection(12),dusk=solarDirection(18),night=solarDirection(0);

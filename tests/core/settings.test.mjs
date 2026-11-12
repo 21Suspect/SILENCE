@@ -1,4 +1,4 @@
-import './helpers/register-ts-hooks.mjs';import test from 'node:test';import assert from 'node:assert/strict';const{defaults,bindKey,readSettings,volumeGain,volumeKeys}=await import('../game/settings.ts');
+import '../helpers/register-ts-hooks.mjs';import test from 'node:test';import assert from 'node:assert/strict';const{defaults,bindKey,readSettings,volumeGain,volumeKeys}=await import('../../game/core/settings.ts');
 test('rebinding swaps conflicts and reserves menu keys',()=>{const s=defaults();assert.ok(bindKey(s,'forward','KeyS'));assert.equal(s.bindings.forward,'KeyS');assert.equal(s.bindings.back,'KeyW');assert.equal(bindKey(s,'forward','Escape'),false);assert.equal(bindKey(s,'forward','F2'),false);});
 test('saved settings validate malformed preferences and round-trip bindings',()=>{assert.deepEqual(readSettings('{'),defaults());const s=defaults();s.quality='low';s.sensitivity=1.5;bindKey(s,'forward','ArrowUp');assert.deepEqual(readSettings(JSON.stringify(s)),s);assert.equal(readSettings('{"sensitivity":900,"quality":"bad"}').sensitivity,2.5);const corrupt=defaults();corrupt.bindings.back='KeyW';assert.deepEqual(readSettings(JSON.stringify(corrupt)).bindings,defaults().bindings);});
 
@@ -21,7 +21,7 @@ test('turning the objective hint off survives a reload, and only a real boolean 
 test('the objective key is not one of the rebindable actions, and rebinding does not disturb the hint setting',()=>{assert.ok(!Object.values(defaults().bindings).includes('KeyO'));const s=defaults();s.objectiveHints=false;bindKey(s,'forward','ArrowUp');assert.equal(s.objectiveHints,false);assert.equal(readSettings(JSON.stringify(s)).bindings.forward,'ArrowUp');});
 
 test('the frame rate limit defaults to 60, keeps 60, 120 or off, and ignores anything else', async () => {
-  const { readSettings, defaults } = await import('../game/settings.ts');
+  const { readSettings, defaults } = await import('../../game/core/settings.ts');
   assert.equal(defaults().frameCap, 60);
   for (const cap of [0, 60, 120]) assert.equal(readSettings(JSON.stringify({ frameCap: cap })).frameCap, cap);
   for (const bad of [30, 144, -1, 'fast', null]) assert.equal(readSettings(JSON.stringify({ frameCap: bad })).frameCap, 60);

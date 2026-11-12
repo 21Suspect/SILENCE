@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import type { createRiver } from './river';
-import { WORLD_V2 } from './world-flags';
+import { WORLD_V2 } from '../../sim/world/world-flags';
 
 // Integrate the participating medium at half resolution, then reconstruct it
 // against full-resolution surface depth. Scene textures and silhouettes stay sharp.
@@ -442,7 +442,7 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
         result[name]=gl.getQueryParameter(query,gl.QUERY_RESULT)/1e6;gl.deleteQuery(query);
       }return result;
     },
-    /** Every target follows the render size the player chose (game/quality.ts): the scene at full size, the fog at a fraction of it. */
+    /** Every target follows the render size the player chose (game/core/quality.ts): the scene at full size, the fog at a fraction of it. */
     resize(width:number,height:number,ratio:number){
       const w=Math.round(width*ratio),h=Math.round(height*ratio);
       const requested=scene.userData.graphicsAA??4;const samples=Math.min(requested<=1?0:requested,4,renderer.capabilities.maxSamples);if(target.samples!==samples){target.samples=samples;target.dispose();}

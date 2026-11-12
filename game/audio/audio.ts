@@ -1,9 +1,9 @@
 import type * as THREE from 'three';
-import {createBreathing, type Breath} from './breathing';
-import { riverX, waterHeightAt } from './world';
-import { coastDistance, SEA_LEVEL } from './coastal-geography';
-import { WORLD_V2 } from './world-flags';
-import { volumeGain, type Settings } from './settings';
+import {createBreathing, type Breath} from '../sim/player/breathing';
+import { riverX, waterHeightAt } from '../sim/world/world';
+import { coastDistance, SEA_LEVEL } from '../sim/world/coastal-geography';
+import { WORLD_V2 } from '../sim/world/world-flags';
+import { volumeGain, type Settings } from '../core/settings';
 
 type Surface = 'dirt' | 'road' | 'water' | 'wood';
 export type ForestAudioFrame = {
@@ -21,11 +21,11 @@ export type ForestAudioFrame = {
 type Point = { x: number; y: number; z: number };
 
 /** A deliberately quiet soundscape. Nothing is audible until a user gesture. */
-/** How many takes of each creature sound ship in public/audio/creature (see scripts/assets/audio/creature_sounds.py). */
+/** How many takes of each creature sound ship in public/audio/creature (see tools/assets/audio/creature_sounds.py). */
 export const CREATURE_TAKES = { screech: 5, hiss: 6, branch: 6, call: 4, clicks: 8, knock_trunk: 4 } as const;
 export type CreatureSound = keyof typeof CREATURE_TAKES;
 
-/** Field recordings in public/audio/ambience (see scripts/assets/audio/ambience.py). `owls` is not a bed: it is heard now and then, far off. */
+/** Field recordings in public/audio/ambience (see tools/assets/audio/ambience.py). `owls` is not a bed: it is heard now and then, far off. */
 const AMBIENCE = { day: ['day_1', 'day_2'], night: ['night_1', 'night_2'], wind: ['wind'] } as const;
 type AmbienceGroup = keyof typeof AMBIENCE;
 type AmbienceVoice = { name: string; source: AudioBufferSourceNode; gain: GainNode };
@@ -83,7 +83,7 @@ export class ForestAudio {
     this.context = context;
     // Decode once after audio is unlocked; encounter playback retries until ready.
     void fetch('/audio/scary%20sound.mp3').then(r=>{if(!r.ok)throw new Error('Reveal audio unavailable');return r.arrayBuffer();}).then(bytes=>context.decodeAudioData(bytes)).then(buffer=>{if(!this.disposed)this.revealBuffer=buffer;}).catch(error=>console.warn('SILENCE: reveal audio could not load',error));
-    // The creature's voice: takes rendered by scripts/assets/audio/creature_sounds.py. Until one is decoded its sound is simply skipped.
+    // The creature's voice: takes rendered by tools/assets/audio/creature_sounds.py. Until one is decoded its sound is simply skipped.
     for (const [group, count] of Object.entries(CREATURE_TAKES) as [CreatureSound, number][]) for (let take = 1; take <= count; take++) {
       void fetch(`/audio/creature/${group}_${take}.mp3`).then(r => { if (!r.ok) throw new Error(`${group}_${take} unavailable`); return r.arrayBuffer(); }).then(bytes => context.decodeAudioData(bytes))
         .then(buffer => { if (this.disposed) return; const list = this.samples.get(group) ?? []; list.push(buffer); this.samples.set(group, list); }).catch(error => console.warn('SILENCE: creature sound could not load.', error));
@@ -261,7 +261,7 @@ export class ForestAudio {
   }
 
   /**
-   * The player's own breath: an inhale and an exhale of band-passed noise, shaped by game/breathing.ts (which decides the
+   * The player's own breath: an inhale and an exhale of band-passed noise, shaped by game/sim/player/breathing.ts (which decides the
    * timing, the colour of each half and the little differences between breaths). It is head-local, with no panner, and it
    * feeds the master bus like the footsteps, so only the master slider moves it. Nothing here is an oscillator, so it cannot
    * whistle. Both halves are scheduled at once, one set of nodes per half, and the nodes are dropped when the noise ends.

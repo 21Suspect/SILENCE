@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {inDirectView,sightlineClear,createEncounterAwareness} from '../game/creature-sighting.ts';
+import {inDirectView,sightlineClear,createEncounterAwareness} from '../../../game/sim/creature/creature-sighting.ts';
 const flat=()=>0;
 const view={position:{x:0,y:1.7,z:0},forward:{x:0,y:0,z:-1},right:{x:1,y:0,z:0},up:{x:0,y:1,z:0},verticalFov:69,aspect:16/9};
 const target={x:0,y:1.7,z:-20};

@@ -216,7 +216,7 @@
         "coastal-diff.webp",
         "coastal-normal-rough.png"
       ],
-      "processing": "Sand/snow/leaf-litter atlas; 16px wrapped gutters; roughness in normal alpha. Rebuild: scripts/assets/coastal/build_textures.py"
+      "processing": "Sand/snow/leaf-litter atlas; 16px wrapped gutters; roughness in normal alpha. Rebuild: tools/assets/coastal/build_textures.py"
     },
     {
       "asset": "sand_02",
@@ -240,7 +240,7 @@
         "coastal-diff.webp",
         "coastal-normal-rough.png"
       ],
-      "processing": "Sand/snow/leaf-litter atlas; 16px wrapped gutters; roughness in normal alpha. Rebuild: scripts/assets/coastal/build_textures.py"
+      "processing": "Sand/snow/leaf-litter atlas; 16px wrapped gutters; roughness in normal alpha. Rebuild: tools/assets/coastal/build_textures.py"
     },
     {
       "asset": "snow_02",
@@ -264,7 +264,7 @@
         "coastal-diff.webp",
         "coastal-normal-rough.png"
       ],
-      "processing": "Sand/snow/leaf-litter atlas; 16px wrapped gutters; roughness in normal alpha. Rebuild: scripts/assets/coastal/build_textures.py"
+      "processing": "Sand/snow/leaf-litter atlas; 16px wrapped gutters; roughness in normal alpha. Rebuild: tools/assets/coastal/build_textures.py"
     }
   ]
 }

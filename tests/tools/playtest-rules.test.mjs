@@ -4,9 +4,9 @@ import assert from 'node:assert/strict';
 /*
  * The playtest report's rules, on small made-up nights: each reactive sound means something once (one hiss per stun
  * engagement, one roar per hunt), an ambient sound is never right after a loud one or a sighting, and the stun's
- * braking is judged by the body's own speed. The whole-night checks against the real creature are scripts/playtest/run.mjs.
+ * braking is judged by the body's own speed. The whole-night checks against the real creature are tools/playtest/run.mjs.
  */
-const { judgeRun, summarize, stunCurve, RULES } = await import('../scripts/playtest/report.mjs');
+const { judgeRun, summarize, stunCurve, RULES } = await import('../../tools/playtest/report.mjs');
 
 /** A quiet night that keeps every rule: the opening on time, free roam from 5:20, `extra` merged in. */
 function night(extra = {}) {

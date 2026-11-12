@@ -10,7 +10,7 @@ export type PlayerId = string;
 export type ItemKind = 'fuse' | 'jerry';
 export type Item = {
   kind: ItemKind;
-  /** Asset name of the place it sits at (matches game/world-assets.json). */
+  /** Asset name of the place it sits at (matches game/data/world-assets.json). */
   poi: string;
   status: 'world' | 'held' | 'used';
   holder?: PlayerId;

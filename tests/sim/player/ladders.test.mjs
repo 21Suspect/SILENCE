@@ -1,21 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-// game/pois.ts and game/world-v2.ts use extensionless and JSON imports that only the bundler understands.
-import './helpers/register-ts-hooks.mjs';
-const L = await import('../game/ladders.ts');
-const { worldLadder, createPois } = await import('../game/pois.ts');
-const { createWorldV2 } = await import('../game/world-v2.ts');
-const { createCollisionWorld, solidContact } = await import('../game/collision.ts');
-const { worldColliders } = await import('../game/pois.ts');
-const { SCATTER_PLACEMENTS, POI_PLACEMENTS } = await import('../game/world-layout.ts');
-const { lineOfSight } = await import('../game/interaction.ts');
-const assets = (await import('../game/world-assets.json')).default;
+// game/render/props/pois.ts and game/render/props/world-v2.ts use extensionless and JSON imports that only the bundler understands.
+import '../../helpers/register-ts-hooks.mjs';
+const L = await import('../../../game/sim/player/ladders.ts');
+const { worldLadder, createPois } = await import('../../../game/render/props/pois.ts');
+const { createWorldV2 } = await import('../../../game/render/props/world-v2.ts');
+const { createCollisionWorld, solidContact } = await import('../../../game/sim/world/collision.ts');
+const { worldColliders } = await import('../../../game/render/props/pois.ts');
+const { SCATTER_PLACEMENTS, POI_PLACEMENTS } = await import('../../../game/sim/world/world-layout.ts');
+const { lineOfSight } = await import('../../../game/render/props/interaction.ts');
+const assets = (await import('../../../game/data/world-assets.json')).default;
 const { createLadderClimber, ladderBody, ladderFront, ladderLength, ladderNearest, ladderAim, ladderReachable, LADDER_SPEED, LADDER_RUNG, LADDER_FRONT, LADDER_REACH, LADDER_DISMOUNT } = L;
 // createPois starts loading models as soon as the player is near; there is no server here, and that is not what these test.
 { const warn = console.warn; console.warn = (...args) => { if (!String(args[0]).startsWith('SILENCE:')) warn(...args); }; }
 
-// The two real ladders, as game/pois.ts puts them in the world when a model stands at its own origin.
+// The two real ladders, as game/render/props/pois.ts puts them in the world when a model stands at its own origin.
 const at = (name, index = 0, place = { id: name, asset: name, x: 0, z: 0, yaw: 0 }) => worldLadder(assets[name], place, 0, index);
 const deerstand = at('deerstand'), mast = at('mast');
 const near = (a, b, e = 1e-9) => Math.abs(a - b) <= e;
@@ -224,7 +224,7 @@ test('pois exposes every ladder of every placement in world space, from the firs
 });
 
 // ---------------------------------------------------------------------------------------------------------------------
-// The wiring in game/world-v2.ts, with a stand-in for the DOM, flashlight and camera.
+// The wiring in game/render/props/world-v2.ts, with a stand-in for the DOM, flashlight and camera.
 function makeWorld() {
   const element = () => ({ style: {}, textContent: '', setAttribute() {}, addEventListener() {}, remove() {} });
   const el = element(); let created = 0;

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import {createTreeCrawl} from '../game/tree-crawl.ts';
+import {createTreeCrawl} from '../../../game/render/creature/tree-crawl.ts';
 const rests=[];
 for(const side of [-1,1])for(let i=0;i<3;i++)rests.push(new THREE.Vector3(side*(2.22+i*.16),.035,i===0?2.02:i===1?.05:-1.90));
 const make=(radius=.7,height=30,ground=()=>0)=>createTreeCrawl({x:0,z:0,ground:0,radius,height},0,rests,(a,y)=>new THREE.Vector3(Math.cos(a)*radius,y,Math.sin(a)*radius),ground);

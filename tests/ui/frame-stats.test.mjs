@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createFrameStats, percentile, refreshInterval } from '../game/frame-stats.ts';
+import { createFrameStats, percentile, refreshInterval } from '../../game/ui/frame-stats.ts';
 
 const near = (a, b, tolerance = 1e-6) => assert.ok(Math.abs(a - b) <= tolerance, `${a} is not ${b}`);
 

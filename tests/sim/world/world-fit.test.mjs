@@ -3,23 +3,23 @@ import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as THREE from 'three';
-import './helpers/register-ts-hooks.mjs';
+import '../../helpers/register-ts-hooks.mjs';
 // The rebuilt world only exists behind ?world-v2; game modules read the flag when they load, so it is set before the first import.
 globalThis.location = { search: `?world-v2${process.env.WORLD_SEED ? `&seed=${process.env.WORLD_SEED}` : ''}` };
-const { heightAt, pathX, pathDistance, pathWidth, roadZ, riverX, riverPresence, biomeAt, vegetationExclusion, WORLD_RADIUS } = await import('../game/world.ts');
-const { POI_PLACEMENTS, SCATTER_PLACEMENTS, TRAILS, TRAIL_LINES, TRAIL_META, LOOP_INDEX, FORDS, JUNCTIONS, MAIN_TRAIL_BOUNDS, ROAD_ENDS, placeLocal } = await import('../game/world-layout.ts');
-const { roadArc, roadXAtArc } = await import('../game/road-geometry.ts');
-const { coastDistance, lakeDistance, mountainFoot, beachWidth } = await import('../game/coastal-geography.ts');
-const { landSlope } = await import('../game/world-landform.ts');
-const { ROAD } = await import('../game/road-profile.ts');
-const { createPois, seatPlacement, worldColliders, footprintOf, placePoint } = await import('../game/pois.ts');
-const { naturalLayout } = await import('../game/placement.ts');
-const { createCollisionWorld, moveCharacter, solidContact } = await import('../game/collision.ts');
-const assets = (await import('../game/world-assets.json')).default;
+const { heightAt, pathX, pathDistance, pathWidth, roadZ, riverX, riverPresence, biomeAt, vegetationExclusion, WORLD_RADIUS } = await import('../../../game/sim/world/world.ts');
+const { POI_PLACEMENTS, SCATTER_PLACEMENTS, TRAILS, TRAIL_LINES, TRAIL_META, LOOP_INDEX, FORDS, JUNCTIONS, MAIN_TRAIL_BOUNDS, ROAD_ENDS, placeLocal } = await import('../../../game/sim/world/world-layout.ts');
+const { roadArc, roadXAtArc } = await import('../../../game/sim/world/road-geometry.ts');
+const { coastDistance, lakeDistance, mountainFoot, beachWidth } = await import('../../../game/sim/world/coastal-geography.ts');
+const { landSlope } = await import('../../../game/sim/world/world-landform.ts');
+const { ROAD } = await import('../../../game/sim/world/road-profile.ts');
+const { createPois, seatPlacement, worldColliders, footprintOf, placePoint } = await import('../../../game/render/props/pois.ts');
+const { naturalLayout } = await import('../../../game/sim/world/placement.ts');
+const { createCollisionWorld, moveCharacter, solidContact } = await import('../../../game/sim/world/collision.ts');
+const assets = (await import('../../../game/data/world-assets.json')).default;
 
 /*
  * The fit audit: does everything look like it belongs where it stands? It runs on the real terrain, the real layout and the real
- * colliders from game/world-assets.json, with the rebuilt world switched on, and it never loosens a limit to pass. Every finding is
+ * colliders from game/data/world-assets.json, with the rebuilt world switched on, and it never loosens a limit to pass. Every finding is
  * one located line; all of them are written to work/world-review/fit-audit.txt (also when the test fails) and each check then fails
  * with its own list. Where a fix can be computed it is on the line, after "fix:".
  */
@@ -117,7 +117,7 @@ function baseGaps(e) {
   return { float, bury, floatAt, buryAt };
 }
 
-// Trees as the game builds them (see game/forest.ts): the real layout, a capsule of radius .44 * width + .08.
+// Trees as the game builds them (see game/render/world/forest.ts): the real layout, a capsule of radius .44 * width + .08.
 const forest = naturalLayout({ heightAt, exclusion: vegetationExclusion, biomeAt, riverX, riverPresence, roadZ, radius: WORLD_RADIUS });
 const treeRadius = t => .44 * t.width + .08;
 const treeColliderOf = t => ({ kind: 'capsule', ax: t.x, az: t.z, bx: t.x, bz: t.z, radius: treeRadius(t), minY: t.y - .15, maxY: t.y + 31 * t.height, tag: 'tree' });
@@ -149,7 +149,7 @@ function trailClearance(shape) {
   if (best[1]) { const [cx2, cz2] = centreOf(shape), s = best[1], dx = s.b[0] - s.a[0], dz = s.b[1] - s.a[1], l = dx * dx + dz * dz, t = l ? Math.max(0, Math.min(1, ((cx2 - s.a[0]) * dx + (cz2 - s.a[1]) * dz) / l)) : 0; best[2] = [s.a[0] + dx * t, s.a[1] + dz * t]; }
   return best;
 }
-const { channelOffset } = await import('../game/world-noise.ts');
+const { channelOffset } = await import('../../../game/sim/world/world-noise.ts');
 const channelGap = (x, z) => riverPresence(z) > 0 ? channelOffset(x, z) - LIMITS.channelM : Infinity;
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -234,7 +234,7 @@ function nearestClear(e) {
 /** What to change for a prop's findings. A POI the trees grow through needs a clearing; everything else can move. */
 function hint(e, issues) {
   if (e.p.footprint) return '';
-  if (e.poi && issues.every(i => i.tree)) return ` | fix: in POI_PLACEMENTS give '${e.p.id}' clearing: ${Math.ceil(e.reach) + 1} (its farthest collider is ${m2(e.reach)} m from its origin; trees stand back from the clearing radius, see CLEARINGS in game/world.ts)`;
+  if (e.poi && issues.every(i => i.tree)) return ` | fix: in POI_PLACEMENTS give '${e.p.id}' clearing: ${Math.ceil(e.reach) + 1} (its farthest collider is ${m2(e.reach)} m from its origin; trees stand back from the clearing radius, see CLEARINGS in game/sim/world/world.ts)`;
   const s = nearestClear(e);
   return s ? ` | fix: move ${e.p.id} to x ${s.x.toFixed(2)}, z ${s.z.toFixed(2)} (${m2(s.r)} m away; it passes every check there)` : ` | fix: there is no clear spot within 12 m of ${e.p.id}; it needs a different place`;
 }
@@ -353,7 +353,7 @@ for (const e of entries) {
 }
 
 // 3. the path network: every line has both ends on something walked, the loop closes, every place is on it, and nothing is far from it
-const bridgeEnds = [[riverX(-35) - 12, -35], [riverX(-35) + 12, -35]]; // the footbridge spans riverX(-35) +/- 12 at z = -35 (game/terrain.ts)
+const bridgeEnds = [[riverX(-35) - 12, -35], [riverX(-35) + 12, -35]]; // the footbridge spans riverX(-35) +/- 12 at z = -35 (game/render/world/terrain.ts)
 const roadPts = [], trailPts = [];
 for (let a = roadArc(WEST.x); a <= roadArc(EAST.x); a += 2) { const x = roadXAtArc(a); roadPts.push([x, roadZ(x)]); }
 for (let z = MAIN_TRAIL_BOUNDS.south; z <= MAIN_TRAIL_BOUNDS.north; z += 2) trailPts.push([pathX(z), z]);
@@ -456,7 +456,7 @@ function stuck(p, line, next, name, time, extra) {
   const blockers = solids.nearby(p.x, p.z, 1).filter(c => solidContact(c, p.x, p.z, .24 + .06).depth > 0 && c.maxY > p.y + .28 && c.minY < p.y + ENGINE.height).map(c => labels.get(c) ?? c.tag);
   const toward = line[next];
   return `${name} gets stuck at ${at(p.x, p.z)} after ${time.toFixed(1)} s, heading for ${at(toward[0], toward[1])}: ${blockers.length ? `blocked by ${[...new Set(blockers)].join('; ')}` : `nothing in contact; the ground gradient there is ${Math.hypot(gx, gz).toFixed(2)} (moveCharacter will not climb above .95)`}`
-    + (blockers.some(b => b.startsWith('tree')) ? ' | fix: the layout keeps trees 1.4 m from the trail line; this one is closer to the walked wander of the route, so either widen the exclusion in game/world.ts exclusionV2 or straighten the wander in TRAIL_LINES here' : blockers.length ? (extra ? ' | fix: a prop stands across it; correct its yaw or position in world-layout.ts' : ' | fix: move the blocking prop off the trail (see check 5)') : ' | fix: the route needs a different line, or the terrain here needs grading');
+    + (blockers.some(b => b.startsWith('tree')) ? ' | fix: the layout keeps trees 1.4 m from the trail line; this one is closer to the walked wander of the route, so either widen the exclusion in game/sim/world/world.ts exclusionV2 or straighten the wander in TRAIL_LINES here' : blockers.length ? (extra ? ' | fix: a prop stands across it; correct its yaw or position in world-layout.ts' : ' | fix: move the blocking prop off the trail (see check 5)') : ' | fix: the route needs a different line, or the terrain here needs grading');
 }
 const DECKS = allProps.filter(c => c.tag === 'road bridge deck');
 for (const { line, name, index, extra } of ROUTES) {
@@ -471,17 +471,17 @@ for (const { line, name, index, extra } of ROUTES) {
     }
   }
   const what = extra ? 'extra, not a TRAIL_LINES route: ' : '';
-  if (steepest.x !== undefined) found(4, `${what}${name} climbs a slope moveCharacter will not: ground gradient ${steepest.grade.toFixed(2)} (limit .95) at ${at(steepest.x, steepest.z)}, with ${steepest.rise.toFixed(2)} of it uphill along the route | fix: ${extra ? `the terrain needs grading there (the ${name.includes('road') ? 'road crosses the stream channel' : 'trail climbs'}; see rawHeight in game/world.ts)` : `re-route TRAILS[${index}] around ${at(steepest.x, steepest.z)} or grade the terrain there`}`);
+  if (steepest.x !== undefined) found(4, `${what}${name} climbs a slope moveCharacter will not: ground gradient ${steepest.grade.toFixed(2)} (limit .95) at ${at(steepest.x, steepest.z)}, with ${steepest.rise.toFixed(2)} of it uphill along the route | fix: ${extra ? `the terrain needs grading there (the ${name.includes('road') ? 'road crosses the stream channel' : 'trail climbs'}; see rawHeight in game/sim/world/world.ts)` : `re-route TRAILS[${index}] around ${at(steepest.x, steepest.z)} or grade the terrain there`}`);
   const problem = walkLine(line, name, extra); if (problem) found(4, what + problem);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-const REPORT = fileURLToPath(new URL('../work/world-review/fit-audit.txt', import.meta.url));
+const REPORT = fileURLToPath(new URL('../../../work/world-review/fit-audit.txt', import.meta.url));
 const TITLES = { 1: 'FLOATING OR BURIED', 2: 'SITS ON A LEDGE', 3: 'PATH NETWORK', 4: 'PATH NOT WALKABLE', 5: 'ON THE PATH', 6: 'INSIDE SOMETHING', 7: 'IN THE WATER', 8: 'ON THE ROAD', 9: 'ON THE SAND' };
 const gaps = entries.filter(e => !e.sunk).map(e => ({ id: e.p.id, ...baseGaps(e) }));
 after(() => {
   const total = Object.values(FINDINGS).reduce((n, l) => n + l.length, 0), lines = [
-    'WORLD FIT AUDIT: real terrain, POI_PLACEMENTS and SCATTER_PLACEMENTS, WORLD_V2 on, colliders from game/world-assets.json',
+    'WORLD FIT AUDIT: real terrain, POI_PLACEMENTS and SCATTER_PLACEMENTS, WORLD_V2 on, colliders from game/data/world-assets.json',
     ...NOTES.filter(n => /^(placements on the road|plants:|furthest|worst margin)/.test(n)),
     `placements audited: ${entries.length} (${entries.filter(e => e.poi).length} POI, ${entries.filter(e => !e.poi).length} scatter)${unlistedAssets.length ? `; skipped, asset not in world-assets.json yet: ${unlistedAssets.join(', ')}` : ''}`,
     `limits: float ${cm(LIMITS.floatM)}, buried ${cm(LIMITS.buriedM)} (small props), ledge ${cm(LIMITS.ledgeM)}, entrance gap ${LIMITS.entranceM} m, trail clearance ${cm(LIMITS.trailClearM)}, tree clearance ${cm(LIMITS.treeClearM)}, stuck ${LIMITS.stuckS} s at ${LIMITS.speed} m/s and ${LIMITS.fps} fps`,
@@ -489,7 +489,7 @@ after(() => {
   ];
   for (const check of [1, 2, 3, 4, 5, 6, 7, 8, 9]) { lines.push(`${check}. ${TITLES[check]} (${FINDINGS[check].length})`, ...FINDINGS[check].map(t => `  ${t}`), ''); }
   lines.push('SUMMARY', ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map(c => `  ${c}. ${TITLES[c].toLowerCase().padEnd(24, '.')} ${FINDINGS[c].length}`), `  total ${total}: ${total ? 'FAIL' : 'PASS'}`, '');
-  mkdirSync(fileURLToPath(new URL('../work/world-review/', import.meta.url)), { recursive: true });
+  mkdirSync(fileURLToPath(new URL('../../../work/world-review', import.meta.url)), { recursive: true });
   writeFileSync(REPORT, lines.join('\n'));
 });
 const check = (n, what) => test(`fit ${n}: ${what}`, () => assert.equal(FINDINGS[n].length, 0, `\n${FINDINGS[n].length} finding(s):\n${FINDINGS[n].map(t => `  ${t}`).join('\n')}\n(all checks: work/world-review/fit-audit.txt)\n`));

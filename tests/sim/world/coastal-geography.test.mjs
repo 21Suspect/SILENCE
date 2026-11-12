@@ -1,11 +1,11 @@
-import './helpers/register-ts-hooks.mjs';
+import '../../helpers/register-ts-hooks.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 globalThis.location={search:'?world-v2'};
-const g=await import('../game/coastal-geography.ts');
-const w=await import('../game/world.ts');
-const n=await import('../game/world-noise.ts');
-const l=await import('../game/world-layout.ts');
+const g=await import('../../../game/sim/world/coastal-geography.ts');
+const w=await import('../../../game/sim/world/world.ts');
+const n=await import('../../../game/sim/world/world-noise.ts');
+const l=await import('../../../game/sim/world/world-layout.ts');
 
 test('headwaters descend continuously through a level lake into the sea',()=>{
   let last=n.waterHeightAt(-700);

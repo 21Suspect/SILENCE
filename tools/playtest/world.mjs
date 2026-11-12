@@ -1,7 +1,7 @@
 /**
  * A headless copy of the game world for the player bot: the real terrain, the real forest layout's trunks, the real
- * buildings' colliders and the rebuilt world's noise stream, and the real creature (game/encounters.ts with the
- * Listener's model loaded from disk, as tests/creature-host.test.mjs does).
+ * buildings' colliders and the rebuilt world's noise stream, and the real creature (game/render/creature/encounters.ts with the
+ * Listener's model loaded from disk, as tests/render/creature/creature-host.test.mjs does).
  *
  * Import this module before any game module: it sets `location` (the rebuilt world reads it at import time) and the
  * fetch shim the model loader needs. Rocks, logs and stumps are left out (their colliders need the rendered meshes);
@@ -26,31 +26,31 @@ await import('../../tests/helpers/register-ts-hooks.mjs');
 const quietly = async f => { const e = console.error, w = console.warn, l = console.log; console.error = console.warn = () => {}; try { return await f(); } finally { console.error = e; console.warn = w; console.log = l; } };
 
 export const game = await quietly(async () => ({
-  world: await import('../../game/world.ts'),
-  placement: await import('../../game/placement.ts'),
-  collision: await import('../../game/collision.ts'),
-  v2: await import('../../game/world-v2.ts'),
-  layout: await import('../../game/world-layout.ts'),
-  encounters: await import('../../game/encounters.ts'),
-  brain: await import('../../game/creature-brain.ts'),
-  director: await import('../../game/creature-director.ts'),
-  lives: await import('../../game/lives.ts'),
-  sky: await import('../../game/sky.ts'),
-  sighting: await import('../../game/creature-sighting.ts'),
-  visibility: await import('../../game/encounter-visibility.ts'),
-  assets: await import('../../game/forest-assets.ts'),
+  world: await import('../../game/sim/world/world.ts'),
+  placement: await import('../../game/sim/world/placement.ts'),
+  collision: await import('../../game/sim/world/collision.ts'),
+  v2: await import('../../game/render/props/world-v2.ts'),
+  layout: await import('../../game/sim/world/world-layout.ts'),
+  encounters: await import('../../game/render/creature/encounters.ts'),
+  brain: await import('../../game/sim/creature/creature-brain.ts'),
+  director: await import('../../game/sim/creature/creature-director.ts'),
+  lives: await import('../../game/sim/player/lives.ts'),
+  sky: await import('../../game/render/world/sky.ts'),
+  sighting: await import('../../game/sim/creature/creature-sighting.ts'),
+  visibility: await import('../../game/sim/creature/encounter-visibility.ts'),
+  assets: await import('../../game/render/world/forest-assets.ts'),
 }));
 
 const W = game.world;
 export const heightAt = W.heightAt;
 const smoothstep = (v, a, b) => { const t = Math.max(0, Math.min(1, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
-/** As game/sky.ts: one minus the daylight at this hour. */
+/** As game/render/world/sky.ts: one minus the daylight at this hour. */
 export const darknessAt = hours => 1 - smoothstep(game.sky.solarDirection(hours).y, -.14, .16);
 
 /** The world the creature and the bot share. One per run. */
 export async function createHeadlessWorld({ creatureSeed = 7741, trace } = {}) {
   const scene = new THREE.Scene(), collisions = game.collision.createCollisionWorld();
-  // The forest's trunks exactly as game/forest.ts streams them: every tree within 94 m, rebuilt every 4.5 m walked.
+  // The forest's trunks exactly as game/render/world/forest.ts streams them: every tree within 94 m, rebuilt every 4.5 m walked.
   const layout = game.placement.naturalLayout({ heightAt, exclusion: W.vegetationExclusion, biomeAt: W.biomeAt, riverX: W.riverX, riverPresence: W.riverPresence, roadZ: W.roadZ, radius: W.WORLD_RADIUS });
   const lastForest = { x: Infinity, z: Infinity };
   const streamForest = player => {
@@ -68,7 +68,7 @@ export async function createHeadlessWorld({ creatureSeed = 7741, trace } = {}) {
     collisions.replace('forest', solids);
     return true;
   };
-  // The rebuilt world, with stand-ins for the DOM, the torch and the camera (as tests/creature-noise-stream.test.mjs).
+  // The rebuilt world, with stand-ins for the DOM, the torch and the camera (as tests/sim/creature/creature-noise-stream.test.mjs).
   const element = () => ({ style: {}, textContent: '', hidden: true, setAttribute() {}, addEventListener() {}, remove() {}, appendChild() {} });
   const container = { ownerDocument: { createElement: element }, appendChild() {} };
   const camera = new THREE.PerspectiveCamera(69, 16 / 9, .075, 1800); camera.rotation.order = 'YXZ';

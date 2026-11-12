@@ -31,16 +31,16 @@ avoidance, and both encounters using Developer Options in the pause menu.
 - `app/`, `components/`: application and menus.
 - `public/`: runtime models, textures, and sky environments.
 - `assets/creature/`: editable Blender creature source and material maps.
-- `scripts/assets/`: procedural asset generation and Blender model builders.
+- `tools/assets/`: procedural asset generation and Blender model builders.
 - `tests/`: regression checks.
 
 Rebuild a world prop with Blender 5.1, for example:
 
 ```sh
-blender --background --factory-startup --python scripts/assets/world-v2/build.py -- cabin
+blender --background --factory-startup --python tools/assets/world-v2/build.py -- cabin
 ```
 
-This updates the GLB and `game/world-assets.json`. Keep both in the same commit.
+This updates the GLB and `game/data/world-assets.json`. Keep both in the same commit.
 Generated intermediate atlases, dependencies, local environment files and build output
 should not be committed. Preserve all third-party attribution and only contribute
 assets you have permission to redistribute. Contributions to original project content

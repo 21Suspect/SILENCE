@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import './helpers/register-ts-hooks.mjs';
+import '../../helpers/register-ts-hooks.mjs';
 
 // The torch paints its own textures on canvases; a stand-in that swallows drawing is all it needs here.
 const context = new Proxy({}, { get: (_, key) => key === 'createRadialGradient' ? () => ({ addColorStop() {} }) : () => {}, set: () => true });
 globalThis.document = { createElement: () => ({ width: 0, height: 0, getContext: () => context }) };
-const { createFlashlight } = await import('../game/flashlight.ts');
+const { createFlashlight } = await import('../../../game/render/props/flashlight.ts');
 
 const make = () => {
   const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(69, 1.6, .075, 100), clicks = [];
@@ -48,7 +48,7 @@ test('setSeat moves the resting place, the pickup point and the model, and only 
   assert.notEqual(group.position.x, 100, 'a torch in the hand is not teleported to the bench');
 });
 
-test('pickUp, toggle and owned are the split halves that game/interaction.ts uses', () => {
+test('pickUp, toggle and owned are the split halves that game/render/props/interaction.ts uses', () => {
   const { torch, look } = make(), seat = new THREE.Vector3().fromArray(torch.inspect().pickupPosition);
   assert.equal(torch.owned, false); assert.equal(torch.toggle(), false, 'nothing to switch before it is picked up');
   look(new THREE.Vector3(seat.x, seat.y + .6, seat.z + 1.2), new THREE.Vector3(seat.x, seat.y + .6, seat.z + 9));

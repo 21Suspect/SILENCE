@@ -437,7 +437,7 @@ class Model:
 
     # -- gameplay ---------------------------------------------------------------
     def collide_box(self, x, z, hx, hz, y0, y1, yaw=0.0, tag="prop"):
-        """Yaw is measured with solidContact's convention (see game/collision.ts)."""
+        """Yaw is measured with solidContact's convention (see game/sim/world/collision.ts)."""
         p = self._p(np.array((x, 0.0, z)))
         extra = self.xf[2] if self.xf else 0.0
         base = float(self.xf[0][1]) if self.xf else 0.0

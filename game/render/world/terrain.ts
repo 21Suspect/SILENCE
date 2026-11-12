@@ -4,20 +4,20 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createRiver } from './river';
 import { textureVariationGLSL } from './texture-variation';
-import { perfOn } from './perf-flags';
+import { perfOn } from '../../core/perf-flags';
 import { createRockGeometry, createRockMaterial, createWeatheredWoodMaterial } from './surfaces';
 import { roadSurface } from './road-surface';
-import { roadMarkerSpot } from './road-geometry';
-import { coastalGLSL } from './coastal-geography';
+import { roadMarkerSpot } from '../../sim/world/road-geometry';
+import { coastalGLSL } from '../../sim/world/coastal-geography';
 import { coastalMaterialGLSL } from './coastal-material';
 
-import { WORLD_EXTENT, WORLD_RADIUS, TERRAIN_CHUNK, TERRAIN_STEP, hash, noise, pathX, riverX, roadZ, riverPresence, biomeAt, cacheTerrainBlock, releaseTerrainBlock, heightAt, vegetationExclusion, worldGeographyGLSL, waterHeightAt } from './world';
-import type { SolidCollider } from './collision';
+import { WORLD_EXTENT, WORLD_RADIUS, TERRAIN_CHUNK, TERRAIN_STEP, hash, noise, pathX, riverX, roadZ, riverPresence, biomeAt, cacheTerrainBlock, releaseTerrainBlock, heightAt, vegetationExclusion, worldGeographyGLSL, waterHeightAt } from '../../sim/world/world';
+import type { SolidCollider } from '../../sim/world/collision';
 import { createMeshSurface } from './surface-support';
-import { naturalLayout, groundedOrigin, type LayoutScatter } from './placement';
-import { WORLD_V2, WORLD_SEED } from './world-flags';
+import { naturalLayout, groundedOrigin, type LayoutScatter } from '../../sim/world/placement';
+import { WORLD_V2, WORLD_SEED } from '../../sim/world/world-flags';
 import { groundGeometry, buildTerrainTile, unpackTerrainTile, type TerrainTile, type PreparedTerrainTile } from './terrain-geometry';
-export { hash, noise, pathX, riverX, roadZ, roadDistance, heightAt } from './world';
+export { hash, noise, pathX, riverX, roadZ, roadDistance, heightAt } from '../../sim/world/world';
 
 export const exclusion=vegetationExclusion;
 const DETAIL_RADIUS=112, TRANSITION_WIDTH=18, PREFETCH_RADIUS=144, RETAIN_RADIUS=160;
@@ -71,7 +71,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
   let GROUND_TAPS=perfOn('groundTaps');
   material.onBeforeCompile = (shader) => {
     GROUND_TAPS=perfOn('groundTaps');
-    // The rebuilt world's road is worked out in game/road-surface.ts; the original keeps its narrow dirt track.
+    // The rebuilt world's road is worked out in game/render/world/road-surface.ts; the original keeps its narrow dirt track.
     const road=WORLD_V2?roadSurface():undefined;
     shader.uniforms.uNearCenter={value:nearCenter};shader.uniforms.uNearCoverage=nearCoverage;shader.uniforms.uDistantTint={value:distantTint};
     shader.uniforms.uRoadMap={value:roadMap};shader.uniforms.uRoadNormal={value:roadNormal};
@@ -281,7 +281,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
   let pendingChunks=0,lastCoverageUpdate=performance.now();
   const tileKey=({x,z}:TerrainTile)=>`${x},${z}`;
   function addTile(tile:TerrainTile,geometry:THREE.BufferGeometry){
-    // Its heights stay cached for as long as the tile is built (game/world.ts): the forest and props round the player read them.
+    // Its heights stay cached for as long as the tile is built (game/sim/world/world.ts): the forest and props round the player read them.
     cacheTerrainBlock(tile.x,tile.z);
     const mesh=new THREE.Mesh(geometry,material);
     mesh.receiveShadow=true;mesh.name='Streamed forest terrain';mesh.visible=false;

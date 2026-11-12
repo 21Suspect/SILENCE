@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { initialState, applyAction, replay, heldItem, firstEmptySlot, insertedFuses } from '../game/objectives.ts';
+import { initialState, applyAction, replay, heldItem, firstEmptySlot, insertedFuses } from '../../../game/sim/objectives/objectives.ts';
 
 const me = 'p1', you = 'p2';
 const run = (state, ...actions) => replay(actions, state);

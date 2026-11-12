@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { Pois } from './pois';
+import type { Pois } from '../props/pois';
 
 /**
  * The lamps along the valley road. Every `streetlight-*` placement has a `lamp` hook (the light opening, in the asset's

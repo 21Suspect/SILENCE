@@ -1,17 +1,17 @@
-import { WORLD_V2 } from './world-flags';
+import { WORLD_V2 } from '../../sim/world/world-flags';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createUndergrowth } from './undergrowth';
 import { createRockGeometry, createRockMaterial } from './surfaces';
 import { varyDirectionalTexture } from './texture-variation';
-import { WORLD_RADIUS, biomeAt, riverX, riverPresence, roadZ } from './world';
-import { naturalLayout, groundedOrigin, type LayoutCell as ForestCell } from './placement';
-import type { SolidCollider } from './collision';
+import { WORLD_RADIUS, biomeAt, riverX, riverPresence, roadZ } from '../../sim/world/world';
+import { naturalLayout, groundedOrigin, type LayoutCell as ForestCell } from '../../sim/world/placement';
+import type { SolidCollider } from '../../sim/world/collision';
 import { createMeshSurface } from './surface-support';
 import { branchSpec, broadleafGeometry, crownBranches, crownGeometry, stumpGeometry } from './forest-assets';
 import { createVegetationBatcher, type VegetationBatchDefinition, type VegetationBatchHandle } from './vegetation-batches';
-import { perfOn } from './perf-flags';
-import { createSlice, runSlice, runToEnd } from './time-slice';
+import { perfOn } from '../../core/perf-flags';
+import { createSlice, runSlice, runToEnd } from '../../core/time-slice';
 
 type Collider = { x: number; z: number; radius: number };
 type Tree = { x: number; z: number; y: number; height: number; width: number; yaw: number; kind: number; seed: number };
@@ -350,7 +350,7 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
   // Keep crowns in smaller sectors for camera culling. Trunks use wider
   // sectors to limit draw calls in the sun and flashlight passes.
   // Two copies of the trees round the player, as with the undergrowth: one is drawn while the other is rebuilt a slice at a time
-  // (game/time-slice.ts), and they swap once it is whole, so nothing on screen is ever missing or half placed. Rebuilt in one go,
+  // (game/core/time-slice.ts), and they swap once it is whole, so nothing on screen is ever missing or half placed. Rebuilt in one go,
   // the forest cost 5 to 10 ms every 6 m of walking (and up to 100 ms while it still recomputed terrain heights).
   const buffers=[new THREE.Group(),new THREE.Group()];buffers[1].visible=false;group.add(buffers[0],buffers[1]);
   const batchers=[createVegetationBatcher(buffers[0],96),createVegetationBatcher(buffers[1],96)];

@@ -2,12 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 /*
- * The player bot (scripts/playtest/bot.mjs) plays the opening of a night against the real creature in the real world
+ * The player bot (tools/playtest/bot.mjs) plays the opening of a night against the real creature in the real world
  * (terrain, trunks, buildings, the noise stream), and the playtest report's rules judge it. The full report runs many
- * seeds and every play style (scripts/playtest/run.mjs); this is a few of them, kept short enough for the suite.
+ * seeds and every play style (tools/playtest/run.mjs); this is a few of them, kept short enough for the suite.
  */
-const { playNight } = await import('../scripts/playtest/bot.mjs');
-const { judgeRun, RULES } = await import('../scripts/playtest/report.mjs');
+const { playNight } = await import('../../tools/playtest/bot.mjs');
+const { judgeRun, RULES } = await import('../../tools/playtest/report.mjs');
 
 for (const [style, seed] of [['trail', 1], ['wander', 2]]) {
   test(`playtest (${style}, seed ${seed}): both encounters seen in time, nothing pops, no grab, sparse sounds`, async () => {

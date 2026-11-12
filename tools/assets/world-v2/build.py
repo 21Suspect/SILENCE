@@ -19,7 +19,7 @@ argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 # Parked until it is good enough to go back in the world; name it explicitly to build it.
 PARKED = {"pickup"}
 chosen = argv or [name for name in ASSETS if name not in PARKED]
-path = os.path.join(kit.ROOT, "game/world-assets.json")
+path = os.path.join(kit.ROOT, "game/data/world-assets.json")
 table = json.load(open(path)) if os.path.exists(path) else {}
 for name in chosen:
     fn, shots = ASSETS[name]

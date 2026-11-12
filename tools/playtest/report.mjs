@@ -1,10 +1,10 @@
 /**
- * Reads the bot's night logs (scripts/playtest/bot.mjs) and checks the guarantees from docs/creature-ai-plan.md,
+ * Reads the bot's night logs (tools/playtest/bot.mjs) and checks the guarantees from docs/creature-ai-plan.md,
  * "Amendment: scripted opening": both encounters seen in time, no grab before the opening ends, nothing placed or
  * removed in view, presence sounds sparse and never while it is looked at, no long dead air in free roam, the stun's
  * three phases the right length. Per play style it reports when things happen and how often.
  */
-import { OPENING } from '../../game/creature-director.ts';
+import { OPENING } from '../../game/sim/creature/creature-director.ts';
 
 /** The rules, with their limits. */
 export const RULES = {

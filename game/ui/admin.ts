@@ -1,9 +1,9 @@
-import {defaults,bindKey,keyLabel,type Settings,type Action,type VolumeKey} from './settings';
-import {WORLD_DESTINATIONS, COASTAL_DESTINATIONS, pathX} from './world';
-import {WORLD_V2} from './world-flags';
-import {POI_PLACEMENTS,placeLocal} from './world-layout';
-import {createTapTracker} from './tap';
-import {renderSize,pixelCostVs1080,resolutionLabel,RESOLUTIONS} from './quality';
+import {defaults,bindKey,keyLabel,type Settings,type Action,type VolumeKey} from '../core/settings';
+import {WORLD_DESTINATIONS, COASTAL_DESTINATIONS, pathX} from '../sim/world/world';
+import {WORLD_V2} from '../sim/world/world-flags';
+import {POI_PLACEMENTS,placeLocal} from '../sim/world/world-layout';
+import {createTapTracker} from '../core/tap';
+import {renderSize,pixelCostVs1080,resolutionLabel,RESOLUTIONS} from '../core/quality';
 type CreatureMode='natural'|'hunt'|'idle'|'walk'|'run'|'tree';
 type AdminOptions={
   getState:()=>{hours:number;cycleSpeed:number;flying:boolean;position:number[];fps:number;solids:number};

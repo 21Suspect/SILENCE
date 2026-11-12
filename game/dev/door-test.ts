@@ -1,12 +1,12 @@
-import type { Placement } from './pois';
-import { pathX } from './world-noise';
+import type { Placement } from '../render/props/pois';
+import { pathX } from '../sim/world/world-noise';
 
 /**
  * DEV ONLY. Open the game with `?door-test` and one extra pump house stands about 12 m from where you spawn, its door toward you:
  * somewhere to try the doors before the real layout places a building that has one. Anywhere else (production, Node, no flag) this
  * returns nothing.
  *
- * To remove it: delete this file and the two lines in game/world-v2.ts that mention `doorTest`.
+ * To remove it: delete this file and the two lines in game/render/props/world-v2.ts that mention `doorTest`.
  */
 export function doorTestPlacements(heightAt: (x: number, z: number) => number): Placement[] {
   if (!import.meta.env?.DEV || typeof location === 'undefined' || !new URLSearchParams(location.search).has('door-test')) return [];

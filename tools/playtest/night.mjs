@@ -1,5 +1,5 @@
 /**
- * One night, one bot: `node --experimental-strip-types --no-warnings scripts/playtest/night.mjs <style> <seed> [minutes] [log.json]`.
+ * One night, one bot: `node --experimental-strip-types --no-warnings tools/playtest/night.mjs <style> <seed> [minutes] [log.json]`.
  * Writes the structured log (to the path given, else work/playtest/logs/<style>-<seed>.json) and prints one summary line.
  * Several jobs may be given as style:seed,style:seed,... in place of <style> <seed>; they run one after another.
  */

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {creatureInView,createOffscreenLatch,OFFSCREEN_GRACE} from '../game/encounter-visibility.ts';
+import {creatureInView,createOffscreenLatch,OFFSCREEN_GRACE} from '../../../game/sim/creature/encounter-visibility.ts';
 const view={position:{x:0,y:1.7,z:0},forward:{x:0,y:0,z:-1},right:{x:1,y:0,z:0},up:{x:0,y:1,z:0},verticalFov:69,aspect:16/9};
 test('view protection has no distance or fog exemption and includes the limbs at screen edges',()=>{
   for(const distance of [10,32,100,2000,100000])assert.ok(creatureInView(view,{x:0,y:2,z:-distance}));

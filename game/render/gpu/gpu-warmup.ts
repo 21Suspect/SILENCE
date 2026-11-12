@@ -7,7 +7,7 @@ import type * as THREE from 'three';
  * with a pause after each piece proportional to what it cost, so the average frame barely notices and no single frame carries a
  * whole model.
  *
- * The queue is pure scheduling (see tests/gpu-warmup.test.mjs); createGpuWarmup wires it to a renderer.
+ * The queue is pure scheduling (see tests/render/gpu/gpu-warmup.test.mjs); createGpuWarmup wires it to a renderer.
  */
 export type WarmStep = { kind: 'texture'; texture: THREE.Texture } | { kind: 'compile'; object: THREE.Object3D; state: number };
 /** What a texture piece achieved: finished, did a piece and has more, or could not start yet (its image is still arriving). */

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { solidContact, type SolidCollider } from './collision';
+import { solidContact, type SolidCollider } from '../../sim/world/collision';
 
 export type Interactable = {
   id: string; position: THREE.Vector3;

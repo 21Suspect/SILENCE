@@ -1,14 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-// game/world-v2.ts uses extensionless and JSON imports that only the bundler understands.
-import './helpers/register-ts-hooks.mjs';
-const { createWorldV2, indoorsAt, cabinWakePoint, GENERATOR_HUM } = await import('../game/world-v2.ts');
-const { createCollisionWorld } = await import('../game/collision.ts');
-const { POI_PLACEMENTS, placeLocal } = await import('../game/world-layout.ts');
-const { initialState } = await import('../game/objectives.ts');
+// game/render/props/world-v2.ts uses extensionless and JSON imports that only the bundler understands.
+import '../../helpers/register-ts-hooks.mjs';
+const { createWorldV2, indoorsAt, cabinWakePoint, GENERATOR_HUM } = await import('../../../game/render/props/world-v2.ts');
+const { createCollisionWorld } = await import('../../../game/sim/world/collision.ts');
+const { POI_PLACEMENTS, placeLocal } = await import('../../../game/sim/world/world-layout.ts');
+const { initialState } = await import('../../../game/sim/objectives/objectives.ts');
 
-// The rebuilt world's wiring, with stand-ins for the DOM, flashlight and camera (as in tests/ladders.test.mjs).
+// The rebuilt world's wiring, with stand-ins for the DOM, flashlight and camera (as in tests/sim/player/ladders.test.mjs).
 function makeWorld() {
   const element = () => ({ style: {}, textContent: '', setAttribute() {}, addEventListener() {}, remove() {} });
   const container = { ownerDocument: { createElement: element }, appendChild() {} };

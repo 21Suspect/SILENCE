@@ -3,7 +3,7 @@
   "provenance": "Original model and materials authored for SILENCE; no third-party model data.",
   "model": "silence-creature.glb",
   "source": "assets/creature/silence-creature.blend",
-  "generator": "scripts/assets/sculpt-creature.py",
+  "generator": "tools/assets/sculpt-creature.py",
   "process": "Blender 5.1 continuous voxel sculpt with carved face and teeth, asymmetric spines and torn fascia, manifold topology cleanup, anatomical bone/tendon/rot color atlas, baked normal and roughness maps, 50-bone rig with rigid toe contacts, independent cold ivory emissive eyes.",
   "triangles": 67764,
   "draw_calls": 2,

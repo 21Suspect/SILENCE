@@ -9,7 +9,7 @@
 import { WORLD_SEED, channelOffset, sideChannelOffset, hash, noise, pathX, riverX, roadZ, roadFoot, rockMask, treeDensity, warped, type RoadFoot } from './world-noise';
 import { landform, landSlope } from './world-landform';
 import { waterHeightAt } from './world-noise';
-import worldAssets from './world-assets.json';
+import worldAssets from '../../data/world-assets.json';
 import { lakeDistance, coastDistance, beachWidth, coastZ, mountainFoot, LAKE_CENTER } from './coastal-geography';
 import { roadPortals } from './road-grade';
 import { ROAD } from './road-profile';

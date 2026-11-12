@@ -1,5 +1,5 @@
 /**
- * Three lives, as a pure reducer, and the timing of being taken. No DOM, no clock: game/engine.ts feeds it.
+ * Three lives, as a pure reducer, and the timing of being taken. No DOM, no clock: game/core/engine.ts feeds it.
  *
  * Being caught costs a life: the player wakes at the cabin with the night further along, and whatever they were
  * carrying lies where they fell. The third time it keeps them and the night starts again.

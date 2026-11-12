@@ -308,7 +308,7 @@ function tunnelGround(x:number,z:number,h:number){
 // Only nearby lattice blocks are retained. Collision and rendered terrain use
 // exactly the same float32 vertices and triangle diagonal, including negative
 // coordinates and chunk seams. No million-vertex world grid is allocated.
-// Two stores: the blocks of the terrain tiles currently built round the player (handed over by game/terrain.ts and held until
+// Two stores: the blocks of the terrain tiles currently built round the player (handed over by game/render/world/terrain.ts and held until
 // that tile is dropped), and a small LRU for everything else. One LRU used to hold both, and loading the POIs (which sample
 // heights all over the island) pushed the blocks round the player out of it; every forest rebuild then recomputed them on the
 // main thread, 11-28 ms a block, up to 100 ms in one frame.

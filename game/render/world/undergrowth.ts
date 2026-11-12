@@ -2,12 +2,12 @@ import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { SimplifyModifier } from 'three/addons/modifiers/SimplifyModifier.js';
-import { WORLD_RADIUS, biomeAt } from './world';
+import { WORLD_RADIUS, biomeAt } from '../../sim/world/world';
 import { createVegetationBatcher, type VegetationBatchDefinition } from './vegetation-batches';
-import { createSlice, runSlice, runToEnd, type Slice } from './time-slice';
-import { perfOn } from './perf-flags';
-import { coastDistance, beachWidth } from './coastal-geography';
-import { WORLD_V2 } from './world-flags';
+import { createSlice, runSlice, runToEnd, type Slice } from '../../core/time-slice';
+import { perfOn } from '../../core/perf-flags';
+import { coastDistance, beachWidth } from '../../sim/world/coastal-geography';
+import { WORLD_V2 } from '../../sim/world/world-flags';
 
 type Plant = {
   x: number; y: number; z: number; sx: number; sz: number;
@@ -114,7 +114,7 @@ export function createUndergrowth(
   const materials: THREE.MeshStandardMaterial[] = [];
   const fine: Batch[] = [], midFine: Batch[] = [], farFine: Batch[] = [], tussocks: Batch[] = [], farTussocks: Batch[] = [], ferns: Batch[] = [], farFerns: Batch[] = [];
   const groundCover = new Map<string, GroundCover>(), fernCells = new Map<string, Plant[]>();
-  // Two copies of the ring of plants. One is on screen while the other is rebuilt a few milliseconds per frame (game/time-slice.ts), and
+  // Two copies of the ring of plants. One is on screen while the other is rebuilt a few milliseconds per frame (game/core/time-slice.ts), and
   // they swap when it is whole; rebuilt in one go, the ring cost 8 to 60 ms every 4 m of walking.
   const buffers = [new THREE.Group(), new THREE.Group()];
   buffers[1].visible = false; group.add(buffers[0], buffers[1]);

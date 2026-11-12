@@ -1,9 +1,9 @@
 import * as THREE from 'three';
-import { buildTreeGroundMask } from './tree-ground';
-import { smooth } from './world-noise';
-import { TERRAIN_CHUNK, TERRAIN_SEGMENTS, TERRAIN_STEP, biomeAt, groundMasks, heightAt, horizonHeightAt, rawHeight } from './world';
-import { WORLD_V2 } from './world-flags';
-import type { LayoutCell } from './placement';
+import { buildTreeGroundMask } from '../../sim/world/tree-ground';
+import { smooth } from '../../sim/world/world-noise';
+import { TERRAIN_CHUNK, TERRAIN_SEGMENTS, TERRAIN_STEP, biomeAt, groundMasks, heightAt, horizonHeightAt, rawHeight } from '../../sim/world/world';
+import { WORLD_V2 } from '../../sim/world/world-flags';
+import type { LayoutCell } from '../../sim/world/placement';
 
 type TreeLayout = Parameters<typeof buildTreeGroundMask>[0];
 export type TerrainTile = { x: number; z: number };

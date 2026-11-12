@@ -1,6 +1,6 @@
 /**
- * The player's heavy breathing, driven by stamina (game/stamina.ts) rather than by a held key. This file decides *when* a
- * breath happens and *what shape* it has; game/audio.ts only turns that shape into sound. Keeping the two apart means the
+ * The player's heavy breathing, driven by stamina (game/sim/player/stamina.ts) rather than by a held key. This file decides *when* a
+ * breath happens and *what shape* it has; game/audio/audio.ts only turns that shape into sound. Keeping the two apart means the
  * timing, loudness and irregularity can be tested without an audio context.
  *
  * A breath is an inhale and an exhale of band-passed noise, never an oscillator, so nothing in it has a pitch to squeak:
@@ -130,7 +130,7 @@ export function makeBreath(effort: number, random: () => number = Math.random, t
 }
 
 export type BreathingInput = {
-  /** 0..1 (game/stamina.ts). */
+  /** 0..1 (game/sim/player/stamina.ts). */
   stamina: number;
   /** Locked out of sprinting. */
   winded: boolean;

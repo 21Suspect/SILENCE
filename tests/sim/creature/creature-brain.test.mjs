@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import {
   createCreatureBrain, createRandom, hearingStrength, footstepLoudness, sightRange, baseBoldness, nightness,
   FLASHLIGHT_CLICK_LOUDNESS, CREATURE_TUNING as T,
-} from '../game/creature-brain.ts';
-import { initialLives, loseLife, respawnHours, deathCard, grabTimeline, GRAB, LIVES, RESPAWN_ADVANCE_HOURS } from '../game/lives.ts';
+} from '../../../game/sim/creature/creature-brain.ts';
+import { initialLives, loseLife, respawnHours, deathCard, grabTimeline, GRAB, LIVES, RESPAWN_ADVANCE_HOURS } from '../../../game/sim/player/lives.ts';
 
 const percept = (o = {}) => ({ x: 0, y: 0, z: 0, vx: 0, vz: 0, sprinting: false, crouching: false, flashlightOn: false, inWater: false, onLadder: false, indoors: false, ...o });
 

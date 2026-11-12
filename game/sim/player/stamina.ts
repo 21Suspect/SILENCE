@@ -1,5 +1,5 @@
 /**
- * Sprint stamina: a small pure model that the engine steps once a frame (game/engine.ts), so the rules can be tested
+ * Sprint stamina: a small pure model that the engine steps once a frame (game/core/engine.ts), so the rules can be tested
  * without a renderer. It owns three things: how much breath the player has left, whether they may sprint right now, and
  * a 0..1 "sprint blend" that eases in and out so speed and field of view never jump.
  *

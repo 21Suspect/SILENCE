@@ -1,4 +1,4 @@
-import type {SolidCollider} from './collision';
+import type {SolidCollider} from '../world/collision';
 import {createSurfaceClimb} from './surface-climb';
 
 type Point={x:number;y:number;z:number};

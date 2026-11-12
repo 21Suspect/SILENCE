@@ -1,16 +1,16 @@
-import {broadWaterLevelAt} from './coastal-geography';
+import {broadWaterLevelAt} from '../../sim/world/coastal-geography';
 import * as THREE from 'three';
 import {createTreeCrawl} from './tree-crawl';
-import type { ForestAudio } from './audio';
-import {WORLD_RADIUS} from './world';
-import type {SolidCollider,createCollisionWorld} from './collision';
-import {createCreatureNavigation} from './creature-navigation';
+import type { ForestAudio } from '../../audio/audio';
+import {WORLD_RADIUS} from '../../sim/world/world';
+import type {SolidCollider,createCollisionWorld} from '../../sim/world/collision';
+import {createCreatureNavigation} from '../../sim/creature/creature-navigation';
 import {createListener} from './listener';
 import {SPIDER_SCALE} from './spider-rig';
-import {creatureInView,createOffscreenLatch,CREATURE_VIEW_RADIUS,type EncounterView} from './encounter-visibility';
-import {inDirectView,sightlineClear,createEncounterAwareness} from './creature-sighting';
-import {createCreatureBrain,createRandom,type BrainEvent,type Intent,type NoiseEvent,type PlayerPercept,type Point,type Vec2} from './creature-brain';
-import {createOpeningDirector,type DirectorEvent,type OpeningPhase} from './creature-director';
+import {creatureInView,createOffscreenLatch,CREATURE_VIEW_RADIUS,type EncounterView} from '../../sim/creature/encounter-visibility';
+import {inDirectView,sightlineClear,createEncounterAwareness} from '../../sim/creature/creature-sighting';
+import {createCreatureBrain,createRandom,type BrainEvent,type Intent,type NoiseEvent,type PlayerPercept,type Point,type Vec2} from '../../sim/creature/creature-brain';
+import {createOpeningDirector,type DirectorEvent,type OpeningPhase} from '../../sim/creature/creature-director';
 
 /** What the engine knows about the player each frame, beyond where they stand and look. */
 export type CreatureSenses=Omit<PlayerPercept,'x'|'y'|'z'>&{
@@ -25,8 +25,8 @@ export type DoorQuery=(x:number,z:number)=>{x:number;z:number;outX:number;outZ:n
 
 /**
  * The Listener, always somewhere. Far from the player it is a point travelling through the world with no body;
- * near, the Listener's body walks it. For the first minutes game/creature-director.ts runs a scripted, harmless
- * opening (a glimpse, then the tree); after that game/creature-brain.ts decides what it does: it hears, sees,
+ * near, the Listener's body walks it. For the first minutes game/sim/creature/creature-director.ts runs a scripted, harmless
+ * opening (a glimpse, then the tree); after that game/sim/creature/creature-brain.ts decides what it does: it hears, sees,
  * shadows, hunts and grabs. It is never placed or removed on screen (protectedNow, the off-screen latch).
  */
 export function createEncounters(
@@ -439,7 +439,7 @@ export function createEncounters(
     const view=getView?.();if(view)attentionTarget.copy(view.position);
     animateCreature(dt,elapsed);
   }
-  // --- The opening (game/creature-director.ts): a glimpse, then the tree, both harmless, before it may hunt.
+  // --- The opening (game/sim/creature/creature-director.ts): a glimpse, then the tree, both harmless, before it may hunt.
   // The director keeps the time; what follows does the placing and the walking. One body throughout: while a script
   // runs, the brain does not steer anything.
   type ScriptStage='placing'|'waiting'|'stepping'|'holding'|'leaving'|'perched'|'staring'|'descending'|'rearing'|'charging'|'stopped'|'crossing'|'pausing'|'gone';

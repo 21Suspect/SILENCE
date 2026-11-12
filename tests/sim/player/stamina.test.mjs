@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createStamina, gaitSpeed, sprintFov, STAMINA } from '../game/stamina.ts';
+import { createStamina, gaitSpeed, sprintFov, STAMINA } from '../../../game/sim/player/stamina.ts';
 
 const DT = 1 / 60;
 // Run the model for `seconds` of game time with the player asking to sprint (or not) at a measured speed.

@@ -2,13 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as THREE from 'three';
-import './helpers/register-ts-hooks.mjs';
-const { seatPlacement } = await import('../game/pois.ts');
-const assets = JSON.parse(fs.readFileSync(new URL('../game/world-assets.json', import.meta.url)));
+import '../../helpers/register-ts-hooks.mjs';
+const { seatPlacement } = await import('../../../game/render/props/pois.ts');
+const assets = JSON.parse(fs.readFileSync(new URL('../../../game/data/world-assets.json', import.meta.url)));
 
 // Test the exported geometry, not merely the construction instructions or colliders.
 function model(name) {
-  const data = fs.readFileSync(new URL(`../public/world/${name}.glb`, import.meta.url));
+  const data = fs.readFileSync(new URL(`../../../public/world/${name}.glb`, import.meta.url));
   const length = data.readUInt32LE(12), gltf = JSON.parse(data.subarray(20, 20 + length));
   const binary = data.subarray(28 + length), view = new DataView(binary.buffer, binary.byteOffset, binary.byteLength);
   const types = { 5123: ['getUint16', 2], 5125: ['getUint32', 4], 5126: ['getFloat32', 4] };

@@ -1,10 +1,10 @@
-import './helpers/register-ts-hooks.mjs';
+import '../../helpers/register-ts-hooks.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-const {buildTreeGroundMask,treeGroundInfluence,treeGroundRadius} = await import('../game/tree-ground.ts');
-const {createNaturalLayout} = await import('../game/placement.ts');
-const {broadleafGeometry,crownBranches,crownGeometry} = await import('../game/forest-assets.ts');
-const {heightAt,vegetationExclusion,biomeAt,riverX,riverPresence,roadZ,WORLD_RADIUS} = await import('../game/world.ts');
+const {buildTreeGroundMask,treeGroundInfluence,treeGroundRadius} = await import('../../../game/sim/world/tree-ground.ts');
+const {createNaturalLayout} = await import('../../../game/sim/world/placement.ts');
+const {broadleafGeometry,crownBranches,crownGeometry} = await import('../../../game/render/world/forest-assets.ts');
+const {heightAt,vegetationExclusion,biomeAt,riverX,riverPresence,roadZ,WORLD_RADIUS} = await import('../../../game/sim/world/world.ts');
 
 test('root litter has a soft irregular edge around the exact trunk footprint',()=>{
   const tree={x:3,z:7,width:1.35,yaw:.73,seed:8192};

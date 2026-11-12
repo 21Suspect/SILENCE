@@ -11,7 +11,7 @@ type TimerExtension = { TIME_ELAPSED_EXT: number; GPU_DISJOINT_EXT: number };
 /**
  * The performance overlay: a few quiet lines in the top-right corner, in the objective's type. FPS and average frame time,
  * 1% and 0.1% low, CPU and GPU milliseconds a frame and their share of the frame budget, the render resolution, draw calls
- * and triangles (statistics in game/frame-stats.ts).
+ * and triangles (statistics in game/ui/frame-stats.ts).
  *
  * GPU time comes from one EXT_disjoint_timer_query_webgl2 query around the frame's drawing (shadow maps, the scene, water, fog
  * and the post chain). Browsers without it (Safari) show "n/a". While hidden it does nothing at all: no samples, no queries, no

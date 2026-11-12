@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import './helpers/register-ts-hooks.mjs';
-const { createAmbientLife } = await import('../game/ambient-life.ts');
+import '../../helpers/register-ts-hooks.mjs';
+const { createAmbientLife } = await import('../../../game/render/world/ambient-life.ts');
 
 const roost = { x: 100, y: 12, z: 0 };
 const make = (over = {}) => {

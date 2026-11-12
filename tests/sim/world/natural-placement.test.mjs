@@ -1,9 +1,9 @@
-import './helpers/register-ts-hooks.mjs';
+import '../../helpers/register-ts-hooks.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-const {createNaturalLayout,footprintsOverlap,groundedOrigin} = await import('../game/placement.ts');
-const {roadMarkerSpot} = await import('../game/road-geometry.ts');
-const {heightAt,rawHeight,horizonHeightAt,vegetationExclusion,biomeAt,riverX,riverPresence,roadZ,WORLD_RADIUS} = await import('../game/world.ts');
+const {createNaturalLayout,footprintsOverlap,groundedOrigin} = await import('../../../game/sim/world/placement.ts');
+const {roadMarkerSpot} = await import('../../../game/sim/world/road-geometry.ts');
+const {heightAt,rawHeight,horizonHeightAt,vegetationExclusion,biomeAt,riverX,riverPresence,roadZ,WORLD_RADIUS} = await import('../../../game/sim/world/world.ts');
 const geography={heightAt,exclusion:vegetationExclusion,biomeAt,riverX,riverPresence,roadZ,radius:WORLD_RADIUS};
 test('natural solids have no intersections across cell borders, including river stones',()=>{
   const layout=createNaturalLayout(geography),cells=new Map();let rocks=0,river=0;

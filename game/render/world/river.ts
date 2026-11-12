@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { Reflector } from 'three/addons/objects/Reflector.js';
-import { RIVER_EXTENT, waterHeightAt, waterGradeAt, riverProfileGLSL, riverCourseGLSL, channelOffset } from './world';
-import { BRANCHES, branchX } from './world-noise';
-import { WORLD_V2 } from './world-flags';
-import { LAKE_CENTER, LAKE_RADII, LAKE_LEVEL, SEA_LEVEL, lakeDistance, coastDistance, coastalGLSL } from './coastal-geography';
+import { RIVER_EXTENT, waterHeightAt, waterGradeAt, riverProfileGLSL, riverCourseGLSL, channelOffset } from '../../sim/world/world';
+import { BRANCHES, branchX } from '../../sim/world/world-noise';
+import { WORLD_V2 } from '../../sim/world/world-flags';
+import { LAKE_CENTER, LAKE_RADII, LAKE_LEVEL, SEA_LEVEL, lakeDistance, coastDistance, coastalGLSL } from '../../sim/world/coastal-geography';
 
 /** Live ripple rings: a footfall each stride, plus the small rings of drops coming back down. */
 const RIPPLES=WORLD_V2?12:8;

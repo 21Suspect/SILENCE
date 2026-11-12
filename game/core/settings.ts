@@ -1,7 +1,7 @@
 import {RESOLUTIONS,DEFAULT_RESOLUTION} from './quality';
 export const defaultBindings={forward:'KeyW',back:'KeyS',left:'KeyA',right:'KeyD',sprint:'ShiftLeft',crouch:'ControlLeft',interact:'KeyE',fullscreen:'KeyF',rise:'Space',drop:'KeyQ'};
 export type Action=keyof typeof defaultBindings;
-export type Settings={quality:'low'|'medium'|'high'|'custom';/** Rows to render (720, 1080, 1440), or 0 for the screen's own pixels (game/quality.ts). */resolution:number;shadows:number;shadowRate:number;waterDetail:number;fog:number;reflections:number;aa:number;anisotropy:number;/** Most frames a second to draw; 0 draws one for every refresh of the screen. */frameCap:number;fov:number;sensitivity:number;masterVolume:number;ambienceVolume:number;creatureVolume:number;objectiveHints:boolean;/** The frame-time corner (game/perf-overlay.ts). */perfOverlay:boolean;bindings:Record<Action,string>};
+export type Settings={quality:'low'|'medium'|'high'|'custom';/** Rows to render (720, 1080, 1440), or 0 for the screen's own pixels (game/core/quality.ts). */resolution:number;shadows:number;shadowRate:number;waterDetail:number;fog:number;reflections:number;aa:number;anisotropy:number;/** Most frames a second to draw; 0 draws one for every refresh of the screen. */frameCap:number;fov:number;sensitivity:number;masterVolume:number;ambienceVolume:number;creatureVolume:number;objectiveHints:boolean;/** The frame-time corner (game/ui/perf-overlay.ts). */perfOverlay:boolean;bindings:Record<Action,string>};
 /** The three sound sliders, in percent. 100 is the game's own mix; the slider sets how far below it you want it. */
 export const volumeKeys=['masterVolume','ambienceVolume','creatureVolume'] as const;
 export type VolumeKey=typeof volumeKeys[number];

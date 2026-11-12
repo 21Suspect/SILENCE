@@ -1,5 +1,5 @@
 // Bakes the two tileable river textures the water shader samples.
-//   node scripts/assets/world-v2/water.mjs
+//   node tools/assets/world-v2/water.mjs
 //
 //   water-normal.png  512x512 RGB. R,G are the surface slope along each texture axis (127.5 = flat; the shader decodes t*2-1),
 //                     B is the height, so the shader can bend the bed without a second read.

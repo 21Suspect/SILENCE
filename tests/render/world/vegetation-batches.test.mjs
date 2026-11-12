@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { createVegetationBatcher } from '../game/vegetation-batches.ts';
+import { createVegetationBatcher } from '../../../game/render/world/vegetation-batches.ts';
 
 test('sector batches preserve the global instance budget and keep independent bounds', () => {
   const group = new THREE.Group(), batches = createVegetationBatcher(group, 16);

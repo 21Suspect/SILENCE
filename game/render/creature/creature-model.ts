@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import {createArticulationPose,updateArticulationPose,createSpiderGaze,advanceSpiderGaze,type CreatureAttention} from './creature-articulation';
+import {createArticulationPose,updateArticulationPose,createSpiderGaze,advanceSpiderGaze,type CreatureAttention} from '../../sim/creature/creature-articulation';
 
 type RestBone={bone:THREE.Bone;direction:THREE.Vector3;quaternion:THREE.Quaternion;length:number;localQuaternion:THREE.Quaternion};
 /** Original Blender voxel sculpt: continuous skin with a small emissive eye draw.

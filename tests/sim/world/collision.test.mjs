@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createCollisionWorld,moveCharacter,solidContact} from '../game/collision.ts';
+import {createCollisionWorld,moveCharacter,solidContact} from '../../../game/sim/world/collision.ts';
 const flat=()=>0;
 const rock={kind:'capsule',ax:0,az:0,bx:0,bz:0,radius:1,minY:-.3,maxY:1.4};
 test('large rocks and thin fallen logs block without tunnelling at high speeds',()=>{

@@ -7,10 +7,10 @@
  *   interlude  after it   quiet, one distant call from where it went; at least `quietAfter`, never before 3:45
  *   tree       3:45-6:00  encounter 2: head-down on a trunk ahead (or crossing the path), seen by 6:00
  *   breathing  60-90 s    it has gone; nothing yet
- *   free       after      the creature's own mind (game/creature-brain.ts) has it: it can hunt and kill
+ *   free       after      the creature's own mind (game/sim/creature/creature-brain.ts) has it: it can hunt and kill
  *
  * Pure and deterministic, like the brain: time only from each tick's dt, chance only from the injected random, no
- * scene. The host (game/encounters.ts) does the placing and the walking and tells it what happened: whether the
+ * scene. The host (game/render/creature/encounters.ts) does the placing and the walking and tells it what happened: whether the
  * scripted creature has been seen, and when it has gone again. Its clock pauses while the player is indoors during
  * an encounter that has not been seen yet, so a deadline is play time out in the open. Once free, it stays free: a
  * death or a new night does not replay the opening.

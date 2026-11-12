@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import './helpers/register-ts-hooks.mjs';
-const { createStaminaHud } = await import('../game/stamina-hud.ts');
+import '../helpers/register-ts-hooks.mjs';
+const { createStaminaHud } = await import('../../game/ui/stamina-hud.ts');
 
 // A DOM that records every write, so a frame that should change nothing can be shown to write nothing.
 const fakeDom = () => {

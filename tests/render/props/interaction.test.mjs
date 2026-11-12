@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import './helpers/register-ts-hooks.mjs';
-const { createInteraction, promptText, lineOfSight } = await import('../game/interaction.ts');
-const { createCollisionWorld } = await import('../game/collision.ts');
+import '../../helpers/register-ts-hooks.mjs';
+const { createInteraction, promptText, lineOfSight } = await import('../../../game/render/props/interaction.ts');
+const { createCollisionWorld } = await import('../../../game/sim/world/collision.ts');
 
 // A container that records what the prompt does, standing in for the DOM.
 const fakeContainer = () => {

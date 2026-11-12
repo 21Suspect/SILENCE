@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import {createMeshSurface} from '../game/surface-support.ts';
+import {createMeshSurface} from '../../../game/render/world/surface-support.ts';
 
 test('foot contacts follow rotated, nonuniform rocks and miss outside the visible edge',()=>{
   const geometry=new THREE.SphereGeometry(1,24,16),transform=new THREE.Matrix4().compose(new THREE.Vector3(8,.5,-4),new THREE.Quaternion().setFromEuler(new THREE.Euler(.3,.7,.4)),new THREE.Vector3(1.7,.8,.9));

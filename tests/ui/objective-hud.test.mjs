@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import './helpers/register-ts-hooks.mjs';
-const { createObjectiveHud, OBJECTIVE_KEY, OBJECTIVE_HINT_SECONDS, OBJECTIVE_FADE } = await import('../game/objective-hud.ts');
+import '../helpers/register-ts-hooks.mjs';
+const { createObjectiveHud, OBJECTIVE_KEY, OBJECTIVE_HINT_SECONDS, OBJECTIVE_FADE } = await import('../../game/ui/objective-hud.ts');
 
 // A DOM that records every write, so a frame that should change nothing can be shown to write nothing.
 const fakeDom = () => {

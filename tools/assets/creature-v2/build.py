@@ -560,7 +560,7 @@ layout = dict(
 )
 with open(os.path.join(SOURCE, "rig.json"), "w") as f:
     json.dump(layout, f, indent=1)
-with open(os.path.join(ROOT, "game/spider-rig.json"), "w") as f:
+with open(os.path.join(ROOT, "game/data/spider-rig.json"), "w") as f:
     json.dump(layout, f)
 bpy.ops.wm.save_as_mainfile(filepath=os.path.join(SOURCE, "silence-creature-v2.blend"), compress=True)
 log("CREATURE_V2_COMPLETE", len(mesh.polygons), "triangles", len(bones), "bones")

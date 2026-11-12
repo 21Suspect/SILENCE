@@ -9,13 +9,13 @@ const RealRequest = globalThis.Request;
 globalThis.Request = class extends RealRequest { constructor(url, options) { super(new URL(url, 'http://localhost/'), options); } };
 globalThis.fetch = async request => {
   const url = new URL(request.url ?? request);
-  if (url.pathname.endsWith('.glb')) return new Response(readFileSync(new URL(`../public${url.pathname}`, import.meta.url)));
+  if (url.pathname.endsWith('.glb')) return new Response(readFileSync(new URL(`../../../public${url.pathname}`, import.meta.url)));
   throw new Error('offline');
 };
 globalThis.self ??= globalThis;
 globalThis.ProgressEvent ??= class extends Event { constructor(type, init = {}) { super(type); Object.assign(this, init); } };
-import './helpers/register-ts-hooks.mjs';
-const { createEncounters } = await import('../game/encounters.ts');
+import '../../helpers/register-ts-hooks.mjs';
+const { createEncounters } = await import('../../../game/render/creature/encounters.ts');
 
 const quietly = async f => { const e = console.error, w = console.warn; console.error = console.warn = () => {}; try { return await f(); } finally { console.error = e; console.warn = w; } };
 const senses = (o = {}) => ({ vx: 0, vz: 0, sprinting: false, crouching: false, flashlightOn: false, inWater: false, onLadder: false, indoors: false, ...o });

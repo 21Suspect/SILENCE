@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import './helpers/register-ts-hooks.mjs';
+import '../../helpers/register-ts-hooks.mjs';
 globalThis.location = { search: '?world-v2' };
-const { waterDepthAt, wadeSpeedFactor, canWadeTo, limitWading, WADE_LIMIT } = await import('../game/water-depth.ts');
-const { SPAWN, POI_PLACEMENTS, placeLocal } = await import('../game/world-layout.ts');
-const { riverX } = await import('../game/world-noise.ts');
-const { coastZ, LAKE_CENTER } = await import('../game/coastal-geography.ts');
+const { waterDepthAt, wadeSpeedFactor, canWadeTo, limitWading, WADE_LIMIT } = await import('../../../game/sim/world/water-depth.ts');
+const { SPAWN, POI_PLACEMENTS, placeLocal } = await import('../../../game/sim/world/world-layout.ts');
+const { riverX } = await import('../../../game/sim/world/world-noise.ts');
+const { coastZ, LAKE_CENTER } = await import('../../../game/sim/world/coastal-geography.ts');
 
 test('dry land has no depth; the lake, the sea and the river have', () => {
   assert.equal(waterDepthAt(SPAWN.x, SPAWN.z), 0);
@@ -40,6 +40,6 @@ test('a walker cannot go further into water deeper than the limit, but can alway
   assert.ok(at(px, pz) < start && at(px, pz) < 1, `walked back to ${at(px, pz).toFixed(2)} m from ${start.toFixed(2)} m`);
 });
 test('each ford is shallow: no deeper than a knee all the way across', async () => {
-  const { FORDS } = await import('../game/world-layout.ts');
+  const { FORDS } = await import('../../../game/sim/world/world-layout.ts');
   for (const f of FORDS) { let worst = 0; for (let k = -8; k <= 8; k += .5) worst = Math.max(worst, waterDepthAt(f.x + f.dx * k, f.z + f.dz * k)); assert.ok(worst <= .55, `${f.id} is ${worst.toFixed(2)} m deep`); }
 });

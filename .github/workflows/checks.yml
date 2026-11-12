@@ -15,6 +15,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npx tsc --noEmit
-      - run: node --experimental-strip-types --test tests/*.test.mjs
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
       - run: npm run build

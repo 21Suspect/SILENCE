@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { createStableSunShadow, sunTurnLimit } from '../game/shadows.ts';
+import { createStableSunShadow, sunTurnLimit } from '../../../game/render/world/shadows.ts';
 
 test('a stationary surface retains its shadow-texel phase throughout a hilly walk', () => {
   for (const limit of [4096, 2048]) {

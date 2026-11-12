@@ -1,4 +1,4 @@
-import type { ObjectiveText } from './objective-text';
+import type { ObjectiveText } from '../sim/objectives/objective-text';
 
 /** Shows or hides the objective. Fixed rather than rebindable; the engine stands aside if a player has bound it to something else. */
 export const OBJECTIVE_KEY = 'KeyO';

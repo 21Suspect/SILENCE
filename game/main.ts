@@ -4,5 +4,5 @@
  */
 const container = document.getElementById('game');
 let dispose: (() => void) | undefined;
-if (container) void import('./engine').then(({ createGame }) => { dispose = createGame(container); });
+if (container) void import('./core/engine').then(({ createGame }) => { dispose = createGame(container); });
 import.meta.hot?.dispose(() => { dispose?.(); });

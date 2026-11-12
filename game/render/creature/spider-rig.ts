@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import layout from './spider-rig.json';
+import layout from '../../data/spider-rig.json';
 
 export const SPIDER_MODEL_URL = '/creature/silence-creature-v2.glb';
 /** The sculpt is authored at full size. In-game it runs at this scale, so it

@@ -1,11 +1,11 @@
 import * as THREE from 'three';
-import type { SolidCollider } from './collision';
-import { createCreatureNavigation, obstacleClearance } from './creature-navigation';
-import { createSpiderGait, type Contact, type LimbClearance, type RestPose, type SpiderCommand, type SpiderSurface } from './spider-gait';
-import { createSpiderRig, LEG_SEGMENTS, SPIDER_SCALE as S, twoBone } from './spider-rig';
-import layout from './spider-rig.json';
+import type { SolidCollider } from '../sim/world/collision';
+import { createCreatureNavigation, obstacleClearance } from '../sim/creature/creature-navigation';
+import { createSpiderGait, type Contact, type LimbClearance, type RestPose, type SpiderCommand, type SpiderSurface } from '../render/creature/spider-gait';
+import { createSpiderRig, LEG_SEGMENTS, SPIDER_SCALE as S, twoBone } from '../render/creature/spider-rig';
+import layout from '../data/spider-rig.json';
 import { createSpiderTelemetry, type LegSample } from './spider-telemetry';
-import { roadZ } from './world';
+import { roadZ } from '../sim/world/world';
 
 type Query = { nearby: (x: number, z: number, radius?: number) => SolidCollider[] };
 

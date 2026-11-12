@@ -1,15 +1,15 @@
 import * as THREE from 'three';
-import { createMeshSurface } from './surface-support';
+import { createMeshSurface } from '../world/surface-support';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import type { SolidCollider } from './collision';
-import * as layout from './world-layout';
-import type { PoiFootprint, PoiPlacement } from './world-layout';
-import { WORLD_V2 } from './world-flags';
-import worldAssets from './world-assets.json';
-import type { Ladder } from './ladders';
+import type { SolidCollider } from '../../sim/world/collision';
+import * as layout from '../../sim/world/world-layout';
+import type { PoiFootprint, PoiPlacement } from '../../sim/world/world-layout';
+import { WORLD_V2 } from '../../sim/world/world-flags';
+import worldAssets from '../../data/world-assets.json';
+import type { Ladder } from '../../sim/player/ladders';
 import type { DoorSpec } from './doors';
-import type { GpuWarmup } from './gpu-warmup';
-import { perfOn } from './perf-flags';
+import type { GpuWarmup } from '../gpu/gpu-warmup';
+import { perfOn } from '../../core/perf-flags';
 
 /** Model-local footprint (Y up, metres, Y=0 is the ground), as written by the Blender export. */
 export type ModelCollider = ({ kind: 'box'; x: number; z: number; halfX: number; halfZ: number; yaw?: number } |
@@ -17,9 +17,9 @@ export type ModelCollider = ({ kind: 'box'; x: number; z: number; halfX: number;
 /** A ladder in model-local metres: the line from `bottom` to `top`, and where to stand after topping out. */
 export type ModelLadder = { bottom: readonly [number, number, number]; top: readonly [number, number, number]; exit: readonly [number, number, number]; width?: number };
 export type PoiAsset = { url: string; radius: number; colliders?: ModelCollider[]; hooks?: Record<string, readonly [number, number, number]>; ladders?: ModelLadder[];
-  /** Hinged door leaves (game/doors.ts): each names another asset, a GLB of just the leaf. */
+  /** Hinged door leaves (game/render/props/doors.ts): each names another asset, a GLB of just the leaf. */
   doors?: DoorSpec[] };
-/** A ladder in world metres, ready for game/ladders.ts. `id` is `<placement id>#<index in the asset's ladders>`. */
+/** A ladder in world metres, ready for game/sim/player/ladders.ts. `id` is `<placement id>#<index in the asset's ladders>`. */
 export type WorldLadder = Ladder & { placement: string };
 /** A scatter entry has the same shape as a POI; `scale` is optional and uniform. */
 export type Placement = PoiPlacement & { scale?: number };
@@ -198,7 +198,7 @@ type Entry = {
 type Model = {
   name: string; def: PoiAsset; entries: Entry[]; status: 'idle' | 'loading' | 'ready' | 'failed';
   scene?: THREE.Object3D; prims: { mesh: THREE.InstancedMesh; rel: THREE.Matrix4 }[]; scatterX: number; scatterZ: number; repack: boolean;
-  /** True while the GPU warm-up (game/gpu-warmup.ts) is still bringing this model's textures in; nothing of it is drawn until then. */
+  /** True while the GPU warm-up (game/render/gpu/gpu-warmup.ts) is still bringing this model's textures in; nothing of it is drawn until then. */
   warming?: boolean;
   /** Settles once `warming` has ended (undefined without the warm-up). */
   ready?: Promise<void>;
