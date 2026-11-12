@@ -10,6 +10,8 @@ import { createMeshSurface } from './surface-support';
 import { stumpGeometry } from './forest-assets';
 import { createVegetationBatcher, type VegetationBatchDefinition, type VegetationBatchHandle } from './vegetation-batches';
 import { perfOn } from '../../core/perf-flags';
+import { INSTANCE_CULL_HEADER, instanceCullGLSL, instanceCullSwitch } from './instance-cull';
+import { foliageLite } from './foliage-shading';
 import { TRUNK_RINGS, TRUNK_SEGMENTS, buildConiferVariants } from './conifer';
 import { buildBroadleafVariants } from './broadleaf';
 import { loadNature, type NatureVariant } from './nature-assets';
@@ -189,15 +191,16 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
   oakBark.name='Scanned oak bark';
   const windTime = { value: 0 };
   const forestEye={value:spawn.clone()};
-  function fadeInstances(material:THREE.Material,from:number,to:number,kind?:'trunk'|'branch'|'crown'){
+  /** `cull`: the instance's bounds for per-instance frustum culling (instance-cull.ts), [bottom, top, radius] in model units. */
+  function fadeInstances(material:THREE.Material,from:number,to:number,kind?:'trunk'|'branch'|'crown',cull?:readonly [number,number,number]){
     const compile=material.onBeforeCompile,cacheKey=material.customProgramCacheKey();
     // One fade works in the main view, reflections and shadow maps.
     material.alphaHash=true;
-    material.customProgramCacheKey=()=>`${cacheKey}-stream-${from}-${to}-${kind??''}`;
+    material.customProgramCacheKey=()=>`${cacheKey}-stream-${from}-${to}-${kind??''}-${cull?.join(',')??''}`;
     material.onBeforeCompile=(shader,renderer)=>{
       compile.call(material,shader,renderer);
-      shader.uniforms.uForestEye=forestEye;
-      shader.vertexShader=`uniform vec3 uForestEye;varying float vForestCoverage;${kind==='trunk'?'attribute float streamDetail;':kind==='crown'?'attribute float crownLod;':''}\n${shader.vertexShader}`.replace(/void main\s*\(\s*\)\s*\{/,`void main(){
+      shader.uniforms.uForestEye=forestEye;shader.uniforms.uInstanceCull=instanceCullSwitch;
+      shader.vertexShader=`${INSTANCE_CULL_HEADER}uniform vec3 uForestEye;varying float vForestCoverage;${kind==='trunk'?'attribute float streamDetail;':kind==='crown'?'attribute float crownLod;':''}\n${shader.vertexShader}`.replace(/void main\s*\(\s*\)\s*\{/,`void main(){
         vForestCoverage=1.;
         #ifdef USE_INSTANCING
           vec2 eyeOffset=instanceMatrix[3].xz-uForestEye.xz;
@@ -212,6 +215,7 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
           vForestCoverage*=mix(1.-lodBlend,lodBlend,crownLod);`:''}
           if(vForestCoverage<=0.){gl_Position=vec4(2.,2.,2.,1.);return;}
         #endif
+        ${cull?instanceCullGLSL(...cull):''}
       `);
       shader.fragmentShader=`varying float vForestCoverage;\n${shader.fragmentShader}`.replace('#include <alphahash_fragment>',`
         if(vForestCoverage<1.&&vForestCoverage<getAlphaHashThreshold(vPosition))discard;
@@ -237,6 +241,7 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
     shader.fragmentShader = shader.fragmentShader.replace('#include <lights_physical_pars_fragment>', THREE.ShaderChunk.lights_physical_pars_fragment.replace(
       'reflectedLight.directDiffuse += irradiance * BRDF_Lambert( material.diffuseColor );',
       '$&\n\treflectedLight.directDiffuse += saturate( - dot( geometryNormal, directLight.direction ) ) * directLight.color * BRDF_Lambert( material.diffuseColor ) * vec3( .6, .68, .3 );'));
+    foliageLite(shader);
   };
   pineNeedles.onBeforeCompile=foliageWind;spruceNeedles.onBeforeCompile=foliageWind;
   const rootDepth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
@@ -252,8 +257,13 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
   varyDirectionalTexture(oakBark,{height:texture('/plantassets/forest-variety/oak-height.jpg'),depth:.03});
   varyDirectionalTexture(pineBark,{height:texture('/world/trees/pine/bark-height.jpg'),depth:.02});varyDirectionalTexture(spruceBark,{height:texture('/world/trees/spruce/bark-height.jpg'),depth:.02});
   varyDirectionalTexture(logBark);
-  for(const m of [bark,birchBark,oakBark,pineBark,spruceBark,rootDepth,rootDistance])fadeInstances(m,83,TREE_RANGE,'trunk');
-  for(const m of [pineNeedles,spruceNeedles])fadeInstances(m,83,TREE_RANGE,'crown');
+  // Cull bounds per species (model units, the tree is 31 tall): a conifer's limbs and crown reach about 6.5 from its axis, a
+  // birch's 8.5, an oak's 17 (broadleaf.ts budgets). The shadow materials serve every species, so they take the oak's.
+  fadeInstances(bark,83,TREE_RANGE,'trunk');
+  for(const m of [pineBark,spruceBark])fadeInstances(m,83,TREE_RANGE,'trunk',[-1,33,6.5]);
+  fadeInstances(birchBark,83,TREE_RANGE,'trunk',[-1,33,8.5]);
+  for(const m of [oakBark,rootDepth,rootDistance])fadeInstances(m,83,TREE_RANGE,'trunk',[-1,36,17]);
+  for(const m of [pineNeedles,spruceNeedles])fadeInstances(m,83,TREE_RANGE,'crown',[0,32.5,6.5]);
   const stoneMaterials=[createRockMaterial(false),createRockMaterial(false),createRockMaterial(false)];
   for(let i=1;i<3;i++){
     const m=stoneMaterials[i],prefix=i===1?'granite':'slate';
@@ -266,14 +276,14 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
   fadeInstances(leafMaterial,26,34);
   // Oak and birch wear leaf sprays composed from scanned leaves (tools/assets/trees/sprays.py: ambientCG LeafSet016 and
   // LeafSet004, CC0). The oak scans are a pale spring green: the material colour brings them to a deep summer leaf.
-  const broadleafLeaves=(folder:string,name:string,color:number)=>{
+  const broadleafLeaves=(folder:string,name:string,color:number,cull:readonly [number,number,number])=>{
     const m=new THREE.MeshStandardMaterial({map:texture(`/world/trees/${folder}/spray-color.jpg`,true,false),alphaMap:texture(`/world/trees/${folder}/spray-alpha.png`,false,false),
       normalMap:texture(`/world/trees/${folder}/spray-normal.jpg`,false,false),normalScale:new THREE.Vector2(.7,.7),alphaTest:.3,alphaToCoverage:true,side:THREE.DoubleSide,
       roughness:.74,vertexColors:true,color});
-    m.name=name;m.onBeforeCompile=foliageWind;fadeInstances(m,83,TREE_RANGE,'crown');
+    m.name=name;m.onBeforeCompile=foliageWind;fadeInstances(m,83,TREE_RANGE,'crown',cull);
     return m;
   };
-  const oakLeaves=broadleafLeaves('oak','Composed oak sprays',0x7f9070),birchLeaves=broadleafLeaves('birch','Composed birch sprays',0xa8b494);
+  const oakLeaves=broadleafLeaves('oak','Composed oak sprays',0x7f9070,[4,36,17]),birchLeaves=broadleafLeaves('birch','Composed birch sprays',0xa8b494,[6,32.5,8.5]);
   const grain = endgrainTextures(); textures.push(grain.map, grain.normalMap, grain.roughnessMap);
   const woodMaterial = new THREE.MeshStandardMaterial({ ...grain, color: 0xd9d3bf, normalScale: new THREE.Vector2(.6, .6), roughness: .94, side: THREE.DoubleSide });
   const geometries: THREE.BufferGeometry[] = [];

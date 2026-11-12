@@ -8,6 +8,8 @@ import type { LayoutCell } from '../../sim/world/placement';
 import { createVegetationBatcher, type VegetationBatchDefinition } from './vegetation-batches';
 import { createSlice, runSlice, runToEnd, type Slice } from '../../core/time-slice';
 import { perfOn } from '../../core/perf-flags';
+import { INSTANCE_CULL_HEADER, instanceCullGLSL, instanceCullSwitch } from './instance-cull';
+import { foliageLite } from './foliage-shading';
 import { coastDistance, beachWidth } from '../../sim/world/coastal-geography';
 import { WORLD_V2 } from '../../sim/world/world-flags';
 
@@ -253,12 +255,13 @@ export function createUndergrowth(
     for (const value of Object.values(material)) if (value instanceof THREE.Texture) trackedTexture(value);
     material.onBeforeCompile = shader => {
       shader.uniforms.uUnderstoryTime = timeUniform;
-      shader.uniforms.uUnderstoryEye = eyeUniform;
+      shader.uniforms.uUnderstoryEye = eyeUniform;shader.uniforms.uInstanceCull = instanceCullSwitch;
       if(reflected)shader.uniforms.uUnderstoryDither=ditherRange;
       const fernVarying=fernLOD?'varying float vFernBlend;':'';
       shader.vertexShader = `
         uniform float uUnderstoryTime;
         uniform vec3 uUnderstoryEye;
+        ${INSTANCE_CULL_HEADER}
         attribute vec2 plantSlope;
         attribute vec3 plantSoil;
         varying vec3 vPlantSoil;
@@ -276,6 +279,8 @@ export function createUndergrowth(
             gl_Position=vec4(2.,2.,2.,1.);return;
           }
         #endif
+        // A plant or patch is under 1.6 m tall and within about a metre of its root at its own scale.
+        ${instanceCullGLSL(-.1,1.6,1.2)}
       `).replace('#include <begin_vertex>', `
         #include <begin_vertex>
         #ifdef USE_INSTANCING
@@ -334,6 +339,7 @@ export function createUndergrowth(
           #undef RE_Direct
           #define RE_Direct RE_Direct_Plant
         `);
+      foliageLite(shader);
     };
     material.customProgramCacheKey = () => `silence-understory-streamed-${distance}-${breeze}-${fernLOD??''}-${band[0]}-${band[1]}-${rootShade}`;
     materials.push(material);
