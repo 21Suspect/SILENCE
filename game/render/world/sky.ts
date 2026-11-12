@@ -1,3 +1,4 @@
+import { perfOn } from '../../core/perf-flags';
 import * as THREE from 'three';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import { createSkyLut, SKY_LUT_GLSL, SUN_ILLUMINANCE, MOON_ILLUMINANCE, transmittance, skyRadiance, skyIrradiance } from './sky-model';
@@ -120,7 +121,10 @@ export function createSky(renderer:THREE.WebGLRenderer,scene:THREE.Scene,sun:THR
         color=mix(cloudColor,color,transmission);
         gl_FragColor=vec4(color,1.);
       }`});
-  const dome=new THREE.Mesh(new THREE.SphereGeometry(1,48,24),material);dome.name='HDR sky with drifting clouds';dome.frustumCulled=false;dome.renderOrder=-1000;scene.add(dome);scene.background=null;scene.userData.hasSky=true;
+  const dome=new THREE.Mesh(new THREE.SphereGeometry(1,48,24),material);dome.name='HDR sky with drifting clouds';dome.frustumCulled=false;
+  // Drawn last of the opaque scene: it sits at the far plane and tests depth, so it is shaded only where it shows. Drawn first
+  // (-1000), the cloud shader ran under every tree and hill (-0.4 ms at spawn at 1920x1080 with the ground drawn late too).
+  dome.renderOrder=perfOn('skyLast')?1000:-1000;scene.add(dome);scene.background=null;scene.userData.hasSky=true;
   scene.userData.skyLut=lut.texture;
   let disposed=false,dayTexture:THREE.DataTexture|undefined,nightTexture:THREE.DataTexture|undefined,environment:THREE.WebGLRenderTarget|undefined;
   const generator=new THREE.PMREMGenerator(renderer);generator.compileEquirectangularShader();

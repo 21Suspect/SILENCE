@@ -388,6 +388,11 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
     cacheTerrainBlock(tile.x,tile.z);
     const mesh=new THREE.Mesh(geometry,material);
     mesh.receiveShadow=true;mesh.name='Streamed forest terrain';mesh.visible=false;
+    // The ground is drawn after the forest (render order 1): grass, trunks and rocks cover much of it, and drawn first their
+    // depth rejects the ground's pixels behind them before its parallax shader runs. Every forest material can discard (its
+    // distance dissolve), so the GPU cannot hide them for free the other way round. Measured at 1920x1080: -1.2 ms at the
+    // canopy station, -0.45 ms at spawn (interleaved A/B, work/perf/ov.js).
+    if(perfOn('terrainLast'))mesh.renderOrder=1;
     scene.add(mesh);terrainChunks.set(tileKey(tile),{tile,mesh});
   }
   function stopWorker(){
