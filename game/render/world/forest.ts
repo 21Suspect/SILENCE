@@ -165,12 +165,6 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
   };
   const bark = new THREE.MeshStandardMaterial({ color: 0xb4b5aa, map: texture('/textures/bark-diff.jpg', true), normalMap: texture('/textures/bark-normal.jpg'), roughnessMap: texture('/textures/bark-rough.jpg'), roughness: .98, normalScale: new THREE.Vector2(1.25, 1.25), vertexColors: true });
   const logBark = bark.clone(); logBark.vertexColors = false; logBark.color.set(0xa4aa9c);
-  const needlesMaterial = new THREE.MeshStandardMaterial({
-    map: texture('/plantassets/pine/pine-diff.png', true, false),
-    normalMap: texture('/plantassets/pine/pine-normal.png', false, false),
-    roughnessMap: texture('/plantassets/pine/pine-rough.png', false, false),
-    normalScale: new THREE.Vector2(.4, .4), alphaTest: .20, alphaToCoverage: true, side: THREE.DoubleSide, roughness: .94, color: 0xaab39b,
-  });
   // The conifers wear the bark and needle sprays of Poly Haven's scanned pine and fir (CC0; tools/assets/trees, packed in
   // public/world/trees): the bark's own occlusion baked into its colour, its normals and roughness, the twig atlases at 2K.
   const coniferBark=(folder:string,name:string)=>{
@@ -193,12 +187,6 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
   birchBark.name='Scanned silver birch — peeling bark and fissures';
   const oakBark=new THREE.MeshStandardMaterial({map:texture('/plantassets/forest-variety/oak-diff.jpg',true),normalMap:texture('/plantassets/forest-variety/oak-normal.jpg'),roughnessMap:texture('/plantassets/forest-variety/oak-rough.jpg'),roughness:1,normalScale:new THREE.Vector2(.9,.9),vertexColors:true,color:0xdbd6bd});
   oakBark.name='Scanned oak bark';
-  const broadleafMaterial=new THREE.MeshStandardMaterial({
-    map:texture('/plantassets/forest-variety/broadleaf-diff.jpg',true,false),alphaMap:texture('/plantassets/forest-variety/broadleaf-alpha.jpg',false,false),
-    normalMap:texture('/plantassets/forest-variety/broadleaf-normal.jpg',false,false),roughnessMap:texture('/plantassets/forest-variety/broadleaf-rough.jpg',false,false),
-    normalScale:new THREE.Vector2(.21,.21),alphaTest:.44,alphaToCoverage:true,side:THREE.DoubleSide,roughness:.92,color:0xc4ceb2,vertexColors:true,
-  });
-  broadleafMaterial.name='Photographed broadleaf foliage';
   const windTime = { value: 0 };
   const forestEye={value:spawn.clone()};
   function fadeInstances(material:THREE.Material,from:number,to:number,kind?:'trunk'|'branch'|'crown'){
@@ -250,20 +238,7 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
       'reflectedLight.directDiffuse += irradiance * BRDF_Lambert( material.diffuseColor );',
       '$&\n\treflectedLight.directDiffuse += saturate( - dot( geometryNormal, directLight.direction ) ) * directLight.color * BRDF_Lambert( material.diffuseColor ) * vec3( .6, .68, .3 );'));
   };
-  needlesMaterial.onBeforeCompile=foliageWind;pineNeedles.onBeforeCompile=foliageWind;spruceNeedles.onBeforeCompile=foliageWind;
-  broadleafMaterial.onBeforeCompile=shader=>{
-    foliageWind(shader);
-    shader.vertexShader='attribute vec3 leafCenter;\n'+shader.vertexShader;
-    shader.vertexShader=shader.vertexShader.replace('#include <begin_vertex>',`
-      #include <begin_vertex>
-      #ifdef USE_INSTANCING
-        // Retain physical spray sizes as the tree stretches around its roots.
-        vec3 treeScale=vec3(length(instanceMatrix[0].xyz),length(instanceMatrix[1].xyz),length(instanceMatrix[2].xyz));
-        transformed=leafCenter+(transformed-leafCenter)/max(treeScale,vec3(.01));
-      #endif
-    `);
-  };
-  broadleafMaterial.customProgramCacheKey=()=> 'silence-fixed-scale-broadleaf-crown';
+  pineNeedles.onBeforeCompile=foliageWind;spruceNeedles.onBeforeCompile=foliageWind;
   const rootDepth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
   const rootDistance = new THREE.MeshDistanceMaterial();
   for (const material of [bark, birchBark, oakBark, pineBark, spruceBark, rootDepth, rootDistance]) {
@@ -278,7 +253,7 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
   varyDirectionalTexture(pineBark,{height:texture('/world/trees/pine/bark-height.jpg'),depth:.02});varyDirectionalTexture(spruceBark,{height:texture('/world/trees/spruce/bark-height.jpg'),depth:.02});
   varyDirectionalTexture(logBark);
   for(const m of [bark,birchBark,oakBark,pineBark,spruceBark,rootDepth,rootDistance])fadeInstances(m,83,TREE_RANGE,'trunk');
-  for(const m of [needlesMaterial,broadleafMaterial,pineNeedles,spruceNeedles])fadeInstances(m,83,TREE_RANGE,'crown');
+  for(const m of [pineNeedles,spruceNeedles])fadeInstances(m,83,TREE_RANGE,'crown');
   const stoneMaterials=[createRockMaterial(false),createRockMaterial(false),createRockMaterial(false)];
   for(let i=1;i<3;i++){
     const m=stoneMaterials[i],prefix=i===1?'granite':'slate';
@@ -286,7 +261,8 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
     m.color.set(0xffffff);if(WORLD_V2&&i===2)m.color.setRGB(3.2,3.2,3);m.name=i===1?'Scanned pale granite':'Scanned dark layered slate';
   }
   const stonesMaterial=stoneMaterials[0];
-  const leafMaterial = new THREE.MeshStandardMaterial({map:broadleafMaterial.map,normalMap:broadleafMaterial.normalMap,normalScale:new THREE.Vector2(.25,.25), vertexColors: true, side: THREE.DoubleSide, roughness: .78 });
+  // The litter's leaves are cut from the Poly Haven tree_small_02 leaf atlas (public/plantassets/forest-variety).
+  const leafMaterial = new THREE.MeshStandardMaterial({map:texture('/plantassets/forest-variety/broadleaf-diff.jpg',true,false),normalMap:texture('/plantassets/forest-variety/broadleaf-normal.jpg',false,false),normalScale:new THREE.Vector2(.25,.25), vertexColors: true, side: THREE.DoubleSide, roughness: .78 });
   fadeInstances(leafMaterial,26,34);
   // Oak and birch wear leaf sprays composed from scanned leaves (tools/assets/trees/sprays.py: ambientCG LeafSet016 and
   // LeafSet004, CC0). The oak scans are a pale spring green: the material colour brings them to a deep summer leaf.
@@ -799,7 +775,7 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
     dispose() {
       if (disposed) return; disposed = true; job = undefined; undergrowth.dispose(); scene.remove(group); for (const b of batchers) b.dispose(); geometries.forEach(g => g.dispose()); textures.forEach(t => t.dispose());
       for (const map of [stonesMaterial.map, stonesMaterial.normalMap, stonesMaterial.roughnessMap]) map?.dispose();
-      [bark, birchBark, oakBark, logBark, needlesMaterial, broadleafMaterial, pineBark, spruceBark, pineNeedles, spruceNeedles, oakLeaves, birchLeaves, ...crownCasters.values(), ...stoneMaterials, leafMaterial, woodMaterial, rootDepth, rootDistance, ...natureMaterials].forEach(m => m.dispose());cells.clear();
+      [bark, birchBark, oakBark, logBark, pineBark, spruceBark, pineNeedles, spruceNeedles, oakLeaves, birchLeaves, ...crownCasters.values(), ...stoneMaterials, leafMaterial, woodMaterial, rootDepth, rootDistance, ...natureMaterials].forEach(m => m.dispose());cells.clear();
     },
   };
 }
