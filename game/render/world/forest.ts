@@ -415,13 +415,48 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
   // The scanned pieces (nature-assets.ts) replace the procedural rocks, sticks, cut stumps and fallen logs once they have
   // loaded (behind the loading veil: the GLBs count as pending assets); the forest then rebuilds once. Until then, or if
   // they fail to load, the procedural pieces stand in. The tall splintered snag and the layered slate have no scan and stay.
+  // Close up a scan runs out of texels: a 1.5 m boulder has about 250 px per metre at 2K where the screen resolves 393 at 2 m
+  // (work/gfx/research/texture-audit.md). The ground's own lichen-rock layer (ground-layers.ts, already on the GPU for the
+  // terrain's rock faces) is laid over it, projected three ways in world space at a finer scale than the scan, so no seam
+  // of the scan's atlas shows: its normals perturb the scan's, its height darkens the crevices. It fades in inside 14 m.
+  const rockDetail=(m:THREE.MeshStandardMaterial)=>{
+    const layers=scene.userData.groundLayers as {color:THREE.Texture;surface:THREE.Texture}|undefined;
+    if(!layers||!perfOn('rockDetail'))return;
+    m.onBeforeCompile=shader=>{
+      shader.uniforms.uDetailColor={value:layers.color};shader.uniforms.uDetailSurface={value:layers.surface};
+      shader.vertexShader=`varying vec3 vDetailWorld,vDetailNormal;\n${shader.vertexShader}`.replace('#include <begin_vertex>',`#include <begin_vertex>
+        vec4 detailWorld=vec4(transformed,1.);vec3 detailNormal=objectNormal;
+        #ifdef USE_INSTANCING
+          detailWorld=instanceMatrix*detailWorld;detailNormal=mat3(instanceMatrix)*detailNormal;
+        #endif
+        vDetailWorld=(modelMatrix*detailWorld).xyz;vDetailNormal=mat3(modelMatrix)*detailNormal;`);
+      shader.fragmentShader=`uniform sampler2DArray uDetailColor,uDetailSurface;varying vec3 vDetailWorld,vDetailNormal;\n${shader.fragmentShader}`.replace('#include <normal_fragment_maps>',`#include <normal_fragment_maps>
+        float detailFade=1.-smoothstep(6.,14.,length(vViewPosition));
+        if(detailFade>0.){
+          // Triplanar with whiteout blending (Golus, "Normal Mapping for a Triplanar Shader", 2017); the layer is 2 m a tile,
+          // laid at 0.8 m so its grain is finer than the scan's.
+          vec3 nW=normalize(vDetailNormal),w=pow(abs(nW),vec3(4.));w/=dot(w,vec3(1.));
+          vec3 p=vDetailWorld/.8,s=sign(nW);
+          vec3 tx=texture(uDetailSurface,vec3(p.zy,6.)).xyz,ty=texture(uDetailSurface,vec3(p.xz,6.)).xyz,tz=texture(uDetailSurface,vec3(p.xy,6.)).xyz;
+          vec2 dx=tx.xy*2.-1.,dy=ty.xy*2.-1.,dz=tz.xy*2.-1.;
+          vec3 nx=vec3(dx+nW.zy,abs(nW.x)),ny=vec3(dy+nW.xz,abs(nW.y)),nz=vec3(dz+nW.xy,abs(nW.z));
+          nx.z*=s.x;ny.z*=s.y;nz.z*=s.z;
+          vec3 detailN=normalize(nx.zyx*w.x+ny.xzy*w.y+nz.xyz*w.z);
+          normal=normalize(normal+(viewMatrix*vec4(detailN-nW,0.)).xyz*.7*detailFade);
+          float h=texture(uDetailColor,vec3(p.zy,6.)).a*w.x+texture(uDetailColor,vec3(p.xz,6.)).a*w.y+texture(uDetailColor,vec3(p.xy,6.)).a*w.z;
+          diffuseColor.rgb*=mix(1.,.72+.56*h,.55*detailFade);
+          roughnessFactor=mix(roughnessFactor,clamp(roughnessFactor*(.85+.3*(tx.z*w.x+ty.z*w.y+tz.z*w.z)),0.,1.),detailFade);
+        }`);
+    };
+    m.customProgramCacheKey=()=>'silence-rock-detail-v1';
+  };
   type Scanned={definition:VegetationBatchDefinition;variant:NatureVariant;foot:number};
   let scanned:{rocks:Scanned[][];pebbles:Scanned[];branches:Scanned[];stumps:Scanned[];trunk:Scanned}|undefined;
   let rescan=false;
   loadNature().then(n=>{
     if(disposed)return;
-    const fade=(material:THREE.MeshStandardMaterial,range:number)=>{
-      const m=material.clone();fadeInstances(m,range-8,range);natureMaterials.push(m);
+    const fade=(material:THREE.MeshStandardMaterial,range:number,detail=false)=>{
+      const m=material.clone();if(detail)rockDetail(m);fadeInstances(m,range-8,range);natureMaterials.push(m);
       for(const map of [m.map,m.normalMap,m.roughnessMap,m.metalnessMap])if(map&&!textures.includes(map))textures.push(map);
       return m;
     };
@@ -432,10 +467,10 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
       const box=variant.geometry.boundingBox!,foot=box.min.y+(box.max.y-box.min.y)*.1;
       return {definition:instances(variant.geometry,material,capacity,cast,`${name} ${i+1}`,layer,radius,false),variant,foot};
     });
-    const rocks=set(n.rocks.variants,fade(n.rocks.material,ROCK_RANGE),80,true,'Scanned boulder',2.5);
+    const rocks=set(n.rocks.variants,fade(n.rocks.material,ROCK_RANGE,true),80,true,'Scanned boulder',2.5);
     scanned={
       rocks:[rocks,rocks],
-      pebbles:set(n.pebbles.variants,fade(n.rocks.material,PEBBLE_RANGE),400,false,'Scanned pebble',.3,2),
+      pebbles:set(n.pebbles.variants,fade(n.rocks.material,PEBBLE_RANGE,true),400,false,'Scanned pebble',.3,2),
       branches:set(n.branches.variants,fade(n.branches.material,BRANCH_RANGE),320,true,'Scanned fallen branch',1,2),
       stumps:n.stumps.map(s=>set(s.variants,fade(s.material,STUMP_RANGE),140,true,'Scanned stump',2)[0]),
       trunk:set(n.trunk.variants,fade(n.trunk.material,TRUNK_RANGE),200,true,'Scanned fallen trunk',5)[0],

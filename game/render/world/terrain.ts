@@ -64,6 +64,8 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
   const distantTint=new THREE.Color(horizonColor);
   // The forest floor: seven scanned layers in two texture arrays (colour + height, normal + roughness); see ground-layers.ts.
   const groundLayers=createGroundLayers(renderer);textures.push(groundLayers.color,groundLayers.surface);
+  // Shared with the forest's scanned rocks, which take the lichen-rock layer as their close-up detail (forest.ts rockDetail).
+  scene.userData.groundLayers=groundLayers;
   const material = new THREE.MeshStandardMaterial({ roughness: 1, color: 0xffffff });
   // Pack roughness in normal-map alpha to leave texture units for flashlight shadows/cookie on 16-unit mobile GPUs.
   const riverbedMap=texture('riverbed-diff',true),riverbedNormal=texture('/textures/riverbed-normal-rough.png');
