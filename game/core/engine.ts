@@ -277,7 +277,7 @@ export function createGame(container:HTMLElement) {
   const resize=()=>{
     const w=Math.max(1,container.clientWidth),h=Math.max(1,container.clientHeight);
     pixelRatio=diagnosticRatio??renderRatio(settings.resolution,w,h,window.devicePixelRatio);
-    scene.userData.graphicsAnisotropy=settings.anisotropy;scene.userData.graphicsWaterDetail=settings.waterDetail;scene.userData.graphicsAA=settings.aa;scene.userData.graphicsFog=settings.fog;
+    scene.userData.graphicsAnisotropy=settings.anisotropy;scene.userData.graphicsWaterDetail=settings.waterDetail;scene.userData.graphicsAA=settings.aa;scene.userData.graphicsFog=settings.fog;scene.userData.graphicsAO=settings.ambientOcclusion;
     renderer.getSize(rendererSize);if(rendererSize.x!==w||rendererSize.y!==h||renderer.getPixelRatio()!==pixelRatio)renderer.setDrawingBufferSize(w,h,pixelRatio);camera.aspect=w/h;camera.updateProjectionMatrix();
     atmosphere.resize(w,h,pixelRatio);terrain.water.setQuality(settings.reflections,settings.waterDetail);
     shadowDirty=sunShadow.setQuality(settings.shadows)||shadowDirty;
