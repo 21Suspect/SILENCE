@@ -1,5 +1,5 @@
+import { createEdgeAAMaterial, sharpnessFor } from '../post/sharpen';
 import * as THREE from 'three';
-import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import type { createRiver } from './river';
 import { WORLD_V2 } from '../../sim/world/world-flags';
 import { SKY_LUT_GLSL } from './sky-model';
@@ -25,7 +25,7 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
   // The fogged scene in linear light, for the final-image stage (exposure, bloom, grade, tone curve: game/render/post).
   const hdrTarget=new THREE.WebGLRenderTarget(1,1,{type:THREE.HalfFloatType,depthBuffer:false,minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter});
   const finalImage=createFinalImage(renderer);
-  const aaMaterial=new THREE.ShaderMaterial({uniforms:THREE.UniformsUtils.clone(FXAAShader.uniforms),vertexShader:FXAAShader.vertexShader,fragmentShader:FXAAShader.fragmentShader,depthTest:false,depthWrite:false});
+  const aaMaterial=createEdgeAAMaterial();
   aaMaterial.uniforms.tDiffuse.value=resolvedTarget.texture;
   const waterResolution=new THREE.Vector2();
   water.bind(target.texture,target.depthTexture,waterResolution,camera.projectionMatrixInverse);
@@ -484,12 +484,13 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
       const w=Math.round(width*ratio),h=Math.round(height*ratio);
       hdrTarget.setSize(w,h);finalImage.resize(w,h);
       const requested=scene.userData.graphicsAA??4;const samples=Math.min(requested<=1?0:requested,4,renderer.capabilities.maxSamples);if(target.samples!==samples){target.samples=samples;target.dispose();}
-      // FXAA runs on top of every MSAA level (the calibrated look is 4x MSAA + FXAA); "Off" is the only setting without it.
+      // The edge pass (light FXAA, then sharpening that follows how far the browser stretches the picture: post/sharpen.ts) runs on
+      // top of every MSAA level; "Off" is the only setting without it.
       useFxaa=requested!==0;
       const waterDetail=scene.userData.graphicsWaterDetail??2;
       const waterScale=waterDetail===0?.5:waterDetail===1?.72:1;
       const waterWidth=Math.max(1,Math.round(w*waterScale)),waterHeight=Math.max(1,Math.round(h*waterScale));
-      if(useFxaa){resolvedTarget.setSize(w,h);aaMaterial.uniforms.resolution.value.set(1/w,1/h);}else resolvedTarget.setSize(1,1);
+      if(useFxaa){resolvedTarget.setSize(w,h);aaMaterial.uniforms.resolution.value.set(1/w,1/h);aaMaterial.uniforms.sharpness.value=perfOn('sharpen')?sharpnessFor(ratio,window.devicePixelRatio||1):0;}else resolvedTarget.setSize(1,1);
       target.setSize(w,h);waterTarget.setSize(waterWidth,waterHeight);waterResolution.set(waterWidth,waterHeight);
       // Even offscreen water depth is bound by the fog shader. Allocate its new
       // storage before sampling, otherwise a hidden target can keep old-sized

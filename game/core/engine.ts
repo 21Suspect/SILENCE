@@ -316,12 +316,14 @@ export function createGame(container:HTMLElement) {
   // Anisotropic filtering is paid on every texture read. The ground and the road, seen at a grazing angle to the horizon,
   // need all of it and set their own (game/render/world/terrain.ts). Everything else was given the same 16x and it was the largest
   // per-pixel cost found (1.3 ms of a 12 ms frame on the road): leaf, needle and grass cards face the camera and gain
-  // nothing from it, so they get 2x; bark, props and the creature get 4x.
+  // nothing from it, so they get 2x. Bark, rocks, logs, props and the creature get 8x: trunks and boulders are seen edge-on at a
+  // few metres, where 4x smeared their bark and lichen. alphaHash is not a card: the forest's instanced bark, rocks and logs carry
+  // it for their distance dissolve (forest.ts fadeInstances), and counting it put all of them on the cards' 2x.
   const filterFor=(material:THREE.Material)=>{
     const wanted=Math.min(anisotropy,settings.anisotropy);
     if(!perfOn('filterPolicy'))return wanted;
-    const card=material.alphaTest>0||material.alphaHash||material.alphaToCoverage||material.transparent;
-    return Math.min(wanted,card?2:4);
+    const card=material.alphaTest>0||material.alphaToCoverage||material.transparent;
+    return Math.min(wanted,card?2:8);
   };
   function filterTextures(){
     // A texture shared by two kinds of material keeps the higher of the two; a change of the setting starts over.
@@ -335,7 +337,7 @@ export function createGame(container:HTMLElement) {
     upload:(t,urgent)=>{
       if(!(t.image?.width>0)||t.image?.complete===false)return 'wait';
       // A streamed prop's texture: the filtering pass above settles its final quality once the model is in the scene.
-      const af=Math.min(anisotropy,settings.anisotropy,perfOn('filterPolicy')?4:16);
+      const af=Math.min(anisotropy,settings.anisotropy,perfOn('filterPolicy')?8:16);
       if(!filtered.has(t)){filtered.set(t,af);t.anisotropy=af;t.needsUpdate=true;}
       if(!perfOn('slicedUpload')){renderer.initTexture(t);return 'done';}
       return slicer.upload(t,urgent);

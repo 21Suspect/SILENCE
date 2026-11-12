@@ -106,7 +106,7 @@ function grassPatch(variant: number, blades=32, segments=3, widthScale=1) {
 
 /**
  * A patch of the leafy carpet: single leaves from an ambientCG leaf atlas (CC0), each a card bent once along its length.
- * `regions` are the leaves' rectangles in the 2048 px atlas (x, y, width, height, measured from the opacity map). Ivy leaves
+ * `regions` are the leaves' rectangles in the atlas at 2048 px wide (x, y, width, height, measured from the opacity map). Ivy leaves
  * lie scattered and nearly flat over a disc; rosette leaves arch out from one centre. 4 triangles a leaf, so a patch of
  * 14 leaves is 56: cheap enough to carpet the floor near the player, where the ground texture alone reads flat.
  */
@@ -117,7 +117,10 @@ function leafPatch(variant: number, rosette: boolean, leaves: number, grow = 1) 
   for (let leaf = 0; leaf < leaves; leaf++) {
     const random = (salt: number) => hash(leaf + variant * 97, rosette ? 7 : 3, salt);
     const [rx, ry, rw, rh] = regions[(leaf + variant) % regions.length];
-    const u0 = rx / 2048, u1 = (rx + rw) / 2048, vBase = 1 - (ry + rh) / 2048, vTip = 1 - ry / 2048;
+    // The rosette atlas is half as tall as it is wide (2048 x 1024 where the rectangles were measured, packed at 1024 x 512):
+    // over 2048 its leaves showed only their top halves, stretched twice as long.
+    const tall = rosette ? 1024 : 2048;
+    const u0 = rx / 2048, u1 = (rx + rw) / 2048, vBase = 1 - (ry + rh) / tall, vTip = 1 - ry / tall;
     // Ivy: 6 to 10 cm leaves over a 17 cm disc, close to the ground; rosette: 11 to 19 cm leaves from the middle.
     const length = (rosette ? .11 + random(1) * .08 : .06 + random(1) * .04) * grow, width = length * rw / rh;
     const yaw = rosette ? leaf * 2.399963 + variant + random(2) * .4 : random(2) * Math.PI * 2;
