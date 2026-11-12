@@ -26,3 +26,11 @@ test('the frame rate limit defaults to 60, keeps 60, 120 or off, and ignores any
   for (const cap of [0, 60, 120]) assert.equal(readSettings(JSON.stringify({ frameCap: cap })).frameCap, cap);
   for (const bad of [30, 144, -1, 'fast', null]) assert.equal(readSettings(JSON.stringify({ frameCap: bad })).frameCap, 60);
 });
+
+test('ambient occlusion defaults to high, keeps off, medium or high, and ignores anything else', async () => {
+  const { readSettings, defaults } = await import('../../game/core/settings.ts');
+  assert.equal(defaults().ambientOcclusion, 2);
+  assert.equal(readSettings('{"fov":80}').ambientOcclusion, 2);
+  for (const level of [0, 1, 2]) assert.equal(readSettings(JSON.stringify({ ambientOcclusion: level })).ambientOcclusion, level);
+  for (const bad of [3, -1, '2', null, true, 1.5]) assert.equal(readSettings(JSON.stringify({ ambientOcclusion: bad })).ambientOcclusion, 2);
+});
