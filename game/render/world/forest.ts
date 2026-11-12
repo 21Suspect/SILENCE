@@ -433,6 +433,13 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
       shader.fragmentShader=`uniform sampler2DArray uDetailColor,uDetailSurface;varying vec3 vDetailWorld,vDetailNormal;\n${shader.fragmentShader}`.replace('#include <normal_fragment_maps>',`#include <normal_fragment_maps>
         float detailFade=1.-smoothstep(6.,14.,length(vViewPosition));
         if(detailFade>0.){
+          // How well the scan itself resolves here: its texels per screen pixel along the direction where they are fewest (the
+          // smaller singular value of the uv-to-pixel Jacobian). A scan's atlas gives steep and under faces few texels,
+          // stretched along the surface, so a boulder was crisp in one spot and smeared in the next. Where that falls under
+          // about one texel a pixel, the scan's own colour is softened (its stretched streaks go) and the detail takes over.
+          vec2 scanSize=vec2(textureSize(map,0)),ux=dFdx(vMapUv)*scanSize,uy=dFdy(vMapUv)*scanSize;
+          float ja=dot(ux,ux),jb=dot(ux,uy),jc=dot(uy,uy),scanTexels=sqrt(max(0.,.5*(ja+jc-sqrt((ja-jc)*(ja-jc)+4.*jb*jb))));
+          float starved=(1.-smoothstep(.4,1.2,scanTexels))*detailFade;
           // Triplanar with whiteout blending (Golus, "Normal Mapping for a Triplanar Shader", 2017); the layer is 2 m a tile,
           // laid at 0.8 m so its grain is finer than the scan's.
           vec3 nW=normalize(vDetailNormal),w=pow(abs(nW),vec3(4.));w/=dot(w,vec3(1.));
@@ -442,13 +449,18 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
           vec3 nx=vec3(dx+nW.zy,abs(nW.x)),ny=vec3(dy+nW.xz,abs(nW.y)),nz=vec3(dz+nW.xy,abs(nW.z));
           nx.z*=s.x;ny.z*=s.y;nz.z*=s.z;
           vec3 detailN=normalize(nx.zyx*w.x+ny.xzy*w.y+nz.xyz*w.z);
-          normal=normalize(normal+(viewMatrix*vec4(detailN-nW,0.)).xyz*.7*detailFade);
-          float h=texture(uDetailColor,vec3(p.zy,6.)).a*w.x+texture(uDetailColor,vec3(p.xz,6.)).a*w.y+texture(uDetailColor,vec3(p.xy,6.)).a*w.z;
-          diffuseColor.rgb*=mix(1.,.72+.56*h,.55*detailFade);
+          normal=normalize(normal+(viewMatrix*vec4(detailN-nW,0.)).xyz*(.6*detailFade+.6*starved));
+          vec4 cd=texture(uDetailColor,vec3(p.zy,6.))*w.x+texture(uDetailColor,vec3(p.xz,6.))*w.y+texture(uDetailColor,vec3(p.xy,6.))*w.z;
+          // The layer's own mean (its last mip), so its colour only varies the scan's, never shifts it.
+          vec3 mean=textureLod(uDetailColor,vec3(.5,.5,6.),12.).rgb;
+          float grain=dot(cd.rgb,vec3(.2126,.7152,.0722))/max(dot(mean,vec3(.2126,.7152,.0722)),.01);
+          vec3 scan=texture(map,vMapUv).rgb,soft=texture(map,vMapUv,2.).rgb;
+          diffuseColor.rgb*=mix(vec3(1.),soft/max(scan,vec3(.002)),.6*starved);
+          diffuseColor.rgb*=mix(1.,clamp(grain,.65,1.4),.1*detailFade+.25*starved)*mix(1.,.72+.56*cd.a,.45*detailFade+.2*starved);
           roughnessFactor=mix(roughnessFactor,clamp(roughnessFactor*(.85+.3*(tx.z*w.x+ty.z*w.y+tz.z*w.z)),0.,1.),detailFade);
         }`);
     };
-    m.customProgramCacheKey=()=>'silence-rock-detail-v1';
+    m.customProgramCacheKey=()=>'silence-rock-detail-v2';
   };
   type Scanned={definition:VegetationBatchDefinition;variant:NatureVariant;foot:number};
   let scanned:{rocks:Scanned[][];pebbles:Scanned[];branches:Scanned[];stumps:Scanned[];trunk:Scanned}|undefined;
