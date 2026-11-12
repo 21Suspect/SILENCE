@@ -241,7 +241,8 @@ const ROOT_SHADER_DEFORM = `
 
 export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number) => number, exclusion: (x: number, z: number) => number, spawn: THREE.Vector3) {
   const group = new THREE.Group(); group.name = 'Forest — grounded trunks, pine crowns, deadfall and litter'; scene.add(group);
-  const undergrowth = createUndergrowth(scene, heightAt, exclusion);
+  const layout=naturalLayout({heightAt,exclusion,biomeAt,riverX,riverPresence,roadZ,radius:WORLD_RADIUS});
+  const undergrowth = createUndergrowth(scene, heightAt, exclusion, (cx, cz) => layout.cell(cx, cz));
   const loader = new THREE.TextureLoader(); const textures: THREE.Texture[] = [];
   const texture = (url: string, srgb = false, repeat = true) => {
     const t = loader.load(url); if (repeat) t.wrapS = t.wrapT = THREE.RepeatWrapping;
@@ -507,7 +508,6 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
   }
 
   const CELL=32,cells=new Map<string,ForestCell>();
-  const layout=naturalLayout({heightAt,exclusion,biomeAt,riverX,riverPresence,roadZ,radius:WORLD_RADIUS});
   const colliders:Collider[]=[],solidColliders:SolidCollider[]=[];let collisionVersion=0;
   function buildCell(cx:number,cz:number):ForestCell{const cell=layout.cell(cx,cz);cells.set(`${cx},${cz}`,cell);return cell;}
   const propSurfaces=new WeakMap<Scatter,{geometry:THREE.BufferGeometry;surface:ReturnType<typeof createMeshSurface>}>();

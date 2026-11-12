@@ -3,6 +3,8 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { SimplifyModifier } from 'three/addons/modifiers/SimplifyModifier.js';
 import { WORLD_RADIUS, biomeAt } from '../../sim/world/world';
+import { createEcology, type Flora, type GrownPlant } from '../../sim/world/ecology';
+import type { LayoutCell } from '../../sim/world/placement';
 import { createVegetationBatcher, type VegetationBatchDefinition } from './vegetation-batches';
 import { createSlice, runSlice, runToEnd, type Slice } from '../../core/time-slice';
 import { perfOn } from '../../core/perf-flags';
@@ -21,6 +23,8 @@ function hash(x: number, z: number, salt = 0) {
   n = Math.imul(n ^ (n >>> 13), 1274126177);
   return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
 }
+
+const smooth01 = (x: number, a: number, b: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
 function patch(x: number, z: number) {
   return .5 + Math.sin(x * .17 + Math.sin(z * .11) * 1.9) * .23 + Math.cos(z * .21 - x * .073) * .19;
@@ -105,6 +109,8 @@ export function createUndergrowth(
   scene: THREE.Scene,
   heightAt: (x: number, z: number) => number,
   exclusion: (x: number, z: number) => number,
+  /** The forest layout's 32 m cells (trees, rocks, logs, stumps): the plants grow round them. */
+  layoutCell: (cx: number, cz: number) => LayoutCell,
 ) {
   const group = new THREE.Group();
   group.name = 'Photographic forest understory';
@@ -113,7 +119,7 @@ export function createUndergrowth(
   const geometries: THREE.BufferGeometry[] = [];
   const materials: THREE.MeshStandardMaterial[] = [];
   const fine: Batch[] = [], midFine: Batch[] = [], farFine: Batch[] = [], tussocks: Batch[] = [], farTussocks: Batch[] = [], ferns: Batch[] = [], farFerns: Batch[] = [];
-  const groundCover = new Map<string, GroundCover>(), fernCells = new Map<string, Plant[]>();
+  const groundCover = new Map<string, GroundCover>();
   // Two copies of the ring of plants. One is on screen while the other is rebuilt a few milliseconds per frame (game/core/time-slice.ts), and
   // they swap when it is whole; rebuilt in one go, the ring cost 8 to 60 ms every 4 m of walking.
   const buffers = [new THREE.Group(), new THREE.Group()];
@@ -130,6 +136,8 @@ export function createUndergrowth(
   const warmCells: {cx:number;cz:number;key:string;distance2:number}[] = [];
   const lastPosition = new THREE.Vector3(Infinity, 0, Infinity);
   let disposed = false, loaded = false;
+  // Where every fern, tussock, shrub, herb and celandine grows, and how dense the short grass is: game/sim/world/ecology.ts.
+  const ecology = createEcology({ heightAt, exclusion, biomeAt, layoutCell, radius: WORLD_RADIUS }, CELL);
 
   const trackedTexture = (texture: THREE.Texture) => {
     texture.anisotropy = 8;
@@ -260,9 +268,9 @@ export function createUndergrowth(
 
   const loader = new GLTFLoader();
   const textureLoader = new THREE.TextureLoader();
-  async function source(asset: string) {
+  async function source(asset: string, file = `${asset}.gltf`) {
     const [gltf, alpha] = await Promise.all([
-      loader.loadAsync(`/plantassets/${asset}/${asset}.gltf`),
+      loader.loadAsync(`/plantassets/${asset}/${file}`),
       textureLoader.loadAsync(`/plantassets/${asset}/alpha.png`),
     ]);
     alpha.flipY = false; trackedTexture(alpha);
@@ -274,18 +282,22 @@ export function createUndergrowth(
         for (const value of Object.values(material)) if (value instanceof THREE.Texture) trackedTexture(value);
       }
     });
+    // By name: the built GLBs (tools/assets/plants/build.py) hold one plant per mesh, a, b, c...
+    meshes.sort((a, b) => a.name.localeCompare(b.name));
     return { gltf, alpha, meshes };
   }
-  const ready = Promise.all([source('grass_medium_02'), source('fern_02')]).then(sources => {
+  const ready = Promise.all([source('grass_medium_02'), source('fern_02'), source('grass_medium_01', 'grass_medium_01.glb'),
+    source('celandine_01', 'celandine_01.glb'), source('shrub_01', 'shrub_01.glb'), source('shrub_04', 'shrub_04.glb')]).then(sources => {
     if (disposed) {
       for (const { meshes } of sources) for (const mesh of meshes) { mesh.geometry.dispose(); mesh.material.dispose(); }
       for (const texture of textureSet) texture.dispose();
       return;
     }
-    const [grass, fern] = sources;
+    const [grass, fern, lushGrass, celandine, herb, shrub] = sources;
     const fineMaterial = prepareMaterial(grass.meshes[0].material, grass.alpha, 33, 1.4);
-    const grassMaterial = prepareMaterial(grass.meshes[0].material, grass.alpha, TUSSOCK_RANGE, .6, 'near', TUSSOCK_LOD);
-    const farGrassMaterial = prepareMaterial(grass.meshes[0].material, grass.alpha, TUSSOCK_RANGE, .6, 'far', TUSSOCK_LOD);
+    // Tussocks are the deep green Grass Medium 01: the paler Medium 02 read as dry straw on the damp, mossy floor.
+    const grassMaterial = prepareMaterial(lushGrass.meshes[0].material, lushGrass.alpha, TUSSOCK_RANGE, .6, 'near', TUSSOCK_LOD);
+    const farGrassMaterial = prepareMaterial(lushGrass.meshes[0].material, lushGrass.alpha, TUSSOCK_RANGE, .6, 'far', TUSSOCK_LOD);
     const fernMaterial = prepareMaterial(fern.meshes[0].material, fern.alpha, FERN_RANGE, .17,'near');
     const farFernMaterial = prepareMaterial(fern.meshes[0].material, fern.alpha, FERN_RANGE, .17,'far');
     // One exposure/albedo scale across low grass and taller clumps prevents
@@ -300,8 +312,8 @@ export function createUndergrowth(
       midFine.push(batch(grassPatch(variant,20,2,1.2),fineMaterial,1800, 2, 'Fine grass LOD'));
       farFine.push(batch(grassPatch(variant,16,1,1.65),fineMaterial,7200, 2, 'Fine grass LOD'));
     }
-    for (const index of [0, 2, 4]) {
-      const geometry = grass.meshes[index].geometry.clone();
+    for (const mesh of lushGrass.meshes) {
+      const geometry = mesh.geometry.clone();
       geometry.translate(0, .004, 0);
       tussocks.push(batch(geometry, grassMaterial, 480));
       // A scanned tussock is up to 1,660 triangles and some 900 stand within 20 m: over a million triangles, more than
@@ -317,9 +329,29 @@ export function createUndergrowth(
       // 2 million in all: the largest thing in the frame. Snapping the points to a coarse grid instead draws the same
       // frond outlines, which at that range are a few pixels wide, with about a fifth of the triangles.
       const lowDetail = perfOn('fernLod') ? gridSimplify(geometry, .2) : simplifier.modify(geometry, Math.floor(geometry.attributes.position.count * .66));
-      ferns.push(batch(geometry, fernMaterial, 150));
-      farFerns.push(batch(lowDetail, farFernMaterial, 300));
+      ferns.push(batch(geometry, fernMaterial, 400));
+      farFerns.push(batch(lowDetail, farFernMaterial, 1400));
     }
+    // The other plants of the floor, each with a full copy near and a grid-simplified one further out that dissolve
+    // into each other across `band`, like the ferns.
+    const addSpecies = (name: string, from: typeof herb, flora: Flora, range: number, band: readonly [number, number], breeze: number, capacity: number) => {
+      const near = prepareMaterial(from.meshes[0].material, from.alpha, range, breeze, 'near', band);
+      const far = prepareMaterial(from.meshes[0].material, from.alpha, range, breeze, 'far', band);
+      far.color.copy(near.color);
+      const entry: Kind = { flora, range, band, near: [], far: [] };
+      for (const mesh of from.meshes) {
+        const geometry = mesh.geometry.clone();
+        geometry.translate(0, -.006, 0);
+        entry.near.push(batch(geometry, near, capacity, undefined, name));
+        entry.far.push(batch(gridSimplify(geometry, .22), far, capacity * 2, undefined, `${name} distant`));
+      }
+      kinds.push(entry);
+    };
+    kinds.push({ flora: 'fern', near: ferns, far: farFerns, range: FERN_RANGE, band: [FERN_LOD_START, FERN_LOD_END] });
+    kinds.push({ flora: 'tussock', near: tussocks, far: farTussocks, range: TUSSOCK_RANGE, band: TUSSOCK_LOD });
+    addSpecies('Lesser celandine', celandine, 'celandine', 26, [8, 12], .5, 700);
+    addSpecies('Woodland herbs', herb, 'herb', 34, [10, 14], .35, 300);
+    addSpecies('Understory shrubs', shrub, 'shrub', 40, [12, 16], .22, 500);
     const sourceMaterials = new Set<THREE.Material>();
     for (const { meshes } of sources) for (const mesh of meshes) { mesh.geometry.dispose(); sourceMaterials.add(mesh.material); }
     sourceMaterials.forEach(material => material.dispose());
@@ -360,7 +392,8 @@ export function createUndergrowth(
       if (e > .91) continue;
       const cover = patch(x, z);
       const biome=biomeAt(x,z);
-      const probability = (.30 + cover * .40) * (1 - Math.pow(e, 1.3) * .93) * (1-biome.alpine*.93);
+      // Short grass follows the ecology's grass field: light gaps, path margins and drier ground, none in the bare patches.
+      const probability = (.30 + cover * .40) * (1 - Math.pow(e, 1.3) * .93) * (1-biome.alpine*.93) * (dune ? 1 : 1.2 * smooth01(ecology.grass(x, z), .22, .6));
       if (hash(ix, iz, 5) > probability) continue;
       if (Math.abs(x + 18) < 1.55 && Math.abs(z + 46) < 1.05 && hash(ix, iz, 93) > .12) continue;
       const size = Math.min(3, (1.8 + hash(ix, iz, 8) * 1.8) * (.72 + cover * .48) * (1 - e * .42));
@@ -377,9 +410,11 @@ export function createUndergrowth(
       const x = (cx + hash(cx * 37 + i, cz, 101)) * CELL;
       const z = (cz + hash(cx, cz * 41 + i, 103)) * CELL;
       if (Math.hypot(x, z) > WORLD_RADIUS-55 || Math.hypot(x + 18, z + 46) < 2) continue;
+      // Dune grass only: everywhere else the tussocks are grown with the other plants (growFlora).
       const dune = WORLD_V2 && coastDistance(x,z)>beachWidth(x,z)*.74 && coastDistance(x,z)<beachWidth(x,z)+14;
-      const e = dune ? Math.min(.25,exclusion(x,z)) : exclusion(x, z), p = patch(x, z);
-      if (e > .7 || hash(cx * 39 + i, cz, 104) > (.3 + p * .57) * (1 - e) * (1-biomeAt(x,z).alpine*.91)) continue;
+      if (!dune) continue;
+      const e = Math.min(.25,exclusion(x,z)), p = patch(x, z);
+      if (hash(cx * 39 + i, cz, 104) > (.3 + p * .57) * (1 - e) * (1-biomeAt(x,z).alpine*.91)) continue;
       const plant=makePlant(x,z,cx*59+i,cz,105,i%3,(dune?1.35:.9)+hash(cx*67+i,cz,107)*1.15);
       if(dune){plant.dry=.95;plant.soilR=.34;plant.soilG=.27;plant.soilB=.17;}
       if(Math.hypot(plant.sx,plant.sz)<.65)cell.tussock.push(plant);
@@ -398,19 +433,30 @@ export function createUndergrowth(
     return partial.cell;
   }
   const buildGroundCover = (cx: number, cz: number, key: string) => growGroundCover(cx, cz, key)!;
-  function buildFerns(cx: number, cz: number, key: string) {
-    const plants: Plant[] = [];
-    for (let i = 0; i < 8; i++) {
-      const x = (cx + hash(cx * 17 + i, cz, 201)) * CELL;
-      const z = (cz + hash(cx, cz * 23 + i, 202)) * CELL;
-      if (Math.hypot(x, z) > WORLD_RADIUS-55 || Math.hypot(x + 18, z + 46) < 2.1) continue;
-      const e = exclusion(x, z), cover = patch(x + 11, z - 7);
-      const biome=biomeAt(x,z);
-      if (e > .48 || hash(cx * 13 + i, cz, 203) > (.25 + cover * .68)*(1-biome.heath*.82-biome.alpine*.95)) continue;
-      const plant=makePlant(x,z,cx*17+i,cz,210,i%4,.65+hash(cx*19+i,cz,215)*1.13,biome);if(Math.hypot(plant.sx,plant.sz)<.6)plants.push(plant);
+  /** The ferns, tussocks, shrubs, herbs and celandine of a cell, as game/sim/world/ecology.ts grows them, by plant. */
+  type Kind = { flora: Flora; near: Batch[]; far: Batch[]; range: number; band: readonly [number, number] };
+  const kinds: Kind[] = [];
+  const floraCells = new Map<string, Map<Flora, Plant[]>>();
+  function toPlant(g: GrownPlant): Plant | undefined {
+    if (Math.hypot(g.x + 18, g.z + 46) < 2.1) return;
+    const sx = (heightAt(g.x + .18, g.z) - heightAt(g.x - .18, g.z)) / .36, sz = (heightAt(g.x, g.z + .18) - heightAt(g.x, g.z - .18)) / .36;
+    if (Math.hypot(sx, sz) > .6) return;
+    const leaf = Math.min(1, g.leaf);
+    return { x: g.x, y: heightAt(g.x, g.z) - .012, z: g.z, sx, sz, kind: g.variant, size: g.size, sine: Math.sin(g.yaw), cosine: Math.cos(g.yaw),
+      stretch: .85 + .3 * (g.variant * 37 % 64) / 64, tint: g.tint, dry: g.dry,
+      soilR: .085 * (1 - leaf) + .091 * leaf, soilG: .071 * (1 - leaf) + .061 * leaf, soilB: .026 * (1 - leaf) + .023 * leaf };
+  }
+  function growFlora(cx: number, cz: number, key: string) {
+    const byFlora = new Map<Flora, Plant[]>();
+    for (const g of ecology.grow(cx, cz)) {
+      const plant = toPlant(g);
+      if (!plant) continue;
+      let list = byFlora.get(g.flora);
+      if (!list) byFlora.set(g.flora, list = []);
+      list.push(plant);
     }
-    fernCells.set(key, plants);
-    return plants;
+    floraCells.set(key, byFlora);
+    return byFlora;
   }
   const color=new THREE.Color();
   function place(plant:Plant,batches:Batch[],fineBlade=false){
@@ -466,17 +512,23 @@ export function createUndergrowth(
           warmCells.push({cx,cz,key,distance2});
         }
         if (distance2 >= (FERN_RANGE+STREAM_BUFFER)**2) continue;
-        for (const plant of fernCells.get(key) ?? buildFerns(cx, cz, key)) {
-          const distanceSquared = (plant.x - player.x) ** 2 + (plant.z - player.z) ** 2;
-          if(distanceSquared<(FERN_LOD_END+STREAM_BUFFER)**2)place(plant,ferns);
-          if(distanceSquared>(FERN_LOD_START-STREAM_BUFFER)**2&&distanceSquared<(FERN_RANGE+STREAM_BUFFER)**2)place(plant,farFerns);
+        const flora = floraCells.get(key) ?? growFlora(cx, cz, key);
+        for (const k of kinds) {
+          if (distance2 >= (k.range + STREAM_BUFFER) ** 2) continue;
+          for (const plant of flora.get(k.flora) ?? []) {
+            const d2 = (plant.x - player.x) ** 2 + (plant.z - player.z) ** 2;
+            // Across the band both copies are placed and the shader dissolves the full one into the light one.
+            if (d2 < (k.band[1] + STREAM_BUFFER) ** 2) place(plant, k.near);
+            if (d2 > Math.max(0, k.band[0] - STREAM_BUFFER) ** 2 && d2 < (k.range + STREAM_BUFFER) ** 2) place(plant, k.far);
+          }
         }
         if (sliced && slice.over()) yield;
       }
     }
     vegetation.end();
     warmCells.sort((a,b)=>b.distance2-a.distance2);
-    for (const cache of [groundCover, fernCells]) for (const key of cache.keys()) {
+    ecology.forget(player.x, player.z, 12);
+    for (const cache of [groundCover, floraCells]) for (const key of cache.keys()) {
       const [cx, cz] = key.split(',').map(Number);
       if (Math.abs(cx - cx0) > 11 || Math.abs(cz - cz0) > 11) cache.delete(key);
     }
@@ -485,7 +537,8 @@ export function createUndergrowth(
       if (Math.abs(cx - cx0) > 11 || Math.abs(cz - cz0) > 11) partialCover.delete(key);
     }
     const built = vegetation, total=(list:Batch[])=>list.reduce((n,b)=>n+built.count(b),0);
-    group.userData.counts = { fine: total([...fine,...midFine,...farFine]), closeGrass:total(fine), tussocks: total([...tussocks, ...farTussocks]), ferns: total([...ferns, ...farFerns]), detailedFerns: total(ferns) };
+    group.userData.counts = { fine: total([...fine,...midFine,...farFine]), closeGrass:total(fine), detailedFerns: total(ferns),
+      ...Object.fromEntries(kinds.map(k => [k.flora, total([...k.near, ...k.far])])) };
     lastPosition.copy(player);
     // The ring just finished goes on screen; the one that was showing is the next to rebuild.
     if (target !== shown) { buffers[target].visible = true; buffers[shown].visible = false; shown = target; target = 1 - target; vegetation = batchers[target]; }
@@ -529,7 +582,7 @@ export function createUndergrowth(
       for (const geometry of geometries) geometry.dispose();
       for (const material of materials) material.dispose();
       for (const texture of textureSet) texture.dispose();
-      groundCover.clear(); fernCells.clear(); warmCells.length=0; scene.remove(group);
+      groundCover.clear(); floraCells.clear(); warmCells.length=0; scene.remove(group);
     },
   };
 }
