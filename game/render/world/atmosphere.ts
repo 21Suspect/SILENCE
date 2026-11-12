@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import type { createRiver } from './river';
 import { WORLD_V2 } from '../../sim/world/world-flags';
+import { perfOn } from '../../core/perf-flags';
+import { createAmbientOcclusion } from '../post/ambient-occlusion';
+import { aoQuality, AO_STRENGTH, SUNLIT_KEEP, AO_FADE_NEAR, AO_FADE_FAR } from '../post/ambient-occlusion-math';
 
 // Integrate the participating medium at half resolution, then reconstruct it
 // against full-resolution surface depth. Scene textures and silhouettes stay sharp.
@@ -32,6 +35,8 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
     sunLevel:{value:1},canopyCover:{value:null as THREE.Texture|null},canopyBox:{value:new THREE.Vector4(0,0,96,0)},canopyHeight:{value:12},
     // The torch as the spot light itself has it: shadow camera near and far, cone and penumbra cosines, decay, and its cookie.
     flashRange:{value:new THREE.Vector2(.06,48)},flashCone:{value:new THREE.Vector2(.866,.9945)},flashDecay:{value:1.35},flashCookie:{value:null as THREE.Texture|null},flashHasCookie:{value:0},
+    // Ambient occlusion (post/ambient-occlusion.ts): r visibility, g direct-sun fraction, b linear depth, at aoSize.
+    tAO:{value:null as THREE.Texture|null},aoSize:{value:new THREE.Vector2(1,1)},aoOn:{value:0},
     sunShadow:{value:null as THREE.Texture|null},sunMatrix:{value:sun.shadow.matrix},shadowTexel:{value:1/sun.shadow.mapSize.x},
   };
   // A top-down map of the tree crowns round the player, built from the trees' own colliders: 1 under a crown, 0 in a gap.
@@ -141,6 +146,7 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
       gl_FragColor=vec4(exp(-opticalDepth),illuminatedFog,distanceToSurface,beamFog);
     }`});
   const resolveHead=`
+    uniform sampler2D tAO;uniform vec2 aoSize;uniform float aoOn;
     vec3 aces(vec3 x){return clamp((x*(2.51*x+.03))/(x*(2.43*x+.59)+.14),0.,1.);}
     vec3 linearSrgb(vec3 c){return mix(c*12.92,1.055*pow(max(c,vec3(0.)),vec3(1./2.4))-.055,step(vec3(.0031308),c));}
     void main(){
@@ -153,6 +159,28 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
       vec3 view=viewAt(vUv,depth);
       float distanceToSurface=min(length(view),180.);
       vec3 ray=normalize(mat3(cameraWorld)*view);
+      // Ambient occlusion, before fog so haze still covers it. Joint-bilateral upsample from half resolution: the four nearest texels,
+      // weighted by bilinear distance and by how close their own depth is to this pixel's, relative to the best match (as the fog does).
+      if(aoOn>.5&&!waterVisible&&depth<1.){
+        float z=-view.z;vec2 pixel=vUv*aoSize-.5,base=floor(pixel),f=fract(pixel);
+        vec4 taps[4];float costs[4];float lowest=1e9;
+        for(int i=0;i<4;i++){
+          vec2 offset=vec2(float(i-i/2*2),float(i/2));
+          taps[i]=texture2D(tAO,clamp((base+offset+.5)/aoSize,vec2(.0001),vec2(.9999)));
+          float rel=(taps[i].b-z)/z;costs[i]=rel*rel*400.;lowest=min(lowest,costs[i]);
+        }
+        vec3 ao=vec3(0.);float weights=0.;
+        for(int i=0;i<4;i++){
+          vec2 offset=vec2(float(i-i/2*2),float(i/2));vec2 w2=mix(1.-f,f,offset);
+          float weight=max(w2.x*w2.y,.002)*exp(lowest-costs[i]);
+          ao+=taps[i].rgb*weight;weights+=weight;
+        }
+        ao/=max(weights,1e-6);
+        // Only the ambient part of the light is occluded and it cannot be pulled out of the finished colour, so the occlusion is
+        // weakened where the pixel is mostly direct sun (ao.g), and left at ${SUNLIT_KEEP} of its strength at full sun (see ambient-occlusion-math.ts).
+        float fade=1.-smoothstep(${AO_FADE_NEAR.toFixed(1)},${AO_FADE_FAR.toFixed(1)},z);
+        color*=1.-${AO_STRENGTH.toFixed(2)}*(1.-(1.-${SUNLIT_KEEP.toFixed(2)})*ao.g)*fade*(1.-ao.r);
+      }
       // The HDR sky draws the moving solar disc, moon and stars before fog.
       if(fogEnabled){
 `;
@@ -421,6 +449,8 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
       dispose(){map.dispose();depth.dispose();material.dispose();proxyScene.clear();}
     };
   })();
+  const ao=createAmbientOcclusion(renderer,camera,uniforms);
+  let aoLevel=2;
   const fogBlurTarget=new THREE.WebGLRenderTarget(1,1,{type:THREE.HalfFloatType,depthBuffer:false,minFilter:THREE.NearestFilter,magFilter:THREE.NearestFilter});
   const quadScene=new THREE.Scene(),quadCamera=new THREE.Camera();
   const quad=new THREE.Mesh(new THREE.PlaneGeometry(2,2),resolveMaterial);quad.frustumCulled=false;quadScene.add(quad);
@@ -464,6 +494,7 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
       const fogScale=fogQuality<.6?.35:fogQuality<.85?.42:.5;
       const fw=Math.max(1,Math.ceil(w*fogScale)),fh=Math.max(1,Math.ceil(h*fogScale));fogTarget.setSize(fw,fh);uniforms.fogSize.value.set(fw,fh);
       if(WORLD_V2){fogBlurTarget.setSize(fw,fh);blurUniforms.texel.value.set(1/fw,1/fh);}
+      aoLevel=scene.userData.graphicsAO??2;ao.resize(w,h,aoLevel);uniforms.tAO.value=ao.texture;uniforms.aoSize.value.copy(ao.size);
     },
     render(time:number,darkness:number){
       uniforms.time.value=time;uniforms.darkness.value=darkness;uniforms.fogColor.value.copy(dawn).lerp(night,darkness);
@@ -497,6 +528,8 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
         uniforms.flashCookie.value=flash.map??null;uniforms.flashHasCookie.value=flash.map?1:0;}
       uniforms.sunShadow.value=sun.shadow.map?.texture??null;uniforms.shadowTexel.value=1/sun.shadow.mapSize.x;
       uniforms.fogEnabled.value=!(import.meta.env.DEV&&scene.userData.profileSkipFog);
+      uniforms.aoOn.value=aoQuality(aoLevel).on&&perfOn('ambientOcclusion')?1:0;
+      if(uniforms.aoOn.value>.5)stage('ao',()=>ao.render());
       stage('fog',()=>{if(uniforms.fogEnabled.value){
         quad.material=WORLD_V2?fogMaterial2:fogMaterial;renderer.setRenderTarget(fogTarget);renderer.render(quadScene,quadCamera);
         if(WORLD_V2){
@@ -508,6 +541,6 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
       stage('resolve',()=>{quad.material=WORLD_V2?resolveMaterial2:resolveMaterial;renderer.setRenderTarget(useFxaa?resolvedTarget:null);renderer.render(quadScene,quadCamera);});
       stage('antialias',()=>{if(useFxaa){quad.material=aaMaterial;renderer.setRenderTarget(null);renderer.render(quadScene,quadCamera);}});
     },
-    dispose(){canopy.dispose();resolvedTarget.dispose();aaMaterial.dispose();target.dispose();waterTarget.dispose();fogTarget.dispose();fogBlurTarget.dispose();terrainSun?.dispose();fogMaterial.dispose();fogMaterial2.dispose();fogBlurMaterial.dispose();resolveMaterial.dispose();resolveMaterial2.dispose();quad.geometry.dispose();}
+    dispose(){ao.dispose();canopy.dispose();resolvedTarget.dispose();aaMaterial.dispose();target.dispose();waterTarget.dispose();fogTarget.dispose();fogBlurTarget.dispose();terrainSun?.dispose();fogMaterial.dispose();fogMaterial2.dispose();fogBlurMaterial.dispose();resolveMaterial.dispose();resolveMaterial2.dispose();quad.geometry.dispose();}
   };
 }
