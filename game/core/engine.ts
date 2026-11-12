@@ -473,6 +473,8 @@ export function createGame(container:HTMLElement) {
       drawList(){return drawList(scene,camera);},
       /** The scene itself, for one-off inspection from the console (instance positions, materials). */
       scene(){return scene;},
+      /** The forest's crown band (metres, near crown to light crown), live: set x and y to measure another band. */
+      crownBand(){return forest.crownBand;},
       /** What the sun's shadow pass would draw right now: casters inside the shadow camera's frustum. */
       shadowList(){sun.shadow.updateMatrices(sun);return drawList(scene,camera,sun.shadow.camera);},
       /** Of the instances the sun's shadow pass submits, how many reach the shadow frustum. */

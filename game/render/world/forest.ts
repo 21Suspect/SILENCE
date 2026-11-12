@@ -27,6 +27,10 @@ const VARIANTS = 4;
 // the shader, so the placement stays valid until the player is FOREST_BUFFER from that point. A rebuild starts every FOREST_STEP and
 // is spread over a few frames; the 1.5 m between the two is the room it has to finish in.
 const FOREST_STEP=6, FOREST_BUFFER=FOREST_STEP+1.5, TREE_RANGE=98, TREE_COLLISION_RANGE=94, TRUNK_DETAIL_END=43, CROWN_DETAIL_START=30, CROWN_DETAIL_END=40;
+// The crown band is a uniform (dev: __SILENCE__.perf.crownBand()), so other bands can be measured and compared live; both crowns
+// are placed over CROWN_PLACE_*, so widen that to try a band outside it. 22/30 m was measured (2026-11-12, 1920x1080): -0.1 to
+// -0.44 ms, but spruces at 25 m read visibly thinner; the band stays at 30/40 until that is judged.
+const CROWN_PLACE_START=CROWN_DETAIL_START, CROWN_PLACE_END=CROWN_DETAIL_END;
 // How far the scanned ground pieces are drawn. Each dissolves out over the last 8 m, so a rebuild never pops one in or out.
 const ROCK_RANGE=58, BRANCH_RANGE=42, STUMP_RANGE=65, TRUNK_RANGE=77, PEBBLE_RANGE=24;
 // Trees within this distance cast crown shadows (the sun's shadow map spans 72 m round the player, shadows.ts).
@@ -190,6 +194,7 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
   const oakBark=new THREE.MeshStandardMaterial({map:texture('/plantassets/forest-variety/oak-diff.jpg',true),normalMap:texture('/plantassets/forest-variety/oak-normal.jpg'),roughnessMap:texture('/plantassets/forest-variety/oak-rough.jpg'),roughness:1,normalScale:new THREE.Vector2(.9,.9),vertexColors:true,color:0xdbd6bd});
   oakBark.name='Scanned oak bark';
   const windTime = { value: 0 };
+  const crownBand={value:new THREE.Vector2(CROWN_DETAIL_START,CROWN_DETAIL_END)};
   const forestEye={value:spawn.clone()};
   /** `cull`: the instance's bounds for per-instance frustum culling (instance-cull.ts), [bottom, top, radius] in model units. */
   function fadeInstances(material:THREE.Material,from:number,to:number,kind?:'trunk'|'branch'|'crown',cull?:readonly [number,number,number]){
@@ -199,8 +204,8 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
     material.customProgramCacheKey=()=>`${cacheKey}-stream-${from}-${to}-${kind??''}-${cull?.join(',')??''}`;
     material.onBeforeCompile=(shader,renderer)=>{
       compile.call(material,shader,renderer);
-      shader.uniforms.uForestEye=forestEye;shader.uniforms.uInstanceCull=instanceCullSwitch;
-      shader.vertexShader=`${INSTANCE_CULL_HEADER}uniform vec3 uForestEye;varying float vForestCoverage;${kind==='trunk'?'attribute float streamDetail;':kind==='crown'?'attribute float crownLod;':''}\n${shader.vertexShader}`.replace(/void main\s*\(\s*\)\s*\{/,`void main(){
+      shader.uniforms.uForestEye=forestEye;shader.uniforms.uInstanceCull=instanceCullSwitch;shader.uniforms.uCrownBand=crownBand;
+      shader.vertexShader=`${INSTANCE_CULL_HEADER}uniform vec3 uForestEye;uniform vec2 uCrownBand;varying float vForestCoverage;${kind==='trunk'?'attribute float streamDetail;':kind==='crown'?'attribute float crownLod;':''}\n${shader.vertexShader}`.replace(/void main\s*\(\s*\)\s*\{/,`void main(){
         vForestCoverage=1.;
         #ifdef USE_INSTANCING
           vec2 eyeOffset=instanceMatrix[3].xz-uForestEye.xz;
@@ -211,7 +216,7 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
           ${kind==='crown'?`
           // The full crown thins out across the band as the light one fills in under it: a dissolve from one to the
           // other over ${CROWN_DETAIL_END-CROWN_DETAIL_START} m of walking, never a switch.
-          float lodBlend=smoothstep(${CROWN_DETAIL_START**2}.,${CROWN_DETAIL_END**2}.,distanceSquared);
+          float lodBlend=smoothstep(uCrownBand.x*uCrownBand.x,uCrownBand.y*uCrownBand.y,distanceSquared);
           vForestCoverage*=mix(1.-lodBlend,lodBlend,crownLod);`:''}
           if(vForestCoverage<=0.){gl_Position=vec4(2.,2.,2.,1.);return;}
         #endif
@@ -619,7 +624,7 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
       }
       // Inside the band both crowns are placed and the shader dissolves one into the other.
       const lod=true;
-      for(const crown of [!lod||distance2<(CROWN_DETAIL_END+FOREST_BUFFER)**2?crowns[model]:undefined,lod&&distance2>(CROWN_DETAIL_START-FOREST_BUFFER)**2?farCrowns[model]:undefined]){
+      for(const crown of [!lod||distance2<(CROWN_PLACE_END+FOREST_BUFFER)**2?crowns[model]:undefined,lod&&distance2>(CROWN_PLACE_START-FOREST_BUFFER)**2?farCrowns[model]:undefined]){
         if(!crown)continue;
         const crownInstance=vegetation.allocate(crown.definition,tree.x,tree.z,crown.horizontalRadius*girth(tree)+.5,
           tree.y+crown.centerY*tree.height,crown.verticalRadius*tree.height+.5);
@@ -749,6 +754,8 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
   let disposed = false;
   return {
     colliders,solidColliders,get collisionVersion(){return collisionVersion;},
+    /** Dev: the near-to-light crown band in metres (x start, y end), live. */
+    crownBand:crownBand.value,
     warmupTextures(renderer: THREE.WebGLRenderer) {
       // These scanned rock variants can first enter the camera on a ring
       // refresh. Upload their maps while the loading veil is still visible.
