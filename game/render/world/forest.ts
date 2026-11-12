@@ -269,7 +269,10 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
       shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', ROOT_SHADER_DEFORM);
     };
   }
-  varyDirectionalTexture(bark);varyDirectionalTexture(birchBark);varyDirectionalTexture(oakBark);varyDirectionalTexture(pineBark);varyDirectionalTexture(spruceBark);
+  // Bark relief (bark-relief.ts): each scan's height map and how deep it stands in metres, between its black and white.
+  varyDirectionalTexture(bark);varyDirectionalTexture(birchBark,{height:texture('/plantassets/forest-variety/birch-height.jpg'),depth:.012});
+  varyDirectionalTexture(oakBark,{height:texture('/plantassets/forest-variety/oak-height.jpg'),depth:.03});
+  varyDirectionalTexture(pineBark,{height:texture('/world/trees/pine/bark-height.jpg'),depth:.02});varyDirectionalTexture(spruceBark,{height:texture('/world/trees/spruce/bark-height.jpg'),depth:.02});
   varyDirectionalTexture(logBark);
   for(const m of [bark,birchBark,oakBark,pineBark,spruceBark,rootDepth,rootDistance])fadeInstances(m,83,TREE_RANGE,'trunk');
   for(const m of [needlesMaterial,broadleafMaterial,pineNeedles,spruceNeedles])fadeInstances(m,83,TREE_RANGE,'crown');

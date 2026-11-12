@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { perfOn } from '../../core/perf-flags';
+import { barkReliefGLSL, barkReliefBegin, barkReliefCavity, shadeDirectionalLights, type BarkRelief } from './bark-relief';
 
 // A continuous triangular blend of randomly offset texture patches. Explicit
 // gradients preserve mip selection at patch boundaries and at grazing angles.
@@ -77,11 +79,24 @@ export const textureVariationGLSL = `
 
 `;
 
-/** Preserve directional bark/wood grain while removing repeated knots and bands. */
-export function varyDirectionalTexture(material: THREE.MeshStandardMaterial) {
+/**
+ * Preserve directional bark/wood grain while removing repeated knots and bands. With a `relief` (bark-relief.ts) the bark also
+ * has depth: parallax, the sun's self-shadows in its fissures, and cavity occlusion of the indirect light; `perfOn('barkRelief')`
+ * switches all three at run time, without a recompile (a uniform), for A/B measurement.
+ */
+export function varyDirectionalTexture(material: THREE.MeshStandardMaterial, relief?: BarkRelief) {
   const previous = material.onBeforeCompile;
+  // Depth, self-shadow and cavity strength: kept on the material so they can be tuned in a running game.
+  const strengths = new THREE.Vector3(relief?.depth, relief?.shadow ?? .85, relief?.cavity ?? 1);
+  if (relief) material.userData.barkRelief = strengths;
   material.onBeforeCompile = (shader, renderer) => {
     previous.call(material, shader, renderer);
+    if (relief) {
+      shader.uniforms.uBarkHeight = { value: relief.height };
+      shader.uniforms.uBarkRelief = { value: strengths };
+      shader.uniforms.uBarkOn = { get value() { return perfOn('barkRelief') ? 1 : 0; } };
+      shader.uniforms.uBarkLod = { get value() { return perfOn('barkReliefSteps') ? 1 : 0; } };
+    }
     shader.vertexShader = `varying vec2 vMaterialSeed;\n${shader.vertexShader}`
       .replace('#include <begin_vertex>', `#include <begin_vertex>
         vec4 materialOrigin=vec4(0.,0.,0.,1.);
@@ -89,9 +104,10 @@ export function varyDirectionalTexture(material: THREE.MeshStandardMaterial) {
           materialOrigin=instanceMatrix*materialOrigin;
         #endif
         vMaterialSeed=(modelMatrix*materialOrigin).xz;`);
-    shader.fragmentShader = `varying vec2 vMaterialSeed;\n${textureVariationGLSL}\n${shader.fragmentShader}`
+    shader.fragmentShader = `${relief ? '#define BARK_RELIEF\n' : ''}varying vec2 vMaterialSeed;\n${textureVariationGLSL}\n${relief ? barkReliefGLSL : ''}\n${shader.fragmentShader}`
       .replace('#include <map_fragment>', `
         TexturePatch grainPatch=texturePatch(vMapUv+patchHash(vMaterialSeed)*19.3);
+        ${relief ? barkReliefBegin : ''}
         diffuseColor*=samplePatch(map,grainPatch);
         float grainWeather=surfaceNoise(vMapUv*vec2(.23,.085)+vMaterialSeed*.13);
         diffuseColor.rgb*=mix(vec3(.82,.85,.78),vec3(1.08,1.05,1.01),grainWeather);`)
@@ -99,6 +115,10 @@ export function varyDirectionalTexture(material: THREE.MeshStandardMaterial) {
         .replace('texture2D( roughnessMap, vRoughnessMapUv )', 'samplePatch(roughnessMap,grainPatch)'))
       .replace('#include <normal_fragment_maps>', THREE.ShaderChunk.normal_fragment_maps
         .replace('texture2D( normalMap, vNormalMapUv )', 'samplePatch(normalMap,grainPatch)'));
+    if (relief) shader.fragmentShader = shader.fragmentShader
+      .replace('#include <lights_fragment_begin>', shadeDirectionalLights(THREE.ShaderChunk.lights_fragment_begin))
+      .replace('#include <aomap_fragment>', `#include <aomap_fragment>\n${barkReliefCavity}`);
   };
-  material.customProgramCacheKey = () => `silence-directional-patches-v1-${material.vertexColors}`;
+  // The relief changes the program, never the shaders of the depth passes (the shadow maps see the bare trunk).
+  material.customProgramCacheKey = () => `silence-directional-patches-v1-${material.vertexColors}${relief ? '-relief-v1' : ''}`;
 }
