@@ -406,7 +406,7 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
   return {
     /** Rings spread from where the water was broken. */
     splash(x:number,z:number,strength:number){ring(x,z,strength);},
-    setQuality(scale:number,requested=768,detail=2){const size=Math.min(requested,scale<.6?256:scale<.85?512:768);const target=stream.getRenderTarget();if(target.width!==size){target.setSize(size,size);reflectionReady=false;}material.uniforms.uReflectionSteps.value=scale<.6?4:scale<.85?5:6;if(WORLD_V2){material.uniforms.uDetail.value=Math.min(detail,scale<.6?0:scale<.85?1:2);const af=Math.min(16,scene.userData.maxAnisotropy??16,scene.userData.graphicsAnisotropy??16);for(const key of ['tWaterNormal','tWaterFoam']){const texture=material.uniforms[key].value as THREE.Texture;if(texture.anisotropy!==af){texture.anisotropy=af;texture.needsUpdate=true;}}}},
+    setQuality(requested=768,detail=2){const size=Math.min(requested,768);const target=stream.getRenderTarget();if(target.width!==size){target.setSize(size,size);reflectionReady=false;}material.uniforms.uReflectionSteps.value=6;if(WORLD_V2){material.uniforms.uDetail.value=Math.min(detail,2);const af=Math.min(16,scene.userData.maxAnisotropy??16,scene.userData.graphicsAnisotropy??16);for(const key of ['tWaterNormal','tWaterFoam']){const texture=material.uniforms[key].value as THREE.Texture;if(texture.anisotropy!==af){texture.anisotropy=af;texture.needsUpdate=true;}}}},
     bind(color:THREE.Texture,depth:THREE.DepthTexture,resolution:THREE.Vector2,projection:THREE.Matrix4){
       material.uniforms.tOpaque.value=color;material.uniforms.tOpaqueDepth.value=depth;
       material.uniforms.uResolution.value=resolution;material.uniforms.uInverseProjection.value=projection;

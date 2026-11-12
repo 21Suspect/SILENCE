@@ -12,7 +12,7 @@ import { ForestAudio } from './audio';
 import { createEncounters } from './encounters';
 import { createStory } from './story';
 import { createStableSunShadow } from './shadows';
-import { createRenderBudget } from './quality';
+import { renderRatio } from './quality';
 import { createCollisionWorld, moveCharacter, characterSupportAt, solidContact } from './collision';
 import { createAdmin } from './admin';
 import { createSky } from './sky';
@@ -24,6 +24,7 @@ import { footstepLoudness, FLASHLIGHT_CLICK_LOUDNESS, type FootSurface, type Noi
 import type { CreatureSenses, CreatureMode } from './encounters';
 import { heldKind, type ObjectiveEvent } from './objectives';
 import { createObjectiveHud, OBJECTIVE_KEY } from './objective-hud';
+import { createPerfOverlay, PERF_OVERLAY_KEY } from './perf-overlay';
 import { objectiveText } from './objective-text';
 import { POI_PLACEMENTS } from './world-layout';
 import { initialLives, loseLife, respawnHours, deathCard, grabTimeline, GRAB, NIGHT_START_HOURS, type DeathOutcome } from './lives';
@@ -57,8 +58,7 @@ export function createGame(container:HTMLElement) {
   let baseFov=camera.fov;
   if(perfOn('lightGuards'))guardUnlitLights();
   const renderer=new THREE.WebGLRenderer({antialias:false,powerPreference:'high-performance',alpha:false});
-  const renderBudget=createRenderBudget(window.devicePixelRatio);
-  let pixelRatio=renderBudget.resize(window.innerWidth,window.innerHeight);
+  let pixelRatio=renderRatio(settings.resolution,window.innerWidth,window.innerHeight,window.devicePixelRatio);
   renderer.outputColorSpace=THREE.LinearSRGBColorSpace;
   renderer.toneMapping=THREE.NoToneMapping;
   renderer.info.autoReset=false;
@@ -166,12 +166,14 @@ export function createGame(container:HTMLElement) {
   let disposed=false,raf=0,last=performance.now(),frameAverage=16.67;
   let pointerWasLocked=false,pointerLockPending=false;
   let drag=false,mouseX=0,mouseY=0;
-  let fixedQuality=settings.quality!=='auto',profileUntil=0,benchmarking=false;
+  let profileUntil=0,benchmarking=false;
   let diagnosticRatio:number|undefined;
   let shadowDirty=true,sunDirty=true,lastSunDraw=-Infinity;
   let warmupDraws=0,warmupFence:WebGLSync|null=null;
   const gl=renderer.getContext() as WebGL2RenderingContext;
   const probe=import.meta.env.DEV?createPerfProbe(renderer):undefined;
+  // FPS, lows, CPU and GPU time in the top-right corner; P or the Graphics setting. Costs nothing while hidden.
+  const perfOverlay=createPerfOverlay(container,renderer,{frameCap:()=>settings.frameCap,busy:()=>!!probe?.recording});
   const profileRows:{frame:number,update:number,forest:number,terrain:number,encounter:number,submit:number,calls:number,triangles:number,sunShadow:boolean,creature:boolean}[]=[];
   const coarse=matchMedia('(pointer: coarse)').matches;
   const touches=new Map<number,{x:number,y:number,startX:number,startY:number,side:'move'|'look'}>();
@@ -219,6 +221,7 @@ export function createGame(container:HTMLElement) {
     if(e.code===settings.bindings.rise&&!e.repeat&&isActive()&&!grab){if(world2?.climbing)world2.letGo();else if(!flying&&!airborne)jumpRequested=true;}
     if(e.code===settings.bindings.drop&&!e.repeat&&isActive()&&!grab&&world2?.drop())shadowDirty=true;
     if(e.code===OBJECTIVE_KEY&&!e.repeat&&isActive()&&!grab&&!Object.values(settings.bindings).includes(e.code))objectiveHud?.toggle();
+    if(e.code===PERF_OVERLAY_KEY&&!e.repeat&&!Object.values(settings.bindings).includes(e.code)){settings.perfOverlay=!settings.perfOverlay;saveSettings();}
     if(e.code===settings.bindings.fullscreen && !loading && !e.repeat){
       if(!document.fullscreenElement)void container.requestFullscreen?.().catch(()=>{});
       else void document.exitFullscreen();
@@ -226,7 +229,7 @@ export function createGame(container:HTMLElement) {
     if(!e.repeat && [settings.bindings.forward,settings.bindings.back,settings.bindings.left,settings.bindings.right].includes(e.code))start();
   };
   const keyUp=(e:KeyboardEvent)=>keys.delete(e.code);
-  const clearInput=()=>{jumpRequested=false;keys.clear();velocity.set(0,0,0);drag=false;touchMove.set(0,0);touches.clear();mouseTap.cancel();touchTap.cancel();touchTapId=undefined;renderBudget.pause();};
+  const clearInput=()=>{jumpRequested=false;keys.clear();velocity.set(0,0,0);drag=false;touchMove.set(0,0);touches.clear();mouseTap.cancel();touchTap.cancel();touchTapId=undefined;};
   const blur=()=>{clearInput();void audio.suspend();};
   const focus=()=>{if(!admin.open&&!document.hidden)void audio.resume();};
   const visibilityChange=()=>{if(document.hidden)blur();else{clearInput();focus();}};
@@ -269,16 +272,19 @@ export function createGame(container:HTMLElement) {
   };
   const touchEnd=(e:TouchEvent)=>{lastTouch=performance.now();for(const t of Array.from(e.changedTouches)){if(t.identifier===touchTapId){if(e.type==='touchend'&&isActive()&&touchTap.end(performance.now())&&interact())shadowDirty=true;touchTap.cancel();touchTapId=undefined;}if(touches.get(t.identifier)?.side==='move')touchMove.set(0,0);touches.delete(t.identifier);}};
   const rendererSize=new THREE.Vector2();
+  // The render resolution is the player's choice and nothing else changes it (game/quality.ts): a fixed number of rows with the
+  // window's shape, or Native, which follows the window and the screen it is on. The post chain sizes its targets from it.
   const resize=()=>{
-    const w=Math.max(1,container.clientWidth),h=Math.max(1,container.clientHeight),adaptive=settings.quality==='auto'?renderBudget.inspect().scale:1;
-    const scale=settings.renderScale/100*adaptive;
-    const base=Math.min(window.devicePixelRatio,1.4,Math.sqrt(2_000_000/Math.max(1,w*h)));
-    if(diagnosticRatio!==undefined)pixelRatio=diagnosticRatio;else if(!fixedQuality)pixelRatio=renderBudget.resize(w,h,window.devicePixelRatio)*settings.renderScale/100;else pixelRatio=base*scale;
-    scene.userData.graphicsAnisotropy=settings.anisotropy;scene.userData.graphicsWaterDetail=settings.waterDetail;scene.userData.graphicsAA=settings.aa;scene.userData.graphicsFog=settings.fog*adaptive;
+    const w=Math.max(1,container.clientWidth),h=Math.max(1,container.clientHeight);
+    pixelRatio=diagnosticRatio??renderRatio(settings.resolution,w,h,window.devicePixelRatio);
+    scene.userData.graphicsAnisotropy=settings.anisotropy;scene.userData.graphicsWaterDetail=settings.waterDetail;scene.userData.graphicsAA=settings.aa;scene.userData.graphicsFog=settings.fog;
     renderer.getSize(rendererSize);if(rendererSize.x!==w||rendererSize.y!==h||renderer.getPixelRatio()!==pixelRatio)renderer.setDrawingBufferSize(w,h,pixelRatio);camera.aspect=w/h;camera.updateProjectionMatrix();
-    atmosphere.resize(w,h,pixelRatio,adaptive);terrain.water.setQuality(adaptive,settings.reflections,settings.waterDetail);
-    shadowDirty=sunShadow.setQuality(adaptive,settings.shadows)||shadowDirty;
+    atmosphere.resize(w,h,pixelRatio);terrain.water.setQuality(settings.reflections,settings.waterDetail);
+    shadowDirty=sunShadow.setQuality(settings.shadows)||shadowDirty;
   };
+  // Moving the window to a screen with another pixel density changes devicePixelRatio without always firing a resize.
+  let densityQuery:MediaQueryList|undefined;
+  const densityChanged=()=>{densityQuery?.removeEventListener('change',densityChanged);densityQuery=window.matchMedia?.(`(resolution: ${window.devicePixelRatio}dppx)`);densityQuery?.addEventListener('change',densityChanged);resize();};
   renderer.domElement.addEventListener('mousedown',mouseDown);
   window.addEventListener('mouseup',mouseUp);window.addEventListener('mousemove',mouseMove);
   window.addEventListener('keydown',keyDown);window.addEventListener('keyup',keyUp);
@@ -289,7 +295,7 @@ export function createGame(container:HTMLElement) {
   renderer.domElement.addEventListener('touchend',touchEnd);renderer.domElement.addEventListener('touchcancel',touchEnd);
   const teleport=(x:number,z:number)=>{player.set(x,heightAt(x,z)+(flying?5:0),z);velocity.set(0,0,0);jumpVelocity=0;airborne=false;jumpRequested=false;};
   const admin=createAdmin(container,{
-    settings,volumeChanged:()=>audio.setVolumes(settings),listening:(on)=>audio.listen(on),settingsChanged:()=>{try{localStorage.setItem('silence-settings',JSON.stringify(settings));}catch{}diagnosticRatio=undefined;fixedQuality=settings.quality!=='auto';renderBudget.pause();resize();filterTextures();},
+    settings,volumeChanged:()=>audio.setVolumes(settings),listening:(on)=>audio.listen(on),settingsChanged:()=>{try{localStorage.setItem('silence-settings',JSON.stringify(settings));}catch{}diagnosticRatio=undefined;resize();filterTextures();},
     getState:()=>({hours,cycleSpeed,flying,position:player.toArray(),fps:Math.round(1000/frameAverage),solids:collisions.stats().solids}),
     setHours:(h)=>{hours=((h%24)+24)%24;},setSpeed:(speed)=>{cycleSpeed=speed;},
     setFlying:(value)=>{flying=value;jumpVelocity=0;airborne=false;jumpRequested=false;velocity.set(0,0,0);if(!flying)player.y=characterSupportAt(player.x,player.z,player.y,heightAt,collisions);},
@@ -304,7 +310,7 @@ export function createGame(container:HTMLElement) {
       }else start(coarse);
     },
   });
-  resize();
+  densityChanged();
   let frame=0;
   let filtered=new WeakMap<THREE.Texture,number>(),filteredAt=-1;const anisotropy=renderer.capabilities.getMaxAnisotropy();
   // Anisotropic filtering is paid on every texture read. The ground and the road, seen at a grazing angle to the horizon,
@@ -388,8 +394,7 @@ export function createGame(container:HTMLElement) {
     /** Be taken now, as if it had reached you. */
     die(){beginGrab();},
     creatureStep(dt:number,time:number,speed:number){return encounters.previewStep(dt,time,speed);},
-    setRatio(r:number){diagnosticRatio=r;fixedQuality=true;pixelRatio=r;renderer.setPixelRatio(r);resize();},
-    adaptiveQuality(){return renderBudget.inspect();},
+    setRatio(r:number){diagnosticRatio=r;pixelRatio=r;renderer.setPixelRatio(r);resize();},
     graphics(){const gl=renderer.getContext();return{timer:!!gl.getExtension('EXT_disjoint_timer_query_webgl2'),version:gl.getParameter(gl.VERSION),size:renderer.getDrawingBufferSize(new THREE.Vector2()).toArray(),memory:renderer.info.memory,anisotropy:Math.min(anisotropy,settings.anisotropy),settings:{...settings,bindings:undefined},shadowSize:sunShadow.size,antialias:settings.aa,pacing:'requestAnimationFrame'};},
     inventory(){const rows:{name:string,triangles:number,instances:number}[]=[];scene.traverse(o=>{if(o instanceof THREE.Mesh){const count=o instanceof THREE.InstancedMesh?o.count:1;rows.push({name:o.name||o.parent?.name||o.type,triangles:((o.geometry.index?.count??o.geometry.attributes.position.count)/3)*count,instances:count});}});return rows.sort((a,b)=>b.triangles-a.triangles).slice(0,25);},
     async record(seconds=6){profileRows.length=0;profileUntil=performance.now()+seconds*1000;await new Promise(r=>setTimeout(r,seconds*1000+50));return profileRows.slice();},
@@ -717,21 +722,23 @@ export function createGame(container:HTMLElement) {
     const warming=loading&&perfOn('streamWarmup')?gpuWarmup.drain(24):0;
     const startRender=performance.now(),loadingQuiet=loading&&pendingAssets===0&&now-lastAsset>900&&frame>8&&warming===0;
     if(probe){probe.marks.render0=startRender;probe.beginRender();}
+    perfOverlay.setVisible(settings.perfOverlay);perfOverlay.beginGpu();
     if(loadingQuiet&&warmupDraws<warmupTotal())warmupRender(darkness);
     else{
       atmosphere.render(elapsed,darkness);
       if(loadingQuiet&&(!warmupFence||gl.clientWaitSync(warmupFence,0,0)!==gl.TIMEOUT_EXPIRED)){
         if(warmupFence){gl.deleteSync(warmupFence);warmupFence=null;}
-        loading=false;loadCompleteAt=now;renderBudget.pause();
+        loading=false;loadCompleteAt=now;
       }
     }
+    perfOverlay.endGpu();
     if(probe)probe.marks.render1=performance.now();
     if(!loading&&veil.isConnected){veil.style.opacity=String(1-THREE.MathUtils.smoothstep((now-loadCompleteAt)/1000,0,2.8));if(now-loadCompleteAt>3300)veil.remove();}
     if(profile)profileRows.push({frame:frameDuration,update:startRender-startCPU,forest:endForest-startForest,terrain:startForest-startTerrain,encounter:encounterCost,submit:performance.now()-startRender,calls:renderer.info.render.calls,triangles:renderer.info.render.triangles,sunShadow:drawSun,creature:creature.visible});
     if(!loading&&perfOn('streamWarmup'))gpuWarmup.update();
     if(probe)probe.endFrame(frameDuration,drawSun);
+    perfOverlay.frame(now,frameDuration,performance.now()-startCPU);
     frame++;admin.update(now);
-    if(active&&!fixedQuality){const ratio=renderBudget.update(frameDuration,now);if(ratio!==undefined){pixelRatio=ratio;resize();}}
     if(frame%120===0){
       diagnostic.elapsed=elapsed;diagnostic.darkness=darkness;diagnostic.fps=Math.round(1000/frameAverage);diagnostic.active=active;
       diagnostic.drawCalls=renderer.info.render.calls;diagnostic.triangles=renderer.info.render.triangles;
@@ -740,10 +747,10 @@ export function createGame(container:HTMLElement) {
   raf=requestAnimationFrame(animate);
   return ()=>{
     disposed=true;veil.remove();if(warmupFence)gl.deleteSync(warmupFence);manager.onStart=oldStart;manager.onLoad=oldLoad;manager.onProgress=oldProgress;cancelAnimationFrame(raf);if(document.pointerLockElement===renderer.domElement)document.exitPointerLock();
-    window.removeEventListener('mouseup',mouseUp);window.removeEventListener('mousemove',mouseMove);window.removeEventListener('keydown',keyDown);window.removeEventListener('keyup',keyUp);window.removeEventListener('blur',blur);window.removeEventListener('focus',focus);window.removeEventListener('resize',resize);window.visualViewport?.removeEventListener('resize',resize);window.removeEventListener('orientationchange',clearInput);
+    window.removeEventListener('mouseup',mouseUp);window.removeEventListener('mousemove',mouseMove);window.removeEventListener('keydown',keyDown);window.removeEventListener('keyup',keyUp);window.removeEventListener('blur',blur);window.removeEventListener('focus',focus);window.removeEventListener('resize',resize);window.visualViewport?.removeEventListener('resize',resize);densityQuery?.removeEventListener('change',densityChanged);window.removeEventListener('orientationchange',clearInput);
     document.removeEventListener('pointerlockchange',lockChange);document.removeEventListener('pointerlockerror',lockError);document.removeEventListener('visibilitychange',visibilityChange);
     renderer.domElement.removeEventListener('mousedown',mouseDown);renderer.domElement.removeEventListener('touchstart',touchStart);renderer.domElement.removeEventListener('touchmove',touchUpdate);renderer.domElement.removeEventListener('touchend',touchEnd);renderer.domElement.removeEventListener('touchcancel',touchEnd);
-    unsubscribeNoise();blackout.remove();objectiveHud?.dispose();staminaHud.dispose();world2?.dispose();admin.dispose();slicer.dispose();flashlight.dispose();sun.shadow.dispose();sky.dispose();audio.dispose();encounters.dispose();forest.dispose();story.dispose();terrain.dispose();atmosphere.dispose();
+    unsubscribeNoise();blackout.remove();objectiveHud?.dispose();staminaHud.dispose();world2?.dispose();admin.dispose();slicer.dispose();perfOverlay.dispose();flashlight.dispose();sun.shadow.dispose();sky.dispose();audio.dispose();encounters.dispose();forest.dispose();story.dispose();terrain.dispose();atmosphere.dispose();
     scene.traverse(object=>{if(object instanceof THREE.Mesh){object.geometry.dispose();const mats=Array.isArray(object.material)?object.material:[object.material];for(const mat of mats){for(const v of Object.values(mat))if(v instanceof THREE.Texture)v.dispose();mat.dispose();}}});
     renderer.dispose();renderer.domElement.remove();
   };

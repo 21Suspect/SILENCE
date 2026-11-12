@@ -1,38 +1,35 @@
-/** Prefer a stable refresh cadence. Downshift quickly, restore cautiously,
- * and ignore focus pauses without ignoring genuinely slow devices. */
-export function createRenderBudget(deviceRatio:number){
-  // Frame delivery alone cannot tell a display change from a missed refresh.
-  // Budget for 60 FPS while letting rendering follow the display's cadence.
-  const targetMs=1000/60;
-  let ceiling=1,scale=1,average=targetMs;
-  let overloaded=0,headroom=0,lastChange=-Infinity,recoveryAfter=0,warmup=0;
-  return {
-    resize(width:number,height:number,ratio=deviceRatio){
-      ceiling=Math.min(ratio,1.4,Math.sqrt(2_000_000/Math.max(1,width*height)));
-      return ceiling*scale;
-    },
-    pause(){overloaded=headroom=warmup=0;average=targetMs;},
-    inspect(){return {scale,targetFps:60,averageMs:average};},
-    update(frameMs:number,now:number){
-      if(!Number.isFinite(frameMs)||frameMs<1||frameMs>500){this.pause();return undefined;}
-      const dt=Math.min(frameMs,100);
-      average+=(Math.min(frameMs,150)-average)*(1-Math.exp(-dt/450));
-      warmup+=dt;if(warmup<1500)return undefined;
-      const slow=average>targetMs*1.13;
-      overloaded=slow?overloaded+dt:Math.max(0,overloaded-dt*2);
-      headroom=average<targetMs*1.035?headroom+dt:0;
-      if(overloaded>1000&&now-lastChange>2200&&scale>.45){
-        scale=Math.max(.45,scale*(average>targetMs*1.8?.82:.91));
-        lastChange=now;recoveryAfter=now+14000;overloaded=headroom=0;
-        return ceiling*scale;
-      }
-      // Vsync hides spare GPU time. Probe one small step, then back off if it
-      // misses the target. The long retry delay prevents quality pumping.
-      if(headroom>9000&&now>recoveryAfter&&now-lastChange>9000&&scale<1){
-        scale=Math.min(1,scale+.04);lastChange=now;headroom=0;
-        return ceiling*scale;
-      }
-      return undefined;
-    },
-  };
+/**
+ * Render resolution. The player picks it and it stays: a fixed height (720p, 1080p, 1440p) drawn with the window's aspect ratio,
+ * or Native, one pixel per screen pixel. Nothing lowers it on its own; there used to be an adaptive scaler here (capped at 2 MP and
+ * a device pixel ratio of 1.4, then cut the scale whenever frames ran long) and players could not tell what they were looking at.
+ */
+export const RESOLUTIONS = [720, 1080, 1440, 0] as const;
+/** Rows to render, or 0 for the screen's own pixels. */
+export type Resolution = typeof RESOLUTIONS[number];
+export const DEFAULT_RESOLUTION: Resolution = 1080;
+export const resolutionLabel = (resolution: number) => resolution > 0 ? `${resolution}p` : 'Native';
+
+/**
+ * Device pixels per CSS pixel for the canvas. A fixed choice renders `resolution` rows, never more than the screen has (so 1440p
+ * in a small window is that window's native size); Native is the device pixel ratio, and follows the window and the screen.
+ */
+export function renderRatio(resolution: number, cssWidth: number, cssHeight: number, devicePixelRatio: number) {
+  const dpr = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1;
+  if (!(resolution > 0)) return dpr;
+  return Math.min(dpr, resolution / Math.max(1, cssHeight));
+}
+
+/** The drawing buffer the ratio gives, as three.js sizes it (floor of CSS size times ratio). */
+export function renderSize(resolution: number, cssWidth: number, cssHeight: number, devicePixelRatio: number) {
+  const ratio = renderRatio(resolution, cssWidth, cssHeight, devicePixelRatio);
+  return { width: Math.max(1, Math.floor(cssWidth * ratio)), height: Math.max(1, Math.floor(cssHeight * ratio)), ratio };
+}
+
+/**
+ * What a choice costs next to 1080p in the same window, as a multiple of its pixels. The frame is per-pixel bound (measured on an
+ * M5 Pro: about 5 ms fixed plus 5.5 ms per megapixel), so this is close to the multiple of GPU time beyond the fixed part.
+ */
+export function pixelCostVs1080(resolution: number, cssWidth: number, cssHeight: number, devicePixelRatio: number) {
+  const chosen = renderSize(resolution, cssWidth, cssHeight, devicePixelRatio), reference = renderSize(1080, cssWidth, cssHeight, devicePixelRatio);
+  return (chosen.width * chosen.height) / (reference.width * reference.height);
 }

@@ -33,7 +33,7 @@ export function createStableSunShadow(sun: THREE.DirectionalLight, maxTextureSiz
   sun.shadow.bias=-.000012;sun.shadow.normalBias=.004;sun.shadow.radius=1;
   return {
     get size(){return size;},get texel(){return texel;},
-    setQuality(scale:number,requested=4096){const next=Math.min(maxTextureSize,requested,scale<.6?2048:4096);if(next===size)return false;size=next;texel=span/size;sun.shadow.mapSize.set(size,size);sun.shadow.map?.dispose();sun.shadow.map=null;lastAnchor.set(Infinity,Infinity,Infinity);drawn=false;return true;},
+    setQuality(requested=4096){const next=Math.min(maxTextureSize,requested,4096);if(next===size)return false;size=next;texel=span/size;sun.shadow.mapSize.set(size,size);sun.shadow.map?.dispose();sun.shadow.map=null;lastAnchor.set(Infinity,Infinity,Infinity);drawn=false;return true;},
     update(position:THREE.Vector3,direction?:THREE.Vector3){
       let rotated=false;
       if(direction){

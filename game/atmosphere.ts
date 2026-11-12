@@ -442,15 +442,13 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
         result[name]=gl.getQueryParameter(query,gl.QUERY_RESULT)/1e6;gl.deleteQuery(query);
       }return result;
     },
-    resize(width:number,height:number,ratio:number,quality=1){
+    /** Every target follows the render size the player chose (game/quality.ts): the scene at full size, the fog at a fraction of it. */
+    resize(width:number,height:number,ratio:number){
       const w=Math.round(width*ratio),h=Math.round(height*ratio);
-      const requested=scene.userData.graphicsAA??4;const samples=Math.min(requested<=1?0:requested,quality<.65?2:4,renderer.capabilities.maxSamples);if(target.samples!==samples){target.samples=samples;target.dispose();}
-      // Keep the calibrated 4x-MSAA + FXAA look at normal and mid quality.
-      // Only the constrained 2x-MSAA tier drops the extra full-screen pass;
-      // this is where adaptive resolution already trades edge detail for
-      // responsiveness.
-      useFxaa=requested!==0&&(requested===1||quality>=.65||samples>=4);
-      const waterDetail=Math.min(scene.userData.graphicsWaterDetail??2,quality<.65?0:quality<.9?1:2);
+      const requested=scene.userData.graphicsAA??4;const samples=Math.min(requested<=1?0:requested,4,renderer.capabilities.maxSamples);if(target.samples!==samples){target.samples=samples;target.dispose();}
+      // FXAA runs on top of every MSAA level (the calibrated look is 4x MSAA + FXAA); "Off" is the only setting without it.
+      useFxaa=requested!==0;
+      const waterDetail=scene.userData.graphicsWaterDetail??2;
       const waterScale=waterDetail===0?.5:waterDetail===1?.72:1;
       const waterWidth=Math.max(1,Math.round(w*waterScale)),waterHeight=Math.max(1,Math.round(h*waterScale));
       if(useFxaa){resolvedTarget.setSize(w,h);aaMaterial.uniforms.resolution.value.set(1/w,1/h);}else resolvedTarget.setSize(1,1);
@@ -459,10 +457,9 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
       // storage before sampling, otherwise a hidden target can keep old-sized
       // immutable depth storage until the river first becomes visible.
       renderer.initRenderTarget(target);renderer.initRenderTarget(waterTarget);
-      // Keep the normal path at the calibrated 24 samples. Lower tiers shed
-      // work before adaptive resolution becomes extreme, while retaining the
-      // same full path length and midpoint integration.
-      const fogQuality=scene.userData.graphicsFog??quality;
+      // The calibrated 24 samples at High; lower fog settings take fewer samples at a lower resolution over the same full path length
+      // and midpoint integration.
+      const fogQuality=scene.userData.graphicsFog??1;
       uniforms.fogSteps.value=fogQuality<.6?14:fogQuality<.85?18:24;
       const fogScale=fogQuality<.6?.35:fogQuality<.85?.42:.5;
       const fw=Math.max(1,Math.ceil(w*fogScale)),fh=Math.max(1,Math.ceil(h*fogScale));fogTarget.setSize(fw,fh);uniforms.fogSize.value.set(fw,fh);
