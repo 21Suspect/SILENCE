@@ -59,6 +59,21 @@ export const textureVariationGLSL = `
     c.xy=patchRotate(c.xy,vec2(p.rc.x,-p.rc.y));
     return normalize(a*p.w.x+b*p.w.y+c*p.w.z);
   }
+  // The same for one layer of a texture array (game/render/world/ground-layers.ts).
+  vec4 samplePatchLayer(sampler2DArray source,TexturePatch p,float layer){
+    return textureGrad(source,vec3(p.a,layer),patchRotate(p.dx,p.ra),patchRotate(p.dy,p.ra))*p.w.x
+      +textureGrad(source,vec3(p.b,layer),patchRotate(p.dx,p.rb),patchRotate(p.dy,p.rb))*p.w.y
+      +textureGrad(source,vec3(p.c,layer),patchRotate(p.dx,p.rc),patchRotate(p.dy,p.rc))*p.w.z;
+  }
+  /** A surface layer packed as normal x, normal y, roughness: the normal (xyz, z rebuilt) and the roughness (w). */
+  vec4 samplePatchLayerSurface(sampler2DArray source,TexturePatch p,float layer){
+    vec3 a=textureGrad(source,vec3(p.a,layer),patchRotate(p.dx,p.ra),patchRotate(p.dy,p.ra)).xyz;
+    vec3 b=textureGrad(source,vec3(p.b,layer),patchRotate(p.dx,p.rb),patchRotate(p.dy,p.rb)).xyz;
+    vec3 c=textureGrad(source,vec3(p.c,layer),patchRotate(p.dx,p.rc),patchRotate(p.dy,p.rc)).xyz;
+    vec2 na=patchRotate(a.xy*2.-1.,vec2(p.ra.x,-p.ra.y)),nb=patchRotate(b.xy*2.-1.,vec2(p.rb.x,-p.rb.y)),nc=patchRotate(c.xy*2.-1.,vec2(p.rc.x,-p.rc.y));
+    vec2 n=na*p.w.x+nb*p.w.y+nc*p.w.z;
+    return vec4(normalize(vec3(n,sqrt(max(1.-dot(n,n),.02)))),a.z*p.w.x+b.z*p.w.y+c.z*p.w.z);
+  }
 
 `;
 

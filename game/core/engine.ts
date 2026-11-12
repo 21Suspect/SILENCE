@@ -75,7 +75,7 @@ export function createGame(container:HTMLElement) {
   scene.add(sun,sun.target);
   const sky=createSky(renderer,scene,sun,hemi);
   const player=new THREE.Vector3(pathX(12),heightAt(pathX(12),12),12);
-  const terrain=createTerrain(scene,player);
+  const terrain=createTerrain(scene,player,renderer);
   const forest=createForest(scene,heightAt,exclusion,player);
   const story=createStory(scene,heightAt);
   const collisions=createCollisionWorld();scene.userData.treesNear=(x:number,z:number,r:number)=>collisions.nearby(x,z,r);   // the fog shades itself under the crowns (atmosphere.ts)

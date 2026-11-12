@@ -9,7 +9,7 @@ import type { Grade } from './final-image';
 type Key = Omit<Grade, 'shadows' | 'highlights'> & { shadows: readonly [number, number, number]; highlights: readonly [number, number, number] };
 
 export const NOON: Key = {
-  key: .17, minExposure: .4, maxExposure: 9, bias: 0, temperature: .04, tint: 0, saturation: .98, contrast: 1.1,
+  key: .15, minExposure: .4, maxExposure: 9, bias: 0, temperature: .04, tint: 0, saturation: .98, contrast: 1.1,
   shadows: [.96, .99, 1.04], highlights: [1.02, 1, .97], scotopic: 0, vignette: .1, grain: 0, bloom: .04,
 };
 export const GOLDEN: Key = {

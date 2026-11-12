@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createRiver } from './river';
+import { createGroundLayers } from './ground-layers';
 import { textureVariationGLSL } from './texture-variation';
 import { perfOn } from '../../core/perf-flags';
 import { createRockGeometry, createRockMaterial, createWeatheredWoodMaterial } from './surfaces';
@@ -42,7 +43,7 @@ function tileDistanceSquared(x:number,z:number,px:number,pz:number) {
   return dx*dx+dz*dz;
 }
 
-export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
+export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer?: THREE.WebGLRenderer) {
   const loader = new THREE.TextureLoader();
   const textures:THREE.Texture[]=[];
   const solidColliders:SolidCollider[]=[];
@@ -58,14 +59,13 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
   const layout=naturalLayout({heightAt,exclusion,biomeAt,riverX,riverPresence,roadZ,radius:WORLD_RADIUS});
   const nearCenter=new THREE.Vector2(),nearCoverage={value:DETAIL_RADIUS};
   const distantTint=new THREE.Color(horizonColor);
-  const material = new THREE.MeshStandardMaterial({
-    map: texture('ground-diff', true), normalMap: texture('/textures/ground-normal-rough.png'),
-    normalScale: new THREE.Vector2(.75, .75), roughness: .94, color: 0x9b9c87,
-  });
+  // The forest floor: seven scanned layers in two texture arrays (colour + height, normal + roughness); see ground-layers.ts.
+  const groundLayers=createGroundLayers(renderer);textures.push(groundLayers.color,groundLayers.surface);
+  const material = new THREE.MeshStandardMaterial({ roughness: 1, color: 0xffffff });
   // Pack roughness in normal-map alpha to leave texture units for flashlight shadows/cookie on 16-unit mobile GPUs.
   const riverbedMap=texture('riverbed-diff',true),riverbedNormal=texture('/textures/riverbed-normal-rough.png');
   const roadMap=texture('road-diff',true),roadNormal=texture('/textures/road-normal-rough.png');
-  const stoneMap=texture('/plantassets/forest-variety/granite-diff.jpg',true),stoneNormal=texture('/plantassets/forest-variety/granite-normal.jpg');
+  const stoneMap=texture('/plantassets/forest-variety/granite-diff.jpg',true);
   const coastalMap=texture('/textures/coastal-diff.webp',true),coastalNormal=texture('/textures/coastal-normal-rough.png');
   // Read when the shader is built: a dev switch for measuring the ground's texture reads with and without the savings.
   let GROUND_TAPS=perfOn('groundTaps');
@@ -75,7 +75,8 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
     const road=WORLD_V2?roadSurface():undefined;
     shader.uniforms.uNearCenter={value:nearCenter};shader.uniforms.uNearCoverage=nearCoverage;shader.uniforms.uDistantTint={value:distantTint};
     shader.uniforms.uRoadMap={value:roadMap};shader.uniforms.uRoadNormal={value:roadNormal};
-    shader.uniforms.uStoneMap={value:stoneMap};shader.uniforms.uStoneNormal={value:stoneNormal};
+    shader.uniforms.uStoneMap={value:stoneMap};
+    shader.uniforms.uGroundColor={value:groundLayers.color};shader.uniforms.uGroundSurface={value:groundLayers.surface};
     shader.uniforms.uCoastalMap={value:coastalMap};shader.uniforms.uCoastalNormal={value:coastalNormal};
     shader.uniforms.uBedMap={value:riverbedMap};shader.uniforms.uBedNormal={value:riverbedNormal};
     shader.vertexShader = `uniform vec2 uNearCenter;uniform float uNearCoverage;attribute float horizonY;attribute float treeGround;attribute vec4 biome;varying float vTreeGround;varying vec4 vBiome;varying vec3 vGroundPosition;\n${shader.vertexShader}`.replace('#include <begin_vertex>', `
@@ -84,7 +85,8 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
       transformed.y=mix(transformed.y,horizonY,smoothstep(max(uNearCoverage*.65,uNearCoverage-${TRANSITION_WIDTH}.),uNearCoverage+.001,edge));
     `).replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvGroundPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;vBiome=biome;vTreeGround=treeGround;');
     shader.fragmentShader = `varying vec3 vGroundPosition;varying vec4 vBiome;varying float vTreeGround;
-      uniform sampler2D uBedMap,uBedNormal,uRoadMap,uRoadNormal,uStoneMap,uStoneNormal;
+      uniform sampler2D uBedMap,uBedNormal,uRoadMap,uRoadNormal,uStoneMap;
+      uniform sampler2DArray uGroundColor,uGroundSurface;
       uniform vec2 uNearCenter;uniform float uNearCoverage;uniform vec3 uDistantTint;
       ${textureVariationGLSL}
       ${worldGeographyGLSL}
@@ -111,55 +113,72 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
       vec2 groundUv=p*vec2(1.,-1.);
       // Mild smooth distortion and stochastic patches have no world-space tile grid.
       groundUv+=vec2(surfaceNoise(p*.18),surfaceNoise(p*.18+27.))*.38;
-      TexturePatch soilPatch=groundTexturePatch(groundUv/2.4);
-      TexturePatch leafPatch=groundTexturePatch(groundUv/1.3+vec2(57.,9.));
       vec3 slopeNormal=abs(normalize(cross(dFdx(vGroundPosition),dFdy(vGroundPosition))));
       vec3 stoneWeights=pow(slopeNormal,vec3(4.));stoneWeights/=max(dot(stoneWeights,vec3(1.)),.0001);
       ${GROUND_TAPS?`// A rock face is drawn from three projections. One that carries under 3% of the blend is let go (the
       // others are scaled up to make up for it, and the hand-over is gradual), so flat ground pays for one, not three.
       stoneWeights=max(stoneWeights-.03,0.);stoneWeights/=max(dot(stoneWeights,vec3(1.)),.0001);`:''}
-      TexturePatch stoneX=groundTexturePatch(vGroundPosition.zy/3.+vec2(21.,48.));
-      TexturePatch stoneY=groundTexturePatch(vGroundPosition.xz/3.+vec2(21.,48.));
-      TexturePatch stoneZ=groundTexturePatch(vGroundPosition.xy/3.+vec2(21.,48.));
+      TexturePatch stoneX=groundTexturePatch(vGroundPosition.zy/2.+vec2(21.,48.));
+      TexturePatch stoneY=groundTexturePatch(vGroundPosition.xz/2.+vec2(21.,48.));
+      TexturePatch stoneZ=groundTexturePatch(vGroundPosition.xy/2.+vec2(21.,48.));
       float rootBlend=smoothstep(.025,.96,vTreeGround)*(.84+surfaceNoise(p*3.1+19.)*.16);
       float leafBlend=clamp(max(vBiome.y+vBiome.z*.55,rootBlend*.68),0.,1.);
       float stoneBlend=clamp(vBiome.w+vBiome.z*.24+(1.-slopeNormal.y)*vBiome.w*.3,0.,1.);
       TexturePatch roadPatch=groundTexturePatch(groundUv/2.+vec2(47.,13.));
       TexturePatch gravelPatch=groundTexturePatch(groundUv/2.2+vec2(9.,31.));
       ${road?road.mask:'float road=roadWeight(vGroundPosition),bank=bedWeight(vGroundPosition);'}
-      vec3 groundColor=vec3(0.),leafColor=vec3(0.);
-      if(bank<1.){
-        groundColor=samplePatch(map,soilPatch).rgb*diffuseColor.rgb;
-        leafColor=coastPatch(uCoastalMap,leafPatch,2.).rgb;
-        if(leafBlend>.002)groundColor=mix(groundColor,leafColor*.74,leafBlend);
-        if(stoneBlend>.002){
-          ${GROUND_TAPS?`vec3 stoneTone=vec3(0.);
-          if(stoneWeights.x>0.)stoneTone+=samplePatch(uStoneMap,stoneX).rgb*stoneWeights.x;
-          if(stoneWeights.y>0.)stoneTone+=samplePatch(uStoneMap,stoneY).rgb*stoneWeights.y;
-          if(stoneWeights.z>0.)stoneTone+=samplePatch(uStoneMap,stoneZ).rgb*stoneWeights.z;
-          stoneTone*=.85;`:'vec3 stoneTone=(samplePatch(uStoneMap,stoneX).rgb*stoneWeights.x+samplePatch(uStoneMap,stoneY).rgb*stoneWeights.y+samplePatch(uStoneMap,stoneZ).rgb*stoneWeights.z)*.85;'}
-          ${WORLD_V2?'stoneTone*=mix(vec3(.34,.35,.31),vec3(.56,.57,.47),surfaceNoise(p*.3+11.));stoneTone=mix(stoneTone,vec3(.05,.07,.025)+stoneTone*.35,smoothstep(.56,.8,surfaceNoise(p*.55+3.))*slopeNormal.y);':''}
-          groundColor=mix(groundColor,stoneTone,stoneBlend);
-        }
-      }
-      float broad=surfaceNoise(p*.065+5.)*.65+surfaceNoise(p*.19)*.35;
-      groundColor*=mix(vec3(.73,.78,.66),vec3(1.13,1.08,.97),broad);
       float worn=(1.-smoothstep(trailWidth(p.y)*.42,trailWidth(p.y)+surfaceNoise(p*2.1)*.26,trailDistance(p)))*trailPresence(p);
-      // Reuse the scanned mud/litter surface at its physical scale. Broad wear
-      // masks must never replace photographic detail with a flat brown colour.
-      vec3 dirt=leafColor*vec3(.76,.70,.59);
-      float dirtCoverage=worn*.82*(1.-road)*(1.-bank);
-      // Root litter is part of the ground itself: no offset surface or decal.
-      // Photographic litter and damp soil soften the moss-to-root transition.
-      vec3 rootLitter=mix(leafColor*vec3(.73,.67,.55),dirt*.88,.27);
-      groundColor=mix(groundColor,rootLitter,rootBlend*.76*(1.-road)*(1.-bank));
-      groundColor=mix(groundColor,dirt,dirtCoverage);
+      float dirtCoverage=worn*.82*(1.-road)*(1.-bank),trod=0.;
       ${WORLD_V2?`
-      float trod=smoothstep(.34,.72,vBiome.x+(surfaceNoise(p*1.7)-.5)*.42+(surfaceNoise(p*7.)-.5)*.16);
-      float padCoverage=trod*(1.-road)*(1.-bank)*.92;
-      dirtCoverage=max(dirtCoverage,padCoverage);
-      groundColor=mix(groundColor,dirt,padCoverage);
+      trod=smoothstep(.34,.72,vBiome.x+(surfaceNoise(p*1.7)-.5)*.42+(surfaceNoise(p*7.)-.5)*.16);
+      dirtCoverage=max(dirtCoverage,trod*(1.-road)*(1.-bank)*.92);
       `:''}
+      // ---- The forest floor in layers (game/render/world/ground-layers.ts): scanned CC0 sets in two texture arrays, each with
+      // its height in the colour's alpha. Masks say where each layer belongs; heights decide the edge between them, so moss
+      // fills hollows, stones stand out of the litter and a path frays into the needles instead of fading.
+      float steep=1.-smoothstep(.6,.84,slopeNormal.y);
+      float flatGround=smoothstep(.8,.96,slopeNormal.y);
+      float damp=smoothstep(.5,.82,surfaceNoise(p*.043+40.)*.65+surfaceNoise(p*.19+3.)*.35);
+      float open=1.-clamp(vBiome.y*1.3+rootBlend,0.,1.);
+      float ground=(1.-road)*(1.-bank);
+      float wRock=stoneBlend*steep*ground;
+      float wRocky=(stoneBlend*(1.-steep)*.9+worn*(1.-worn)*1.1)*ground;
+      float wPath=dirtCoverage;
+      float wRoots=rootBlend*.9*ground*(1.-dirtCoverage);
+      // Under conifers the floor is needles almost everywhere; broadleaf groves add leaves on top.
+      float woods=(1.-vBiome.w)*(1.-vBiome.z*.6);
+      float wLitter=clamp(max(leafBlend,woods*(.5+.38*surfaceNoise(p*.08+12.))),0.,1.)*ground*(1.-dirtCoverage*.7);
+      float wMoss=smoothstep(.4,.74,damp*.8+surfaceNoise(p*.31+77.)*.2)*flatGround*(1.-vBiome.w)*ground*(1.-dirtCoverage)*(.6+.4*open);
+      float wFloor=max(.08,1.-max(max(max(wRock,wRocky),max(wPath,wRoots)),max(wLitter,wMoss)));
+      TexturePatch floorP=groundTexturePatch(groundUv/3.15),litterP=groundTexturePatch(groundUv/1.5+vec2(57.,9.)),rootsP=groundTexturePatch(groundUv/1.67+vec2(13.,71.));
+      TexturePatch mossP=groundTexturePatch(groundUv/2.+vec2(91.,37.)),pathP=groundTexturePatch(groundUv/2.17+vec2(29.,5.)),rockyP=groundTexturePatch(groundUv/2.+vec2(63.,44.));
+      vec4 cFloor=samplePatchLayer(uGroundColor,floorP,0.);
+      vec4 cLitter=cFloor,cRoots=cFloor,cMoss=cFloor,cPath=cFloor,cRocky=cFloor,cRock=cFloor;
+      if(wLitter>.02||road>.001)cLitter=samplePatchLayer(uGroundColor,litterP,1.);
+      if(wRoots>.02)cRoots=samplePatchLayer(uGroundColor,rootsP,2.);
+      if(wMoss>.02)cMoss=samplePatchLayer(uGroundColor,mossP,3.);
+      if(wPath>.02||road>.001)cPath=samplePatchLayer(uGroundColor,pathP,4.);
+      if(wRocky>.02){cRocky=samplePatchLayer(uGroundColor,rockyP,5.);cRocky.rgb*=vec3(.66,.66,.64);}
+      if(wRock>.02){
+        cRock=vec4(0.);
+        if(stoneWeights.x>0.)cRock+=samplePatchLayer(uGroundColor,stoneX,6.)*stoneWeights.x;
+        if(stoneWeights.y>0.)cRock+=samplePatchLayer(uGroundColor,stoneY,6.)*stoneWeights.y;
+        if(stoneWeights.z>0.)cRock+=samplePatchLayer(uGroundColor,stoneZ,6.)*stoneWeights.z;
+      }
+      // Height blend: each layer stands at its own height plus how much it is wanted; within a short band of the highest, layers share.
+      float hFloor=cFloor.a*.7+wFloor,hLitter=wLitter>.02?cLitter.a*.7+wLitter:-9.,hRoots=wRoots>.02?cRoots.a*.7+wRoots:-9.,hMoss=wMoss>.02?cMoss.a*.7+wMoss:-9.;
+      float hPath=wPath>.02?cPath.a*.7+wPath:-9.,hRocky=wRocky>.02?cRocky.a*.7+wRocky:-9.,hRock=wRock>.02?cRock.a*.7+wRock:-9.;
+      float top=max(max(max(hFloor,hLitter),max(hRoots,hMoss)),max(max(hPath,hRocky),hRock))-.16;
+      float bFloor=max(hFloor-top,0.),bLitter=max(hLitter-top,0.),bRoots=max(hRoots-top,0.),bMoss=max(hMoss-top,0.),bPath=max(hPath-top,0.),bRocky=max(hRocky-top,0.),bRock=max(hRock-top,0.);
+      float bSum=bFloor+bLitter+bRoots+bMoss+bPath+bRocky+bRock+1e-5;
+      vec3 groundColor=(cFloor.rgb*bFloor+cLitter.rgb*bLitter+cRoots.rgb*bRoots+cMoss.rgb*bMoss+cPath.rgb*bPath+cRocky.rgb*bRocky+cRock.rgb*bRock)/bSum;
+      float groundHeight=(cFloor.a*bFloor+cLitter.a*bLitter+cRoots.a*bRoots+cMoss.a*bMoss+cPath.a*bPath+cRocky.a*bRocky+cRock.a*bRock)/bSum;
+      vec3 leafColor=cLitter.rgb,dirt=cPath.rgb;
+      // The stony layer's scan is the palest of the set; on this island the stones are dark and damp.
+      float stoneShare=bRock/bSum;
+      // Broad variation over tens of metres: patches of sun-bleached and damp ground, never a visible repeat.
+      float broad=surfaceNoise(p*.065+5.)*.65+surfaceNoise(p*.19)*.35;
+      groundColor*=mix(vec3(.84,.87,.8),vec3(1.07,1.05,.98),broad);
       ${road?road.colour:`if(road>.001){
         float roadDistance=abs(p.y-roadCenter(p.x));
         float roadWidth=roadHalfWidth(p.x);
@@ -208,23 +227,23 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
       `:''}
       diffuseColor.rgb=groundColor;
       `).replace('#include <roughnessmap_fragment>',`
-      float roughnessFactor=roughness;
-      // The soil's normal and roughness come from the same map: read it once here and use it again for the normal below.
-      vec4 soilNormalRough=vec4(0.,0.,1.,1.);
-      if(bank<1.)soilNormalRough=${GROUND_TAPS?'samplePatchNormalRough(normalMap,soilPatch)':'vec4(samplePatchNormal(normalMap,soilPatch),samplePatch(normalMap,soilPatch).a)'};
-      roughnessFactor*=soilNormalRough.w;
-      roughnessFactor=mix(roughnessFactor,.89,max(leafBlend,dirtCoverage));roughnessFactor=mix(roughnessFactor,.92,stoneBlend);
+      // The layers' normals and roughness, from the second array, for the layers the colour blend used.
+      vec4 sFloor=samplePatchLayerSurface(uGroundSurface,floorP,0.);
+      vec4 groundSurface=sFloor*bFloor;
+      if(bLitter>0.)groundSurface+=samplePatchLayerSurface(uGroundSurface,litterP,1.)*bLitter;
+      if(bRoots>0.)groundSurface+=samplePatchLayerSurface(uGroundSurface,rootsP,2.)*bRoots;
+      if(bMoss>0.)groundSurface+=samplePatchLayerSurface(uGroundSurface,mossP,3.)*bMoss;
+      if(bPath>0.)groundSurface+=samplePatchLayerSurface(uGroundSurface,pathP,4.)*bPath;
+      if(bRocky>0.)groundSurface+=samplePatchLayerSurface(uGroundSurface,rockyP,5.)*bRocky;
+      groundSurface/=max(bSum-bRock,1e-5);
+      float roughnessFactor=clamp(groundSurface.w,.35,1.);
       ${road?road.roughness:'if(road>.001)roughnessFactor=mix(roughnessFactor,samplePatch(uRoadNormal,roadPatch).a*.82+.08,road);'}
       if(bank>.001)roughnessFactor=mix(roughnessFactor,samplePatch(uBedNormal,gravelPatch).a*.72+.12,bank);
       roughnessFactor=mix(roughnessFactor,.98,distantBlend);
       if(sandCover>.001)roughnessFactor=mix(roughnessFactor,coastPatch(uCoastalNormal,coastDetail,0.).a*.72+.15,sandCover);
       if(snowCover>.001)roughnessFactor=mix(roughnessFactor,.94,snowCover);
       `).replace('#include <normal_fragment_maps>',`
-      vec3 detailNormal=vec3(0.,0.,1.);
-      if(bank<1.)detailNormal=soilNormalRough.xyz;
-      detailNormal.xy*=normalScale;
-      float litterNormalBlend=max(leafBlend,dirtCoverage);
-      if(litterNormalBlend>.002){vec3 n=coastNormal(leafPatch,2.);n.xy*=.72;detailNormal=mix(detailNormal,n,litterNormalBlend);}
+      vec3 detailNormal=normalize(vec3(groundSurface.xy,max(groundSurface.z,.05)));
       ${road?road.normal:'if(road>.001){vec3 n=samplePatchNormal(uRoadNormal,roadPatch);n.xy*=.5;detailNormal=mix(detailNormal,n,road);}'}
       if(bank>.001){vec3 n=samplePatchNormal(uBedNormal,gravelPatch);n.xy*=.65;detailNormal=mix(detailNormal,n,bank);}
       if(sandCover>.001)detailNormal=mix(detailNormal,normalize(mix(vec3(0.,0.,1.),coastNormal(coastDetail,0.),.62)),sandCover);
@@ -233,22 +252,22 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3) {
       vec3 groundTangent=normalize(vec3(worldGroundNormal.y,-worldGroundNormal.x,0.));
       vec3 groundBitangent=normalize(cross(worldGroundNormal,groundTangent));
       vec3 surfaceNormal=normalize(groundTangent*detailNormal.x+groundBitangent*detailNormal.y+worldGroundNormal*detailNormal.z);
-      if(stoneBlend>.002){
+      if(stoneShare>.002){
         vec3 nx=vec3(0.,0.,1.),ny=vec3(0.,0.,1.),nz=vec3(0.,0.,1.);
-        if(stoneWeights.x>0.)nx=samplePatchNormal(uStoneNormal,stoneX);
-        if(stoneWeights.y>0.)ny=samplePatchNormal(uStoneNormal,stoneY);
-        if(stoneWeights.z>0.)nz=samplePatchNormal(uStoneNormal,stoneZ);
+        if(stoneWeights.x>0.)nx=samplePatchLayerSurface(uGroundSurface,stoneX,6.).xyz;
+        if(stoneWeights.y>0.)ny=samplePatchLayerSurface(uGroundSurface,stoneY,6.).xyz;
+        if(stoneWeights.z>0.)nz=samplePatchLayerSurface(uGroundSurface,stoneZ,6.).xyz;
         nx.xy*=.8;ny.xy*=.8;nz.xy*=.8;
         vec3 nX=vec3(worldGroundNormal.x*abs(nx.z),worldGroundNormal.y+nx.y,worldGroundNormal.z+nx.x);
         vec3 nY=vec3(worldGroundNormal.x+ny.x,worldGroundNormal.y*abs(ny.z),worldGroundNormal.z+ny.y);
         vec3 nZ=vec3(worldGroundNormal.x+nz.x,worldGroundNormal.y+nz.y,worldGroundNormal.z*abs(nz.z));
         vec3 stoneDetail=normalize(nX*stoneWeights.x+nY*stoneWeights.y+nZ*stoneWeights.z);
-        surfaceNormal=normalize(mix(surfaceNormal,stoneDetail,stoneBlend*(1.-road)*(1.-bank)*(1.-dirtCoverage)*(1.-sandCover)*(1.-snowCover)));
+        surfaceNormal=normalize(mix(surfaceNormal,stoneDetail,stoneShare*(1.-sandCover)*(1.-snowCover)));
       }
       normal=normalize(mat3(viewMatrix)*mix(surfaceNormal,worldGroundNormal,distantBlend));
       `);
   };
-  material.customProgramCacheKey=()=> `silence-ground-coastal-snow-v12${WORLD_V2?`-w2-${WORLD_SEED}`:''}-${perfOn('groundTaps')?'taps':'all'}`;
+  material.customProgramCacheKey=()=> `silence-ground-layers-v1${WORLD_V2?`-w2-${WORLD_SEED}`:''}-${perfOn('groundTaps')?'taps':'all'}`;
   const terrainChunks=new Map<string,{tile:TerrainTile;mesh:THREE.Mesh}>();
   // The low-detail distant surface preserves the mountain silhouette and covers
   // teleports while near chunks stream. It is below the exact walkable surface.
