@@ -16,8 +16,9 @@ Blender is only needed when rebuilding assets.
 Before opening a pull request, run:
 
 ```sh
-npx tsc --noEmit
-node --experimental-strip-types --test tests/*.test.mjs
+npm run typecheck
+npm run lint
+npm test
 npm run build
 ```
 
@@ -27,12 +28,14 @@ avoidance, and both encounters using Developer Options in the pause menu.
 
 ## Project layout
 
-- `game/`: rendering, terrain, movement, audio, encounters, and gameplay.
-- `app/`, `components/`: application and menus.
-- `public/`: runtime models, textures, and sky environments.
-- `assets/creature/`: editable Blender creature source and material maps.
-- `tools/assets/`: procedural asset generation and Blender model builders.
-- `tests/`: regression checks.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the full map. In short:
+
+- `game/`: all game code. `core/` (loop, settings), `sim/` (rules and simulation, no three.js), `render/` (three.js),
+  `audio/`, `ui/`, `dev/`, `data/` (JSON written by the asset pipeline).
+- `tests/`: regression tests, in the same folders as the code they test.
+- `tools/`: the Blender asset pipeline (`tools/assets/`), the playtest bot and probes (`tools/playtest/`), dev pages.
+- `public/`: runtime models, textures, audio and sky environments, served as they are.
+- `assets/`: editable Blender sources, art and review captures (not served).
 
 Rebuild a world prop with Blender 5.1, for example:
 

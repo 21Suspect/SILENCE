@@ -47,7 +47,7 @@ npm ci
 npm run dev
 ```
 
-Open the Local URL printed by Vite. The production build is `npm run build`; `npm start` serves the built Worker locally through Wrangler.
+Open http://localhost:5173. `npm run build` writes a static site to `dist/` (any static host serves it from a domain root; `npm run preview` serves it locally). Checks: `npm run typecheck`, `npm run lint`, `npm test`. How the code is laid out: [ARCHITECTURE.md](ARCHITECTURE.md); working conventions and commands for people and coding agents: [AGENTS.md](AGENTS.md).
 
 ## World and rendering
 
@@ -81,7 +81,7 @@ Validated with TypeScript, a production build, and Chromium browser checks. Brow
 
 Run the shadow stability regression checks with `node --experimental-strip-types --test tests/render/world/stable-shadows.test.mjs`. They check world-locked shadow sampling along hilly routes at two map resolutions and static cache reuse.
 
-Run all rendering regressions with `node --experimental-strip-types --test tests/*.test.mjs`. These also cover pixel-budget limits and adaptation/recovery hysteresis. A local Chromium comparison at 1440×900 CSS pixels and a **fixed 1.5 render ratio** reduced submitted triangles from 7.62M to 4.71M in the starting forest view, and 14.15M to 8.03M beside the river. On the same nine-second walking route, mean frame time improved from 20.56ms to 16.67ms, and the 95th percentile from 33.4ms to 16.7ms. These are one-machine measurements, not a universal frame-rate guarantee. Normal game-update CPU time was around 0.1ms median; most pressure came from rendering. Development-only `record`, `inventory`, and GPU timer-query `benchmark` helpers support repeatable checks; per-pass GPU measurements can vary with GPU scheduling, so paced walking traces are the reported smoothness comparison.
+Run all regression tests with `npm test`. A local Chromium comparison at 1440×900 CSS pixels and a **fixed 1.5 render ratio** reduced submitted triangles from 7.62M to 4.71M in the starting forest view, and 14.15M to 8.03M beside the river. On the same nine-second walking route, mean frame time improved from 20.56ms to 16.67ms, and the 95th percentile from 33.4ms to 16.7ms. These are one-machine measurements, not a universal frame-rate guarantee. Normal game-update CPU time was around 0.1ms median; most pressure came from rendering. Development-only `record`, `inventory`, and GPU timer-query `benchmark` helpers support repeatable checks; per-pass GPU measurements can vary with GPU scheduling, so paced walking traces are the reported smoothness comparison.
 
 Creature locomotion uses world-space foot contacts, alternating tripod swings, terrain-sampled landing positions and fixed-length inverse kinematics. Breathing, head movement and loose arm motion continue independently of planted feet. Skin uses diffuse, normal and roughness maps; higher-resolution anatomy and tapered muscles retain the original silhouette. Gait regressions cover stance drift, terrain clearance, exact touchdown and bone lengths.
 
