@@ -20,7 +20,8 @@ game/                 all game code
     objectives/       objective state and its text
   render/             everything drawn with three.js
     world/            terrain (+ terrain-worker), forest, undergrowth, vegetation batches, river, sky, atmosphere (fog and
-                      post chain), sun shadows, street lights, power lines, materials, ambient life
+                      post chain), sun shadows, street lights, power lines, materials (texture-variation.ts patches;
+                      bark-relief.ts gives trunks parallax, sun self-shadow and cavity), ambient life
     props/            POIs (streamed GLB props), doors, the rebuilt world's assembly (world-v2.ts), story props,
                       interaction prompts, objective props, the flashlight
     creature/         encounters.ts (hosts the brain in the scene), the Listener's model, rig and gait, tree crawl
