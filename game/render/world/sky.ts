@@ -1,4 +1,5 @@
 import { LIGHT_TUNING, lightTuningVersion } from '../../core/light-tuning';
+import { mistWeather, createGameClock } from '../../sim/world/weather';
 import { perfOn } from '../../core/perf-flags';
 import * as THREE from 'three';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
@@ -174,7 +175,9 @@ export function createSky(renderer:THREE.WebGLRenderer,scene:THREE.Scene,sun:THR
   // The forest's haze by day: droplets and pollen lit by sun and sky together and scattered many times over, so it reads near
   // white and a touch warm, not the blue of the open sky that a single scattering of sky light gives. MIST_NEUTRAL of its colour
   // takes WARM_WHITE at the sky light's own brightness, by night too.
-  const MIST_NEUTRAL=.85,WARM_WHITE=new THREE.Color(1.04,1,.9),warmMist=new THREE.Color(),warmSky=new THREE.Color();
+  // MIST_NEUTRAL .45 (it was .85): the mist keeps half the sky's own colour, a cool grey-blue in the shade that the sun warms where
+  // it shines through; taken nearly all the way to one warm white it was the flat grey veil the player complained of.
+  const MIST_NEUTRAL=.45,WARM_WHITE=new THREE.Color(1.04,1,.9),warmMist=new THREE.Color(),warmSky=new THREE.Color();
   // By day both are 0: the user chose the cooler day of before (2026-11-13, the w0 stills) over the warmed one (.5 and .65).
   const SKY_NEUTRAL_DAY=0,SKY_NEUTRAL_NIGHT=.85,ENV_NEUTRAL=0;
   const mist=new THREE.Color(),groundBounce=new THREE.Color(),sunColor=new THREE.Color(),skyE=new THREE.Color(),moonSkyE=new THREE.Color(),horizon=new THREE.Color(),moonHorizon=new THREE.Color(),fog=new THREE.Color();
@@ -182,6 +185,8 @@ export function createSky(renderer:THREE.WebGLRenderer,scene:THREE.Scene,sun:THR
   const noonSky=skyIrradiance(new THREE.Vector3(0,.8,.6).normalize(),SUN_ILLUMINANCE),noonLuminance=noonSky.r*.2126+noonSky.g*.7152+noonSky.b*.0722;
   let lastElevation=Infinity,tuned=-1;
   scene.userData.grade=grade;
+  // The mist's weather (sim/world/weather.ts) runs on the game's own hours, counted across midnight.
+  const gameClock=createGameClock();
   return {
     update(hours:number,player:THREE.Vector3,time:number){
       cloudUniform.uCloudTime.value=time;cloudUniform.uCloudEye.value.copy(player);
@@ -218,9 +223,10 @@ export function createSky(renderer:THREE.WebGLRenderer,scene:THREE.Scene,sun:THR
         // The same warm white day and night: the mist used to fade back to the sky's blue below the horizon, and the night read blue.
         const neutral=MIST_NEUTRAL;
         mist.lerp(warmMist.copy(WARM_WHITE).multiplyScalar(mist.r*.2126+mist.g*.7152+mist.b*.0722),neutral);
-        scene.userData.hazeNeutral=neutral;
+        // The long-range air takes the sky's true horizon colour (atmosphere.ts), not the mist's whitened one.
+        scene.userData.hazeNeutral=0;
         fog.copy(mist);
-        scene.userData.fogAmbient=fogAmbient;scene.userData.fogDensity=fogDensityFor(elevation)*LIGHT_TUNING.haze;
+        scene.userData.fogAmbient=fogAmbient;
         gradeFor(elevation,grade);
         uniform.sunRadiance.value.copy(sunColor).multiplyScalar(40);
         uniform.cloudSun.value.copy(sunColor).multiplyScalar(SUN_ILLUMINANCE/Math.PI*.9);
@@ -228,6 +234,9 @@ export function createSky(renderer:THREE.WebGLRenderer,scene:THREE.Scene,sun:THR
         const moonUp=THREE.MathUtils.smoothstep(-elevation,-.02,.1);
         uniform.moonRadiance.value=.03*moonUp;
       }
+      // The hour's mist times the weather's: a clear night, a thick one, mist lifting through the morning.
+      const weather=mistWeather(gameClock(hours));scene.userData.mistWeather=weather;
+      scene.userData.fogDensity=fogDensityFor(elevation)*LIGHT_TUNING.haze*weather;
       sun.color.copy(sunColor);sun.intensity=SUN_ILLUMINANCE*LIGHT_TUNING.sun;
       hemi.color.copy(skyE);hemi.intensity=LIGHT_TUNING.sky;
       // The ground's bounce from below: a dark, green-brown forest floor lit by the sun and sky together.

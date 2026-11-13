@@ -2,6 +2,7 @@ import { createEdgeAAMaterial, sharpnessFor } from '../post/sharpen';
 import * as THREE from 'three';
 import type { createRiver } from './river';
 import { WORLD_V2 } from '../../sim/world/world-flags';
+import { mistCover, MIST_EXTENT, MIST_CELLS, MIST_WATER } from '../../sim/world/mist-cover';
 import { SKY_LUT_GLSL } from './sky-model';
 import { createFinalImage, type Grade, type ToneMapper } from '../post/final-image';
 import { perfOn } from '../../core/perf-flags';
@@ -47,7 +48,16 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
     skyLut:{value:null as THREE.Texture|null},hazeNeutral:{value:0},fogAmbient:{value:.8},fogDensity:{value:1},aerialDensity:{value:1/11000},
     // The ground mist is lit by the whole sky dome (and the ground below it), not by the bright horizon: its colour comes from the sky model.
     mistColor:{value:new THREE.Color(.1,.12,.14)},
+    // Where the mist lies (sim/world/mist-cover.ts): thick in the wood, thin over open land, hardly any over water.
+    mistCover:{value:null as THREE.Texture|null},
   };
+  {
+    const cover=WORLD_V2?mistCover():new Float32Array(MIST_CELLS*MIST_CELLS).fill(1),bytes=new Uint8Array(cover.length);
+    for(let i=0;i<cover.length;i++)bytes[i]=Math.round(cover[i]*255);
+    const texture=new THREE.DataTexture(bytes,MIST_CELLS,MIST_CELLS,THREE.RedFormat);
+    texture.magFilter=texture.minFilter=THREE.LinearFilter;texture.wrapS=texture.wrapT=THREE.ClampToEdgeWrapping;texture.needsUpdate=true;
+    uniforms.mistCover.value=texture;
+  }
   // A top-down map of the tree crowns round the player, built from the trees' own colliders: 1 under a crown, 0 in a gap.
   // It is redrawn on the CPU only when the player has walked a few metres; the fog reads it along the sun's direction.
   const canopy=(()=>{
@@ -104,11 +114,17 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
     float mistReach(vec3 ray){return 180.-145.*smoothstep(0.,.035,ray.y);}
     uniform float time,darkness,shadowTexel,sunLevel,fogDensity;
     uniform sampler2D skyLut;uniform float fogAmbient,aerialDensity,hazeNeutral;uniform vec3 mistColor;
+    uniform sampler2D mistCover;
+    float mistHere(vec2 p){
+      vec2 uv=(p+${MIST_EXTENT.toFixed(1)})/${(MIST_EXTENT*2).toFixed(1)};
+      if(uv.x<0.||uv.y<0.||uv.x>1.||uv.y>1.)return ${MIST_WATER.toFixed(2)};
+      return texture2D(mistCover,uv).r;
+    }
     varying vec2 vUv;
     ${SKY_LUT_GLSL}
     // The light the mist itself is lit with from the sky: the sky's colour just above the horizon in this direction (so the haze
     // in front of a ridge is the colour of the sky behind it, warmer towards a low sun).
-    // The far haze takes the same warm white as the mist by day (sky.ts MIST_NEUTRAL), keeping the sky's brightness.
+    // hazeNeutral can take it towards a warm white at the sky's brightness; the sky sets it to 0, the true horizon colour.
     vec3 hazeColor(vec3 ray){vec3 d=normalize(vec3(ray.x,max(ray.y,0.)*.35+.04,ray.z));vec3 h=skyLookup(skyLut,d,sunDirection);
       return mix(h,vec3(1.04,1.,.9)*dot(h,vec3(.2126,.7152,.0722)),hazeNeutral);}
     float hash(vec3 p){p=fract(p*.3183099+vec3(.1,.2,.3));p*=17.;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}
@@ -149,7 +165,10 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
         vec3 p=cameraPositionWorld+ray*distanceAlongRay;
         float billow=noise((p+vec3(time*.10,0.,time*.035))*.085);
         float heightDensity=exp(-max(p.y-1.5,0.)*MIST_FALL);
-        float density=(.014+billow*.03)*fogDensity*heightDensity*smoothstep(1.5,16.,distanceAlongRay);
+        // Banks of mist 40 to 80 m across drifting on the wind (under a metre a second), so it comes and goes as you walk: thin
+        // clear lanes and thick patches, not one even veil. A bit more mist in the wood than before (.017 + .034 billow).
+        float bank=noise(vec3(p.x*.016+time*.012,p.y*.03,p.z*.016+time*.006));
+        float density=(.017+billow*.034)*fogDensity*heightDensity*smoothstep(1.5,16.,distanceAlongRay)*mistHere(p.xz)*mix(.3,1.7,smoothstep(.25,.75,bank));
         float extinction=density*stepLength;
         if(day>.025)illuminatedFog+=exp(-opticalDepth)*(1.-exp(-extinction))*sunlight(p);
         if(flashPower>0.){
@@ -205,13 +224,15 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
         float fade=1.-smoothstep(${AO_FADE_NEAR.toFixed(1)},${AO_FADE_FAR.toFixed(1)},z);
         color*=1.-${AO_STRENGTH.toFixed(2)}*(1.-(1.-${SUNLIT_KEEP.toFixed(2)})*ao.g)*fade*(1.-ao.r);
       }
-      // Long-range haze beyond the mist: the air itself, tinted by the same sky. The sky already contains its own air, so it is
-      // left alone. 11 km to 1/e (it was 2.6, and the far mountains 4 to 7 km out came out as flat pale cut-outs). The air thins
-      // with height (a scale height of 1.2 km): along a ray that climbs dh the haze is that of H/dh*(1-exp(-dh/H)) of its length
-      // at the eye's level, so a far summit 2 km up keeps half the haze its foot has and stands clear of it, as real ranges do.
+      // Aerial perspective: the air between the eye and anything far. Its light is the sky's own colour at the horizon in that
+      // direction (sky-model.ts): pale blue away from the sun, bright and warm towards it, not a grey; and it thins blue first, as
+      // air does (aerosol haze with a share of Rayleigh scattering: .82/1/1.32 per channel), so a far dark ridge goes blue and a far
+      // snowfield keeps its white. 11 km to 1/e in green. The air thins with height (a scale height of 1.2 km): along a ray that
+      // climbs dh the haze is that of H/dh*(1-exp(-dh/H)) of its length at the eye's level, so summits stand clear of it.
       if(depth<.999999){
         float reach=length(view),climb=max(ray.y*reach,0.),thin=climb<1.?1.:1200./climb*(1.-exp(-climb/1200.));
-        color=mix(hazeColor(ray),color,exp(-reach*aerialDensity*thin));
+        vec3 through=exp(-reach*aerialDensity*thin*vec3(.82,1.,1.32));
+        color=color*through+hazeColor(ray)*(1.-through);
       }
       // The HDR sky draws the moving solar disc, moon and stars before fog.
       if(fogEnabled){
@@ -325,7 +346,10 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
         vec3 p=cameraPositionWorld+ray*distanceAlongRay;
         float billow=noise((p+vec3(time*.10,0.,time*.035))*.085);
         float heightDensity=exp(-max(p.y-1.5,0.)*MIST_FALL);
-        float density=(.014+billow*.03)*fogDensity*heightDensity*smoothstep(1.5,16.,distanceAlongRay);
+        // Banks of mist 40 to 80 m across drifting on the wind (under a metre a second), so it comes and goes as you walk: thin
+        // clear lanes and thick patches, not one even veil. A bit more mist in the wood than before (.017 + .034 billow).
+        float bank=noise(vec3(p.x*.016+time*.012,p.y*.03,p.z*.016+time*.006));
+        float density=(.017+billow*.034)*fogDensity*heightDensity*smoothstep(1.5,16.,distanceAlongRay)*mistHere(p.xz)*mix(.3,1.7,smoothstep(.25,.75,bank));
         float extinction=density*sliceLength;
         float scatter=exp(-opticalDepth)*(1.-exp(-extinction));
         if(sunLevel>.01){
