@@ -1,4 +1,4 @@
-import { channelOffset } from '../../sim/world/world-noise';
+import { channelOffset, treeDensity } from '../../sim/world/world-noise';
 import * as THREE from 'three';
 import type { createCollisionWorld } from '../../sim/world/collision';
 import type { createFlashlight } from './flashlight';
@@ -7,11 +7,12 @@ import { createDoors } from './doors';
 import { doorTestPlacements } from '../../dev/door-test';
 import { createInteraction } from './interaction';
 import { createObjectivesRuntime } from './objectives-runtime';
+import { setPropRoom } from './prop-materials';
 import { initialState } from '../../sim/objectives/objectives';
-import { createAmbientLife } from '../world/ambient-life';
+import { createAmbientLife, type Roost } from '../world/ambient-life';
 import { createLadderClimber, ladderAim, ladderReachable } from '../../sim/player/ladders';
 import { POI_PLACEMENTS, SCATTER_PLACEMENTS, placeLocal } from '../../sim/world/world-layout';
-import type { ObjectiveEvent } from '../../sim/objectives/objectives';
+import type { ObjectiveEvent, Slot } from '../../sim/objectives/objectives';
 import { createPowerLines } from '../world/power-lines';
 import { createWaterSplash } from '../world/water-splash';
 import { createStreetLights } from '../world/street-lights';
@@ -102,6 +103,15 @@ export function createWorldV2(o: WorldV2Options) {
   });
 
   const objectives = createObjectivesRuntime({ scene: o.scene, camera: o.camera, heightAt: o.heightAt, pois, interaction });
+  // The cabin's room: pickups and the door leaf inside it take its dim sky and its lantern's light (prop-materials.ts).
+  {
+    const seat = pois.seats().find(q => q.id === 'cabin'), room = seat?.def.rooms?.[0];
+    if (seat && room) {
+      const s = seat.placement.scale ?? 1, at = new THREE.Matrix4().compose(new THREE.Vector3(seat.placement.x, seat.ground, seat.placement.z),
+        seat.quaternion ?? new THREE.Quaternion().setFromAxisAngle(THREE.Object3D.DEFAULT_UP, seat.placement.yaw), new THREE.Vector3(s, s, s));
+      setPropRoom(at.invert(), room.min, room.max, room.lamp ? pois.hook('cabin', room.lamp) : undefined);
+    }
+  }
 
   // Doors (game/render/props/doors.ts): every `doors` entry of a placed asset becomes a hinged leaf with its own collider and prompt. Opening or shutting one is a
   // small noise for the creature, from its handle. Without any `doors` in world-assets.json this is empty and does nothing.
@@ -129,13 +139,43 @@ export function createWorldV2(o: WorldV2Options) {
   };
   o.container.appendChild(touchAction);
 
-  // A roost is an authored `roost` hook, else the chimney, else somewhere up in the canopy over the landmark.
-  const roosts = POI_PLACEMENTS.map(p => {
-    const hook = pois.hook(p.id, 'roost') ?? pois.hook(p.id, 'chimney');
-    return hook ? { x: hook.x, y: hook.y, z: hook.z } : { x: p.x, y: o.heightAt(p.x, p.z) + 12, z: p.z, hidden: true };
-  });
+  // Crows (game/render/world/ambient-life.ts). The cabin's ridge is the one roost with something to sit on in view: twelve
+  // places along its cap (4.63 m up in the model, tools/assets/world-v2/models_cabin.py), a bird astride it facing one slope
+  // or the other. Every other landmark lends its name to the densest stand of trees within 60 m of it, where the flock rests
+  // 18 m up in the crowns and is not drawn; landmarks nearer than 40 m to one already taken share it. An authored `roost`
+  // hook would be a single perch.
+  const roosts: Roost[] = [];
+  const cabinSeat = pois.seats().find(q => q.id === 'cabin');
+  if (cabinSeat) {
+    const s = cabinSeat.placement.scale ?? 1, q = cabinSeat.quaternion ?? new THREE.Quaternion().setFromAxisAngle(THREE.Object3D.DEFAULT_UP, cabinSeat.placement.yaw);
+    const place = new THREE.Matrix4().compose(new THREE.Vector3(cabinSeat.placement.x, cabinSeat.ground, cabinSeat.placement.z), q, new THREE.Vector3(s, s, s));
+    const across = new THREE.Vector3(0, 0, 1).applyQuaternion(q), yaw = Math.atan2(across.x, across.z), p = new THREE.Vector3();
+    const perches = Array.from({ length: 12 }, (_, k) => { p.set(-2.9 + k * 5.9 / 11, 4.63, 0).applyMatrix4(place); return { x: p.x, y: p.y, z: p.z, yaw: yaw + (k % 3 === 1 ? Math.PI : 0) }; });
+    p.set(0, 4.63, 0).applyMatrix4(place);
+    roosts.push({ x: p.x, y: p.y, z: p.z, perches });
+  }
+  for (const pl of POI_PLACEMENTS) {
+    if (pl.id === 'cabin') continue;
+    const hook = pois.hook(pl.id, 'roost');
+    if (hook) { roosts.push({ x: hook.x, y: hook.y, z: hook.z, perches: [{ x: hook.x, y: hook.y, z: hook.z, yaw: pl.yaw }] }); continue; }
+    // Trees stand where exclusion is under .42 (sim/world/placement.ts), thicker where treeDensity is high.
+    let bx = 0, bz = 0, best = .3;
+    for (const r of [14, 24, 36, 48, 60]) for (let a = 0; a < 12; a++) {
+      const x = pl.x + Math.cos(a * Math.PI / 6 + r) * r, z = pl.z + Math.sin(a * Math.PI / 6 + r) * r;
+      const score = Math.max(0, 1 - o.exclusion(x, z) / .42) * treeDensity(x, z);
+      if (score > best + .02) { best = score; bx = x; bz = z; }
+    }
+    if (best <= .3 || roosts.some(q => Math.hypot(q.x - bx, q.z - bz) < 40)) continue;
+    roosts.push({ x: bx, y: o.heightAt(bx, bz) + 18, z: bz, hidden: true });
+  }
   const ambient = createAmbientLife(o.scene, {
     roosts, chimney: pois.hook('cabin', 'chimney'), heightAt: o.heightAt,
+    // A real crown to leave from or drop into, once the forest round there has been streamed in (within 94 m of the player).
+    canopy: (x, z, radius, pick) => {
+      const trees = o.collisions.nearby(x, z, radius).filter(c => c.tag === 'tree' && c.kind === 'capsule' && c.crownBase !== undefined && Math.hypot(c.ax - x, c.az - z) < radius);
+      const t = trees[Math.floor(pick * trees.length)];
+      return t?.kind === 'capsule' && t.crownBase !== undefined ? { x: t.ax, y: t.crownBase + (t.maxY - t.crownBase) * .3, z: t.az } : undefined;
+    },
     // The flock goes up in silence: there are no birdcalls in this world.
     onBurst: () => {},
   });
@@ -171,8 +211,11 @@ export function createWorldV2(o: WorldV2Options) {
       }
       return step;
     },
-    /** Q: put down what is in hand. */
-    drop() { if (!player) return false; o.camera.getWorldDirection(forward); return objectives.dropHeld(player, forward); },
+    /** Q: put down what is in hand; or, from the inventory, what is in a backpack slot. */
+    drop(slot: Slot = 'hand') { if (!player) return false; o.camera.getWorldDirection(forward); return objectives.dropHeld(player, forward, slot); },
+    /** The inventory panel's view of the hand and the backpack, and its rearranging. */
+    inventory: () => objectives.inventory(),
+    moveItem: (from: Slot, to: Slot) => objectives.move(from, to),
     /**
      * The one stream of sounds the creature hears: the objectives' own noises (pickups, the generator, the radio),
      * ladder rungs and splashes from here, and whatever the engine adds (footsteps, the torch switch).
@@ -225,7 +268,7 @@ export function createWorldV2(o: WorldV2Options) {
       const carried = objectives.state.carrying[objectives.localPlayer];
       touchAction.hidden = !coarse || !f.active || (!climber.attached && !carried);
       touchAction.textContent = climber.attached ? 'Leave ladder' : 'Drop';
-      ambient.update({ time: f.time, dt: f.simulate ? f.dt : 0, player: f.player, darkness: f.darkness, viewScale: .5 * o.viewHeight() * o.camera.projectionMatrix.elements[5] });
+      ambient.update({ time: f.time, dt: f.simulate ? f.dt : 0, player: f.player, darkness: f.darkness, viewScale: .5 * o.viewHeight() * o.camera.projectionMatrix.elements[5], view: forward });
       streetLights.update({ dt: f.simulate ? f.dt : 0, time: f.time, player: f.player, darkness: f.darkness });
       return changed;
     },
@@ -235,7 +278,7 @@ export function createWorldV2(o: WorldV2Options) {
       dispatch: objectives.dispatch, reset: () => objectives.setState(initialState()),
       pois, objectives, interaction, ambient, hook: pois.hook, climber, ladders: pois.ladders, doors, streetLights,
       /** Frighten the flock as if the player had reached its roost. */
-      startleCrows: (time = 0) => ambient.startle(time),
+      startleCrows: () => ambient.startle(),
     },
     dispose() {
       touchAction.remove(); spray.dispose(); powerLines.dispose(); streetLights.dispose(); unregisterTorch(); unregisterLadders.forEach(u => u()); doors.dispose(); objectives.dispose(); ambient.dispose(); interaction.dispose(); pois.dispose(); o.collisions.replace('pois', []);

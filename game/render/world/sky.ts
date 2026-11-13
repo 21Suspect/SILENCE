@@ -1,3 +1,4 @@
+import { LIGHT_TUNING, lightTuningVersion } from '../../core/light-tuning';
 import { perfOn } from '../../core/perf-flags';
 import * as THREE from 'three';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
@@ -87,6 +88,8 @@ export function createSky(renderer:THREE.WebGLRenderer,scene:THREE.Scene,sun:THR
         vec3 ray=normalize(vDirection);
         // Below the horizon the dome is never seen through the ground; keep the air's colour there rather than black.
         vec3 color=skyLookup(skyLut,vec3(ray.x,max(ray.y,-.02),ray.z),sunDirection);
+        // A night sky seen by an adapted eye is a dark grey with no hue, not the deep blue the model gives a moonlit sky.
+        color=mix(color,vec3(1.03,1.,.94)*dot(color,vec3(.2126,.7152,.0722)),nightAmount*.8);
         float c=cos(starRotation),s=sin(starRotation);
         // Rotate about the celestial pole (49° north), not about the zenith.
         vec3 axis=normalize(vec3(0.,.75471,-.65606));
@@ -131,6 +134,16 @@ export function createSky(renderer:THREE.WebGLRenderer,scene:THREE.Scene,sun:THR
   const loader=new HDRLoader();
   loader.load('/sky/cloudless-day.hdr',texture=>{
     if(disposed){texture.dispose();return;}dayTexture=texture;texture.mapping=THREE.EquirectangularReflectionMapping;
+    // This image is the ambient that every standard material takes as diffuse light too, at every hour: the open sky's full
+    // blue. Anything neutral in shade came out blue (a brown path read blue-grey, 57/64/71). ENV_NEUTRAL of its colour takes the
+    // same warm white as the sky light, at each pixel's own brightness; the dome itself is drawn from the sky model and stays blue.
+    const data=texture.image.data as Uint16Array|Float32Array,half=texture.type===THREE.HalfFloatType;
+    const read=(i:number)=>half?THREE.DataUtils.fromHalfFloat(data[i]):data[i],write=(i:number,v:number)=>{data[i]=half?THREE.DataUtils.toHalfFloat(v):v;};
+    for(let i=0;i<data.length;i+=4){
+      const r=read(i),g=read(i+1),b=read(i+2),l=r*.2126+g*.7152+b*.0722;
+      write(i,r+(l*WARM_WHITE.r-r)*ENV_NEUTRAL);write(i+1,g+(l*WARM_WHITE.g-g)*ENV_NEUTRAL);write(i+2,b+(l*WARM_WHITE.b-b)*ENV_NEUTRAL);
+    }
+    texture.needsUpdate=true;
     environment=generator.fromEquirectangular(texture);scene.environment=environment.texture;generator.dispose();
   },undefined,()=>{generator.dispose();});
   loader.load('/sky/starfield-night.hdr',texture=>{if(disposed){texture.dispose();return;}nightTexture=texture;texture.mapping=THREE.EquirectangularReflectionMapping;uniform.nightMap.value=texture;uniform.ready.value=1;});
@@ -158,12 +171,13 @@ export function createSky(renderer:THREE.WebGLRenderer,scene:THREE.Scene,sun:THR
   // Light colours from the model, refreshed when the sun has moved a little (each is a few hundred small CPU evaluations).
   // The forest's haze by day: droplets and pollen lit by sun and sky together and scattered many times over, so it reads near
   // white and a touch warm, not the blue of the open sky that a single scattering of sky light gives. MIST_NEUTRAL of its colour
-  // takes WARM_WHITE at the sky light's own brightness; it fades back to the sky's tint below the horizon, so moonlit mist stays cool.
-  const MIST_NEUTRAL=.85,WARM_WHITE=new THREE.Color(1.04,1,.9),warmMist=new THREE.Color();
+  // takes WARM_WHITE at the sky light's own brightness, by night too.
+  const MIST_NEUTRAL=.85,WARM_WHITE=new THREE.Color(1.04,1,.9),warmMist=new THREE.Color(),warmSky=new THREE.Color();
+  const SKY_NEUTRAL_DAY=.5,SKY_NEUTRAL_NIGHT=.85,ENV_NEUTRAL=.65;
   const mist=new THREE.Color(),groundBounce=new THREE.Color(),sunColor=new THREE.Color(),skyE=new THREE.Color(),moonSkyE=new THREE.Color(),horizon=new THREE.Color(),moonHorizon=new THREE.Color(),fog=new THREE.Color();
   const groundTint=new THREE.Color(.82,.9,.62),grade:Grade=gradeFor(1),side=new THREE.Vector3(),moonDir=new THREE.Vector3();
   const noonSky=skyIrradiance(new THREE.Vector3(0,.8,.6).normalize(),SUN_ILLUMINANCE),noonLuminance=noonSky.r*.2126+noonSky.g*.7152+noonSky.b*.0722;
-  let lastElevation=Infinity;
+  let lastElevation=Infinity,tuned=-1;
   scene.userData.grade=grade;
   return {
     update(hours:number,player:THREE.Vector3,time:number){
@@ -175,8 +189,8 @@ export function createSky(renderer:THREE.WebGLRenderer,scene:THREE.Scene,sun:THR
       starPoints.visible=darkness>.015;
       uniform.sunDirection.value.copy(direction);uniform.nightAmount.value=Math.pow(darkness,2.2);uniform.starRotation.value=(hours-18)*Math.PI/12;
       lut.update(direction);
-      if(Math.abs(elevation-lastElevation)>.0015){
-        lastElevation=elevation;
+      if(Math.abs(elevation-lastElevation)>.0015||tuned!==lightTuningVersion){
+        lastElevation=elevation;tuned=lightTuningVersion;
         // The sun as it reaches the ground: the air's transmittance along its path, faded over the half-degree disc at the horizon.
         transmittance(elevation,sunColor);
         const disc=THREE.MathUtils.smoothstep(elevation,-.006,.012);
@@ -185,17 +199,25 @@ export function createSky(renderer:THREE.WebGLRenderer,scene:THREE.Scene,sun:THR
         skyIrradiance(direction,SUN_ILLUMINANCE,skyE);skyIrradiance(moonDir,MOON_ILLUMINANCE,moonSkyE);skyE.add(moonSkyE);
         // A floor of airglow and starlight (the sky model's night term, over the hemisphere), lifted a little over the sky's own
         // so a moonless wood keeps the shapes of its nearest trunks and floor instead of pure black (night probe, work/gfx/torch-probe.js).
-        skyE.r+=.00006*Math.PI*3.4;skyE.g+=.00008*Math.PI*3.4;skyE.b+=.00016*Math.PI*3.4;
+        // Its colour is a warm white, not the blue it was: the night sky's own glow is green and red airglow and sun-like starlight,
+        // and the blue floor made every night frame 2.2 times bluer than red (the user wants the night air neutral and warm).
+        const floor=Math.PI*3.4*LIGHT_TUNING.night;skyE.r+=.000085*floor;skyE.g+=.000081*floor;skyE.b+=.000073*floor;
+        // Under the canopy the sky's light reaches the ground through leaves and off trunks and floor, many times scattered: not the
+        // open sky's blue. SKY_NEUTRAL of it takes a warm white at its own brightness, more at night, where a moonlit sky's blue
+        // (a single scattering of moonlight) tinted the whole wood.
+        const nightShare=1-THREE.MathUtils.smoothstep(elevation,-.1,.06),skyNeutral=SKY_NEUTRAL_DAY+(SKY_NEUTRAL_NIGHT-SKY_NEUTRAL_DAY)*nightShare;
+        skyE.lerp(warmSky.copy(WARM_WHITE).multiplyScalar(skyE.r*.2126+skyE.g*.7152+skyE.b*.0722),skyNeutral);
         side.set(Math.cos(Math.atan2(direction.z,direction.x)+Math.PI/2),.06,Math.sin(Math.atan2(direction.z,direction.x)+Math.PI/2)).normalize();
         skyRadiance(side,direction,SUN_ILLUMINANCE,horizon);skyRadiance(side,moonDir,MOON_ILLUMINANCE,moonHorizon);horizon.add(moonHorizon);
         const fogAmbient=.8;
         // Mist: lit from every side by the sky above and the dim ground below (isotropic scattering sees the average).
         mist.copy(skyE).multiplyScalar(1/Math.PI).add(groundBounce.copy(skyE).multiplyScalar(.04));
-        const neutral=MIST_NEUTRAL*THREE.MathUtils.smoothstep(elevation,-.03,.12);
+        // The same warm white day and night: the mist used to fade back to the sky's blue below the horizon, and the night read blue.
+        const neutral=MIST_NEUTRAL;
         mist.lerp(warmMist.copy(WARM_WHITE).multiplyScalar(mist.r*.2126+mist.g*.7152+mist.b*.0722),neutral);
         scene.userData.hazeNeutral=neutral;
         fog.copy(mist);
-        scene.userData.fogAmbient=fogAmbient;scene.userData.fogDensity=fogDensityFor(elevation);
+        scene.userData.fogAmbient=fogAmbient;scene.userData.fogDensity=fogDensityFor(elevation)*LIGHT_TUNING.haze;
         gradeFor(elevation,grade);
         uniform.sunRadiance.value.copy(sunColor).multiplyScalar(40);
         uniform.cloudSun.value.copy(sunColor).multiplyScalar(SUN_ILLUMINANCE/Math.PI*.9);
@@ -203,8 +225,8 @@ export function createSky(renderer:THREE.WebGLRenderer,scene:THREE.Scene,sun:THR
         const moonUp=THREE.MathUtils.smoothstep(-elevation,-.02,.1);
         uniform.moonRadiance.value=.03*moonUp;
       }
-      sun.color.copy(sunColor);sun.intensity=SUN_ILLUMINANCE;
-      hemi.color.copy(skyE);hemi.intensity=1;
+      sun.color.copy(sunColor);sun.intensity=SUN_ILLUMINANCE*LIGHT_TUNING.sun;
+      hemi.color.copy(skyE);hemi.intensity=LIGHT_TUNING.sky;
       // The ground's bounce from below: a dark, green-brown forest floor lit by the sun and sky together.
       hemi.groundColor.copy(sunColor).multiplyScalar(SUN_ILLUMINANCE*Math.max(elevation,0)).add(skyE).multiply(groundTint).multiplyScalar(.11);
       const skyLuminance=skyE.r*.2126+skyE.g*.7152+skyE.b*.0722;

@@ -1,0 +1,16 @@
+{
+ "note": "The backpack hidden in the cabin (public/world/backpack.glb). Rebuilt by tools/assets/backpack/build.py: scaled to 0.46 m and stood on the floor, then baked from the full 303k-triangle scan onto a 23k-triangle copy with new UVs (colour, normal, roughness, occlusion at 2048). Modified from the original.",
+ "assets": [
+  {
+   "asset": "Backpack (photogrammetry)",
+   "author": "Smallpoly",
+   "author_url": "https://sketchfab.com/smallpoly",
+   "source": "https://sketchfab.com/3d-models/backpack-photogrammetry-d4b6b11d41ea401e98384401df735c12",
+   "license": "CC-BY-4.0",
+   "license_url": "http://creativecommons.org/licenses/by/4.0/",
+   "downloaded_from": "https://huggingface.co/datasets/allenai/objaverse/resolve/main/glbs/000-112/d4b6b11d41ea401e98384401df735c12.glb",
+   "md5": "3a7d1857db40337d1ae3b9a34a651377",
+   "changes": "scaled, decimated by baking onto a lower-polygon copy, re-textured from the bake"
+  }
+ ]
+}

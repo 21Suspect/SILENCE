@@ -40,6 +40,10 @@ test('the eye rests at the hour\'s anchor: a lamp overhead or the sky above bare
   assert.ok(stops(eyeExposure(24, night), night.maxExposure) <= 1.25 + 1e-9, 'whatever fills the view, the eye closes by at most a stop and a quarter');
   assert.equal(eyeExposure(237, night), night.maxExposure, 'a lamp overhead (the meter reading after the lamps were dimmed) leaves it at rest');
   assert.ok(stops(eyeExposure(7.06, noon), eyeExposure(5.23, noon)) < .2, 'looking from the floor to the sky swings well under a fifth of a stop');
+  // Out of the wood onto an open beach by day the view is about two stops brighter: the eye follows it by more than a stop.
+  assert.ok(stops(eyeExposure(noon.anchor / 4, noon), noon.anchor) > 1.2, 'a beach two stops brighter than the wood closes the eye by over a stop');
+  // A lantern in a dark room lifts the floored meter as much, but the view as a whole (the plain average) is dark: no extra closing.
+  assert.ok(stops(eyeExposure(noon.anchor / 4, noon, noon.anchor * 2), noon.anchor) < .5, 'a bright lamp in a dark room does not close the eye like a beach');
   for (const e of [.9, .2, .05, -.05, -.5]) {
     const g = gradeFor(e);
     assert.ok(g.anchor >= g.minExposure && g.anchor <= g.maxExposure && g.response > 0 && g.response < 1, `grade at ${e}`);

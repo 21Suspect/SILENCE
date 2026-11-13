@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { POI_PLACEMENTS } from '../../sim/world/world-layout';
-import { initialState, applyAction, heldKind, heldItem, firstEmptySlot, type ObjectiveState, type ObjectiveAction, type ObjectiveEvent, type ItemKind } from '../../sim/objectives/objectives';
+import { initialState, applyAction, firstEmptySlot, carries, hasRoom, hasPack, type ObjectiveState, type ObjectiveAction, type ObjectiveEvent, type ItemKind, type Slot } from '../../sim/objectives/objectives';
 import type { Interaction } from './interaction';
+import { patchInterior } from './prop-materials';
 import type { Pois } from './pois';
 
 export type ObjectivesRuntimeOptions = {
@@ -14,10 +15,13 @@ export type ObjectivesRuntimeOptions = {
   load?: (url: string) => Promise<{ scene: THREE.Object3D }>;
 };
 
-const MODEL_URL: Record<ItemKind, string> = { fuse: '/world/fuse.glb', jerry: '/world/jerrycan.glb' };
-const ITEM_HOOK: Record<ItemKind, string> = { fuse: 'fuse', jerry: 'jerrycan' };
-// Where each carried thing sits in view, camera-local. The torch owns the right hand, so these go left.
-const HELD: Record<ItemKind, [number, number, number]> = { fuse: [-.2, -.24, -.46], jerry: [-.3, -.42, -.56] };
+const MODEL_URL: Record<ItemKind, string> = { fuse: '/world/fuse.glb', jerry: '/world/jerrycan.glb', backpack: '/world/backpack.glb' };
+const ITEM_HOOK: Record<ItemKind, string> = { fuse: 'fuse', jerry: 'jerrycan', backpack: 'backpack' };
+// Where each carried thing sits in view, camera-local. The torch owns the right hand, so these go left. A backpack is worn, never held.
+const HELD: Record<ItemKind, [number, number, number]> = { fuse: [-.2, -.24, -.46], jerry: [-.3, -.42, -.56], backpack: [0, 0, 0] };
+/** What the inventory shows: a name and a picture (rendered from the item's own model, tools/assets/ui/item-icons.py). */
+const ITEM_NAME: Record<ItemKind, string> = { fuse: 'Fuse', jerry: 'Jerry can', backpack: 'Backpack' };
+const ITEM_ICON: Record<ItemKind, string> = { fuse: '/ui/items/fuse.png', jerry: '/ui/items/jerry.png', backpack: '/ui/items/backpack.png' };
 const GLOW = /glow/i;
 
 /** A soft round falloff in plain texture data: no canvas needed, so it also builds under Node. */
@@ -52,6 +56,9 @@ export function createObjectivesRuntime(o: ObjectivesRuntimeOptions) {
     if (kind === 'fuse') {
       const g = new THREE.CylinderGeometry(.018, .018, .09, 12), m = new THREE.MeshStandardMaterial({ color: 0xc9bfa6, roughness: .6, metalness: .35 });
       const body = new THREE.Mesh(g, m); body.rotation.z = Math.PI / 2; body.position.y = .018; group.add(body); geometries.push(g); materials.push(m);
+    } else if (kind === 'backpack') {
+      const g = new THREE.BoxGeometry(.32, .44, .2), m = new THREE.MeshStandardMaterial({ color: 0x4a4836, roughness: .9 });
+      const body = new THREE.Mesh(g, m); body.position.y = .22; group.add(body); geometries.push(g); materials.push(m);
     } else {
       const g = new THREE.BoxGeometry(.34, .46, .15), cap = new THREE.CylinderGeometry(.03, .03, .05, 10), m = new THREE.MeshStandardMaterial({ color: 0x59613f, roughness: .82, metalness: .15 });
       const body = new THREE.Mesh(g, m), top = new THREE.Mesh(cap, m); body.position.y = .23; top.position.set(.1, .49, 0); group.add(body, top); geometries.push(g, cap); materials.push(m);
@@ -66,7 +73,12 @@ export function createObjectivesRuntime(o: ObjectivesRuntimeOptions) {
     if (!p) {
       p = Promise.resolve().then(() => o.load ? o.load(url) : (loader ??= new GLTFLoader()).loadAsync(url)).then(g => {
         if (disposed) return undefined;
-        g.scene.traverse(x => { if (x instanceof THREE.Mesh) { x.castShadow = true; x.receiveShadow = true; } });
+        g.scene.traverse(x => {
+          if (!(x instanceof THREE.Mesh)) return;
+          x.castShadow = true; x.receiveShadow = true;
+          // Indoors (the cabin), a pickup takes the room's light, not the open sky's.
+          for (const m of Array.isArray(x.material) ? x.material : [x.material]) if (m instanceof THREE.MeshStandardMaterial) patchInterior(m);
+        });
         loadedModels.push(g.scene); return g.scene;
       }, () => { if (!warned.has(url)) { warned.add(url); console.warn(`SILENCE: ${url} could not load; the placeholder stays.`); } return undefined; });
       models.set(url, p);
@@ -86,7 +98,7 @@ export function createObjectivesRuntime(o: ObjectivesRuntimeOptions) {
     void model(MODEL_URL[item.kind]).then(scene => { if (scene && !disposed) { group.clear(); group.add(scene.clone(true)); } });
     disposers.push(o.interaction.register({
       id: `pickup:${id}`, position: pickup.position, range: 2.6,
-      label: () => heldItem(state, me) !== undefined ? 'Hands full' : 'Left click to pick up',
+      label: () => item.kind === 'backpack' ? 'Left click to take the backpack' : hasRoom(state, me) ? 'Left click to pick up' : hasPack(state, me) ? 'Backpack full' : 'Hands full',
       enabled: () => state.items[id]?.status === 'world',
       activate: () => { dispatch({ type: 'pickup', player: me, item: id }); },
     }));
@@ -94,7 +106,8 @@ export function createObjectivesRuntime(o: ObjectivesRuntimeOptions) {
 
   // --- stations ---------------------------------------------------------------------------------
   const cord = need('generator', 'pullcord'), fusebox = need('hut', 'fusebox'), radio = need('hut', 'radio'), beaconAt = need('mast', 'beacon'), windowAt = hookOf('hut', 'window');
-  const refuels = () => heldKind(state, me) === 'jerry' && !state.generator.fuel;
+  // The can or a fuse may be in hand or in the backpack: the reducer takes it from either.
+  const refuels = () => carries(state, me, 'jerry') && !state.generator.fuel;
   if (cord) disposers.push(o.interaction.register({
     id: 'generator:cord', position: cord, range: 2.6,
     label: () => refuels() ? 'Left click to refuel' : 'Left click to pull the cord',
@@ -105,7 +118,7 @@ export function createObjectivesRuntime(o: ObjectivesRuntimeOptions) {
   if (fusebox) disposers.push(o.interaction.register({
     id: 'hut:fusebox', position: fusebox, range: 2.6,
     label: () => state.generator.running ? 'Left click to insert fuse' : 'No power',
-    enabled: () => heldKind(state, me) === 'fuse' && (!state.generator.running || firstEmptySlot(state) >= 0),
+    enabled: () => carries(state, me, 'fuse') && (!state.generator.running || firstEmptySlot(state) >= 0),
     activate: () => { if (state.generator.running) dispatch({ type: 'insert-fuse', player: me, slot: firstEmptySlot(state) }); },
   }));
   if (radio) disposers.push(o.interaction.register({
@@ -187,11 +200,21 @@ export function createObjectivesRuntime(o: ObjectivesRuntimeOptions) {
     subscribe(listener: (e: ObjectiveEvent) => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     /** An event the reducer did not produce (a boot on a ladder rung) goes to the same listeners, so the creature has one stream to hear. */
     emit(event: ObjectiveEvent) { const e = enrich(event); for (const l of listeners) l(e); },
-    /** Put down what is in hand just ahead of the player, on the floor they are standing on. */
-    dropHeld(position: THREE.Vector3, forward: THREE.Vector3) {
+    /** Put down what is in hand (or, with `slot`, in that backpack slot) just ahead of the player, on the floor they are standing on. */
+    dropHeld(position: THREE.Vector3, forward: THREE.Vector3, slot: Slot = 'hand') {
       const length = Math.hypot(forward.x, forward.z) || 1, x = position.x + forward.x / length * .8, z = position.z + forward.z / length * .8;
       const onDeck = position.y - o.heightAt(position.x, position.z) > .15;
-      return dispatch({ type: 'drop', player: me, at: { x, z, y: onDeck ? position.y : o.heightAt(x, z) } }).some(e => e.type === 'dropped');
+      return dispatch({ type: 'drop', player: me, slot, at: { x, z, y: onDeck ? position.y : o.heightAt(x, z) } }).some(e => e.type === 'dropped');
+    },
+    /** Rearrange the local player's hand and backpack (game/ui/inventory.ts). */
+    move(from: Slot, to: Slot) { return dispatch({ type: 'move', player: me, from, to }).some(e => e.type === 'moved'); },
+    /** What the local player carries, for the inventory panel. */
+    inventory() {
+      const show = (id: string | null | undefined) => {
+        const item = id ? state.items[id] : undefined;
+        return item && id ? { id, name: ITEM_NAME[item.kind], icon: ITEM_ICON[item.kind] } : null;
+      };
+      return { hasPack: hasPack(state, me), hand: show(state.carrying[me]), slots: (state.packs?.[me] ?? []).map(show) };
     },
     /** Returns true when shadow casters changed. */
     update(time: number) {

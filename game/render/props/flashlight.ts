@@ -1,3 +1,4 @@
+import { LIGHT_TUNING } from '../../core/light-tuning';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { solidContact, type SolidCollider } from '../../sim/world/collision';
@@ -141,7 +142,8 @@ export function createFlashlight(scene:THREE.Scene,camera:THREE.PerspectiveCamer
       if(owned&&wanted&&equip===1&&!on){on=true;click();}
       group.visible=!owned||equip>0;
       if(owned){group.position.set(Math.min(.24,camera.aspect*.18),-.26-(1-raised)*.65,-.48+(1-raised)*.2);group.position.y+=Math.sin(time*7)*Math.min(speed,2)*.003;group.position.applyQuaternion(camera.quaternion).add(camera.position);group.quaternion.copy(camera.quaternion);group.rotateX(-(1-raised)*.6);}
-      light.visible=owned&&on;light.intensity=on?14:0;
+      // The developer tab's lighting knobs (core/light-tuning.ts) scale brightness, cone and reach; all 1 by default.
+      light.visible=owned&&on;light.intensity=on?14*LIGHT_TUNING.torch:0;light.angle=Math.min(1.5,.95*LIGHT_TUNING.torchCone);light.distance=45*LIGHT_TUNING.torchReach;
       if (lens) lens.emissiveIntensity = light.visible ? 1.8 : 0;
       camera.getWorldDirection(direction);
       // Emit just beyond the physical lens, not from behind the torch housing.

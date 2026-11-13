@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { createUndergrowth } from './undergrowth';
 import { createRockGeometry, createRockMaterial } from './surfaces';
 import { varyDirectionalTexture } from './texture-variation';
-import { WORLD_RADIUS, biomeAt, groundMasks, riverX, riverPresence, roadZ } from '../../sim/world/world';
+import { WORLD_RADIUS, biomeAt, groundMasks, riverX, riverPresence, roadZ, structureClearance } from '../../sim/world/world';
 import { naturalLayout, groundedOrigin, type LayoutCell as ForestCell } from '../../sim/world/placement';
 import type { SolidCollider } from '../../sim/world/collision';
 import { createMeshSurface } from './surface-support';
@@ -549,6 +549,8 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
     for(let i=0;i<7;i++){
       const a=item.yaw+i*2.4,x=item.x+Math.cos(a)*(.15+i*.12),z=item.z+Math.sin(a)*(.15+i*.12);
       dummy.position.set(x,heightAt(x,z)+.008,z);dummy.rotation.set(.03,a,.03);dummy.scale.set(item.size*.85,1,item.size*(.65+i*.075));
+      // The leaves spread up to 0.9 m from their anchor and are up to 1.5 m across: one that would lie in a building is left out.
+      if(WORLD_V2&&structureClearance(x,z)<item.size*.45)dummy.scale.set(0,0,0);
       dummy.updateMatrix();dummy.matrix.toArray(transforms,i*16);
     }
     litterTransforms.set(item,transforms);

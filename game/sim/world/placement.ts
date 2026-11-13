@@ -2,6 +2,7 @@ import { WORLD_V2 } from './world-flags';
 import { coastDistance, lakeDistance, beachWidth, SEA_LEVEL } from './coastal-geography';
 import { noise, treeDensity } from './world-noise';
 import { roadMarkerSpot } from './road-geometry';
+import { structureClearance } from './world';
 export type LayoutTree={x:number;z:number;y:number;height:number;width:number;yaw:number;kind:number;seed:number};
 export type LayoutScatter={x:number;z:number;y:number;size:number;yaw:number;variant:number};
 export type Footprint={ax:number;az:number;bx:number;bz:number;radius:number;priority:number;id:string;kind:string};
@@ -28,6 +29,9 @@ export function createNaturalLayout(g:Geography){
   const CELL=32,raw=new Map<string,{candidates:Candidate[];scatter:LayoutScatter[]}>(),accepted=new Map<string,LayoutCell>();
   const slope=(x:number,z:number)=>Math.hypot(g.heightAt(x+.6,z)-g.heightAt(x-.6,z),g.heightAt(x,z+.6)-g.heightAt(x,z-.6))/1.2;
   const reserved=(x:number,z:number,reach:number)=>{
+    // Nothing natural inside or against a building: the exclusion is tested at an item's centre, and a log or boulder centred
+    // outside a hut could still reach in through its wall or floor.
+    if(WORLD_V2&&structureClearance(x,z)<reach+.3)return true;
     if(Math.hypot(x+18,z+46)<3.7+reach||Math.hypot(x-176,z+214)<6+reach||Math.hypot(x+224,z-170)<13+reach||Math.hypot(x+4,z+18)<.4+reach||Math.abs(z+35)<1.3+reach&&Math.abs(x-g.riverX(-35))<10+reach)return true;
     for(let i=0;i<8;i++)if(Math.hypot(x+10.8+i*.57,z+22+i*2.6)<.65+reach)return true;
     for(let i=0;i<13;i++){const {x:px,z:pz}=roadMarkerSpot(i);if(Math.abs(px-g.riverX(pz))>=9&&Math.hypot(x-px,z-pz)<.4+reach)return true;}

@@ -19,7 +19,9 @@ export type ModelCollider = ({ kind: 'box'; x: number; z: number; halfX: number;
 export type ModelLadder = { bottom: readonly [number, number, number]; top: readonly [number, number, number]; exit: readonly [number, number, number]; width?: number };
 export type PoiAsset = { url: string; radius: number; colliders?: ModelCollider[]; hooks?: Record<string, readonly [number, number, number]>; ladders?: ModelLadder[];
   /** Hinged door leaves (game/render/props/doors.ts): each names another asset, a GLB of just the leaf. */
-  doors?: DoorSpec[] };
+  doors?: DoorSpec[];
+  /** Rooms (model-local boxes, min and max corners) and the hook of the lamp lighting each: loose things inside take their light. */
+  rooms?: { min: number[]; max: number[]; lamp?: string | null }[] };
 /** A ladder in world metres, ready for game/sim/player/ladders.ts. `id` is `<placement id>#<index in the asset's ladders>`. */
 export type WorldLadder = Ladder & { placement: string };
 /** A scatter entry has the same shape as a POI; `scale` is optional and uniform. */

@@ -73,6 +73,8 @@ Scanned textures by Poly Haven contributors, available under CC0:
 - [Bark Brown 02](https://polyhaven.com/a/bark_brown_02)
 - [CC0 license](https://polyhaven.com/license)
 
+The backpack is "[Backpack (photogrammetry)](https://sketchfab.com/3d-models/backpack-photogrammetry-d4b6b11d41ea401e98384401df735c12)" by [Smallpoly](https://sketchfab.com/smallpoly), licensed [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/), modified (scaled and baked onto a lighter mesh; `public/world/backpack-attribution.json`).
+
 Source URLs, original hashes, dimensions, and licenses are in `public/textures/texture-attribution.json` and `public/plantassets/attribution.json`. Botanical meshes and photographed leaf/needle maps are CC0 assets from Poly Haven, with source details in the plant attribution file. Other procedural geometry, sound synthesis, and game code were created for this project.
 
 ## Validation

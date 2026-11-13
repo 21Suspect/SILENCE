@@ -101,6 +101,8 @@ function footprintDistance(f:typeof FOOTPRINTS[number],x:number,z:number){
   const dx=x-f.x,dz=z-f.z,lx=Math.abs(dx*f.c-dz*f.s)-f.hx,lz=Math.abs(dx*f.s+dz*f.c)-f.hz;
   return Math.hypot(Math.max(lx,0),Math.max(lz,0))+Math.min(Math.max(lx,lz),0);
 }
+/** Metres outside the nearest building's footprint (negative inside it; Infinity far from any): fixed props and stones must keep clear. */
+export function structureClearance(x:number,z:number){return nearestFootprint(x,z);}
 function nearestFootprint(x:number,z:number){
   let best=Infinity;
   for(const f of FOOTPRINTS)if(Math.abs(x-f.x)<f.reach+9&&Math.abs(z-f.z)<f.reach+9)best=Math.min(best,footprintDistance(f,x,z));

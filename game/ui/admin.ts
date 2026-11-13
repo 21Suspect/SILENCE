@@ -3,6 +3,7 @@ import {WORLD_DESTINATIONS, COASTAL_DESTINATIONS, pathX} from '../sim/world/worl
 import {WORLD_V2} from '../sim/world/world-flags';
 import {POI_PLACEMENTS,placeLocal} from '../sim/world/world-layout';
 import {createTapTracker} from '../core/tap';
+import {LIGHT_TUNING,LIGHT_DEFAULTS,setLightTuning,resetLightTuning,type LightKey} from '../core/light-tuning';
 import {renderSize,pixelCostVs1080,resolutionLabel,RESOLUTIONS} from '../core/quality';
 type CreatureMode='natural'|'hunt'|'idle'|'walk'|'run'|'tree';
 type AdminOptions={
@@ -42,6 +43,7 @@ export function createAdmin(container:HTMLElement,options:AdminOptions){
     <label for="silence-hour">Time of day <output id="silence-clock">16:00</output></label><input id="silence-hour" type="range" min="0" max="23.99" step="0.01" aria-label="Time of day">
     <div class="row"><button data-hour="6.75">Dawn</button><button data-hour="12">Noon</button><button data-hour="18.5">Dusk</button><button data-hour="0">Night</button></div>
     <label for="silence-cycle">Day / night cycle</label><select id="silence-cycle"><option value="0">Paused</option><option value="1" selected>Normal · 24 minutes</option><option value="8">Fast · 3 minutes</option><option value="32">Preview · 45 seconds</option></select>
+    <hr><h3 class="silence-light-title">Lighting <button id="silence-light-reset" type="button">Reset</button></h3><div id="silence-light"></div>
     <hr><label for="silence-creature">Creature behavior</label><select id="silence-creature"><option value="natural">Natural · bring it near, it decides</option><option value="hunt">Hunt · bring it near, hunting</option><option value="tree">Tree ambush</option><option value="idle">Hold nearby · idle</option><option value="walk">Walk</option><option value="run">Run</option></select><div class="row"><button id="silence-spawn">Spawn out of view</button><button id="silence-dismiss">Dismiss</button></div>
     <hr><label><input id="silence-fly" type="checkbox">Fly / noclip</label>
     <label for="silence-place">Explore</label><select id="silence-place"><option value="">Choose a destination…</option><option value="${pathX(12)},12">Forest trail</option>${WORLD_V2?'':'<option value="-18,-42">Abandoned shelter</option>'}${destinations.map(d=>`<option value="${d.x},${d.z}">${d.name}</option>`).join('')}</select>
@@ -96,6 +98,20 @@ export function createAdmin(container:HTMLElement,options:AdminOptions){
   const sound=Array.from(panel.querySelectorAll<HTMLInputElement>('[data-sound]'));
   function refreshSound(){for(const input of sound){const key=input.dataset.sound as VolumeKey;input.value=String(options.settings[key]);panel.querySelector(`[data-value="${key}"]`)!.textContent=options.settings[key]+'%';}}
   for(const input of sound){input.oninput=()=>{options.settings[input.dataset.sound as VolumeKey]=Number(input.value);refreshSound();options.volumeChanged();};input.onchange=()=>options.settingsChanged();}refreshSound();
+  // Lighting knobs (core/light-tuning.ts): live while dragged, saved in this browser, all back to the tuned look with Reset.
+  const lightRows:[LightKey,string,number,number,number,(v:number)=>string][]=[
+    ['torch','Torch brightness',0,3,.05,v=>'×'+v.toFixed(2)],['torchCone','Torch cone',.5,1.6,.05,v=>Math.round(54*v)+'°'],['torchReach','Torch reach',.3,2,.05,v=>Math.round(45*v)+' m'],
+    ['sun','Sunlight',0,2,.05,v=>'×'+v.toFixed(2)],['sky','Sky light',0,3,.05,v=>'×'+v.toFixed(2)],['night','Night light (no moon)',0,4,.05,v=>'×'+v.toFixed(2)],
+    ['lamps','Lamps and lantern',0,4,.05,v=>'×'+v.toFixed(2)],['haze','Mist and haze',0,2.5,.05,v=>'×'+v.toFixed(2)],['exposure','Exposure',-3,3,.1,v=>(v>0?'+':'')+v.toFixed(1)+' stops'],
+  ];
+  const lightBox=panel.querySelector<HTMLElement>('#silence-light')!;
+  for(const [key,name,min,max,step] of lightRows)lightBox.insertAdjacentHTML('beforeend',`<div class="graphics-row"><label for="silence-light-${key}">${name} <output data-light-value="${key}"></output></label><input id="silence-light-${key}" data-light="${key}" type="range" min="${min}" max="${max}" step="${step}"></div>`);
+  const lightInputs=Array.from(lightBox.querySelectorAll<HTMLInputElement>('[data-light]'));
+  function refreshLight(){for(const [key,,,,,show] of lightRows){const input=lightInputs.find(i=>i.dataset.light===key)!;input.value=String(LIGHT_TUNING[key]);const out=lightBox.querySelector(`[data-light-value="${key}"]`)!;out.textContent=show(LIGHT_TUNING[key])+(LIGHT_TUNING[key]===LIGHT_DEFAULTS[key]?'':' •');}}
+  for(const input of lightInputs)input.oninput=()=>{setLightTuning(input.dataset.light as LightKey,Number(input.value));refreshLight();};
+  panel.querySelector<HTMLButtonElement>('#silence-light-reset')!.onclick=()=>{resetLightTuning();refreshLight();};
+  refreshLight();
+  style.textContent+=`.silence-admin .silence-light-title{display:flex;align-items:center;justify-content:space-between;font-size:14px;font-weight:500;margin:18px 0 4px;color:#c0cec5}.silence-admin .silence-light-title button{font-size:12px;padding:5px 12px}`;
   panel.querySelector<HTMLButtonElement>('#silence-reset')!.onclick=()=>{options.settings.bindings=defaults().bindings;capturing=undefined;renderBindings();options.settingsChanged();};
   const capture=(e:KeyboardEvent)=>{if(!open)return;if(capturing){e.preventDefault();e.stopImmediatePropagation();const action=capturing;if(e.code==='Escape'){capturing=undefined;message.textContent='';}else if(bindKey(options.settings,action,e.code)){capturing=undefined;message.textContent='';options.settingsChanged();}else message.textContent='Unavailable key';renderBindings();if(!capturing)(bindings.children[Object.keys(labels).indexOf(action)].querySelector('button') as HTMLButtonElement).focus();return;}if(e.key==='Tab'){const focusable=Array.from(panel.querySelectorAll<HTMLElement>('button,input,select,[tabindex="0"]')).filter(el=>el.tabIndex>=0&&el.getClientRects().length);const first=focusable[0],last=focusable[focusable.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}};window.addEventListener('keydown',capture,true);
   const mobileTap=createTapTracker();

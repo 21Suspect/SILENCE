@@ -1,3 +1,4 @@
+import { LIGHT_TUNING } from '../../core/light-tuning';
 import * as THREE from 'three';
 import { perfOn } from '../../core/perf-flags';
 
@@ -11,8 +12,8 @@ import { perfOn } from '../../core/perf-flags';
  *  2. Exposure, like an eye: the geometric mean of the scene's luminance (centre weighted) is read from the 1/32 level of the
  *     bloom chain and followed with a time constant, faster towards the light than towards the dark. The time of day sets a
  *     key and a range, so night stays dark however long you stand in it.
- *  3. Grade, in scene light before the tone curve: white balance, saturation, contrast round mid grey, cool shadows and warm
- *     highlights, and at night the eye's own grading: colour drains to blue-grey where the light is low (rods take over).
+ *  3. Grade, in scene light before the tone curve: white balance, saturation, contrast round mid grey, split toning of shadows and
+ *     highlights, and at night the eye's own grading: colour drains to a warm grey where the light is low (rods take over).
  *  4. The tone curve (ACES or AgX, three.js's own fits), then the sRGB encoding, film grain weighted towards the shadows, and
  *     triangular dither of one 8-bit step so dark gradients do not band.
  */
@@ -23,6 +24,8 @@ export type Grade = {
   /** Where the eye rests in this light (an exposure), how much of what it meters it follows (0..1), and how far it may close
    *  down and open up from there (stops). See eyeExposure. */
   anchor: number; response: number; close: number; open: number;
+  /** How far the eye follows a view more than a stop brighter than the anchor, past that stop (0..1; see eyeExposure). */
+  bright: number;
   /** Extra exposure, in stops. */
   bias: number;
   /** White balance: -1 cool .. +1 warm, and green-magenta tint. */
@@ -40,9 +43,14 @@ export type Grade = {
  * the sky swung the whole picture as the view tilted. Now it rests at the hour's anchor (where it settles in a typical view
  * of the wood in that light) and only leans towards the meter: by `response` of the way in stops, and never more than
  * `close` stops down or `open` stops up. A lamp you stand under still reads bright; the wood beyond it stays as it was.
+ * A view more than a stop brighter than the anchor (an open beach or lake by day, 3 to 4 times the wood) is followed by
+ * `bright` of the way past that stop: at `response` alone the eye closed under a stop there and the sand burned white. Only a
+ * view bright as a whole counts (`overall`, the meter's plain average with no floor, must say so too): a lantern in a dark room
+ * lifts the floored meter almost as much, and the room went 1.5 stops darker.
  */
-export function eyeExposure(metered: number, g: Pick<Grade, 'anchor' | 'response' | 'close' | 'open' | 'minExposure' | 'maxExposure'>) {
-  const e = g.anchor * Math.pow(metered / g.anchor, g.response);
+export function eyeExposure(metered: number, g: Pick<Grade, 'anchor' | 'response' | 'bright' | 'close' | 'open' | 'minExposure' | 'maxExposure'>, overall = metered) {
+  const d = Math.log2(metered / g.anchor), wide = Math.log2(overall / g.anchor);
+  const e = g.anchor * 2 ** (g.response * Math.max(d, -1) + g.bright * Math.min(Math.max(d, wide) + 1, 0));
   return Math.min(g.maxExposure, Math.max(g.minExposure, Math.min(g.anchor * 2 ** g.open, Math.max(g.anchor * 2 ** -g.close, e))));
 }
 
@@ -97,24 +105,26 @@ export function createFinalImage(renderer: THREE.WebGLRenderer) {
           vec2 uv=(vec2(float(i),float(j))+.5)/vec2(16.,9.);
           brightest=max(brightest,log2(max(dot(texture2D(tSrc,uv).rgb,vec3(.2126,.7152,.0722)),1e-6)));
         }
-        float sum=0.,weights=0.;
+        // Green: the plain log average, no floor. It says whether the view as a whole is bright (an open beach) or only holds a
+        // bright thing (a lantern in a dark room, which the floored meter reads as nearly as bright): see bright in eyeExposure.
+        float sum=0.,plain=0.,weights=0.;
         for(int j=0;j<9;j++)for(int i=0;i<16;i++){
           vec2 uv=(vec2(float(i),float(j))+.5)/vec2(16.,9.);
           vec2 d=(uv-.5)*vec2(1.,.8);float w=exp(-dot(d,d)*5.);
-          float lum=dot(texture2D(tSrc,uv).rgb,vec3(.2126,.7152,.0722));
-          sum+=max(log2(max(lum,1e-6)),brightest-4.5)*w;weights+=w;
+          float lum=log2(max(dot(texture2D(tSrc,uv).rgb,vec3(.2126,.7152,.0722)),1e-6));
+          sum+=max(lum,brightest-4.5)*w;plain+=lum*w;weights+=w;
         }
-        float target=sum/weights,previous=texture2D(tPrevious,vec2(.5)).r;
+        vec2 target=vec2(sum,plain)/weights,previous=texture2D(tPrevious,vec2(.5)).rg;
         // The eye opens slowly in the dark and closes faster in the light (seconds).
-        float tau=target>previous?.7:2.2;
-        float next=reset>.5?target:previous+(target-previous)*(1.-exp(-dt/tau));
-        gl_FragColor=vec4(next,0.,0.,1.);
+        vec2 tau=vec2(target.x>previous.x?.7:2.2,target.y>previous.y?.7:2.2);
+        vec2 next=reset>.5?target:previous+(target-previous)*(1.-exp(-dt/tau));
+        gl_FragColor=vec4(next,0.,1.);
       }`,
   });
   const finalUniforms = {
     tHdr: { value: null as THREE.Texture | null }, tBloom: { value: null as THREE.Texture | null }, tAdapted: { value: null as THREE.Texture | null },
     toneMapper: { value: TONE_MAPPERS.aces as number }, key: { value: .16 }, exposureRange: { value: new THREE.Vector2(.25, 40) }, bias: { value: 0 },
-    anchor: { value: 1 }, response: { value: 1 }, latitude: { value: new THREE.Vector2(20, 20) },
+    anchor: { value: 1 }, response: { value: 1 }, bright: { value: 1 }, latitude: { value: new THREE.Vector2(20, 20) },
     whiteBalance: { value: new THREE.Vector3(1, 1, 1) }, saturation: { value: 1 }, contrast: { value: 1 },
     shadowTint: { value: new THREE.Color(1, 1, 1) }, highlightTint: { value: new THREE.Color(1, 1, 1) }, scotopic: { value: 0 },
     vignette: { value: .2 }, grain: { value: .02 }, bloom: { value: .04 }, frame: { value: 0 }, resolution: { value: new THREE.Vector2(1, 1) },
@@ -123,7 +133,7 @@ export function createFinalImage(renderer: THREE.WebGLRenderer) {
     uniforms: finalUniforms, vertexShader, depthTest: false, depthWrite: false,
     fragmentShader: `precision highp float;varying vec2 vUv;
       uniform sampler2D tHdr,tBloom,tAdapted;uniform int toneMapper;
-      uniform float key,bias,saturation,contrast,scotopic,vignette,grain,bloom,frame,anchor,response;uniform vec2 exposureRange,resolution,latitude;
+      uniform float key,bias,saturation,contrast,scotopic,vignette,grain,bloom,frame,anchor,response,bright;uniform vec2 exposureRange,resolution,latitude;
       uniform vec3 whiteBalance,shadowTint,highlightTint;
       vec3 RRTAndODTFit(vec3 v){vec3 a=v*(v+.0245786)-.000090537;vec3 b=v*(.983729*v+.4329510)+.238081;return a/b;}
       vec3 aces(vec3 color){
@@ -157,9 +167,10 @@ export function createFinalImage(renderer: THREE.WebGLRenderer) {
       void main(){
         vec3 color=texture2D(tHdr,vUv).rgb;
         color=mix(color,texture2D(tBloom,vUv).rgb,bloom);
-        float adaptedLum=exp2(texture2D(tAdapted,vec2(.5)).r);
+        vec2 adapted=texture2D(tAdapted,vec2(.5)).rg;float adaptedLum=exp2(adapted.x);
         // The eye rests where the light of the hour puts it and only leans towards what it meters (see eyeExposure in this file).
-        float metered=key/max(adaptedLum,1e-6),exposure=anchor*pow(metered/anchor,response);
+        float metered=key/max(adaptedLum,1e-6),overall=key/max(exp2(adapted.y),1e-6);
+        float stops=log2(metered/anchor),wide=log2(overall/anchor),exposure=anchor*exp2(response*max(stops,-1.)+bright*min(max(stops,wide)+1.,0.));
         exposure=clamp(clamp(exposure,anchor*exp2(-latitude.x),anchor*exp2(latitude.y)),exposureRange.x,exposureRange.y)*exp2(bias);
         color*=exposure;
         // Lens falloff, in light (before the curve), so it darkens like an aperture does.
@@ -167,9 +178,10 @@ export function createFinalImage(renderer: THREE.WebGLRenderer) {
         color*=1.-vignette*smoothstep(.35,1.25,dot(v,v)*1.6);
         color*=whiteBalance;
         float lum=dot(color,vec3(.2126,.7152,.0722));
-        // Night vision: below a few hundredths of mid grey colour drains towards a cool blue-grey.
+        // Night vision: below a few hundredths of mid grey colour drains away, to a grey with a touch of warmth (a blue-grey rod
+        // shift read as a blue night).
         float rods=scotopic*(1.-smoothstep(.006,.12,lum));
-        color=mix(color,lum*vec3(.78,.9,1.16),rods);
+        color=mix(color,lum*vec3(1.02,1.,.96),rods);
         // Split toning by luminance, then contrast round mid grey in log space, then saturation.
         float tone=smoothstep(.02,.6,lum);
         color*=mix(shadowTint,highlightTint,tone);
@@ -228,9 +240,9 @@ export function createFinalImage(renderer: THREE.WebGLRenderer) {
       renderer.autoClear = autoClear;
       const u = finalUniforms;
       u.tHdr.value = hdr; u.tBloom.value = chain[0].texture; u.tAdapted.value = adapted[current].texture;
-      u.toneMapper.value = TONE_MAPPERS[toneMapper]; u.key.value = grade.key; u.exposureRange.value.set(grade.minExposure, grade.maxExposure); u.bias.value = grade.bias;
+      u.toneMapper.value = TONE_MAPPERS[toneMapper]; u.key.value = grade.key; u.exposureRange.value.set(grade.minExposure, grade.maxExposure); u.bias.value = grade.bias + LIGHT_TUNING.exposure;
       const anchored = perfOn('eyeAnchor');
-      u.anchor.value = grade.anchor; u.response.value = anchored ? grade.response : 1; u.latitude.value.set(anchored ? grade.close : 20, anchored ? grade.open : 20);
+      u.anchor.value = grade.anchor; u.response.value = anchored ? grade.response : 1; u.bright.value = anchored ? grade.bright : 1; u.latitude.value.set(anchored ? grade.close : 20, anchored ? grade.open : 20);
       // White balance as a cheap Kelvin-like shift: warm lifts red and lowers blue, the tint trades green for magenta.
       white.set(1 + .09 * grade.temperature, 1 - .04 * grade.tint, 1 - .13 * grade.temperature);
       u.whiteBalance.value.copy(white); u.saturation.value = grade.saturation; u.contrast.value = grade.contrast;

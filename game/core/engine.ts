@@ -22,8 +22,9 @@ import { createTapTracker } from './tap';
 import type { EncounterView } from '../sim/creature/encounter-visibility';
 import { footstepLoudness, FLASHLIGHT_CLICK_LOUDNESS, type FootSurface, type NoiseEvent as CreatureNoise } from '../sim/creature/creature-brain';
 import type { CreatureSenses, CreatureMode } from '../render/creature/encounters';
-import { heldKind, type ObjectiveEvent } from '../sim/objectives/objectives';
+import { guideKind, hasRoom, type ObjectiveEvent } from '../sim/objectives/objectives';
 import { createObjectiveHud, OBJECTIVE_KEY } from '../ui/objective-hud';
+import { createInventory, INVENTORY_KEY } from '../ui/inventory';
 import { createPerfOverlay, PERF_OVERLAY_KEY } from '../ui/perf-overlay';
 import { objectiveText } from '../sim/objectives/objective-text';
 import { POI_PLACEMENTS } from '../sim/world/world-layout';
@@ -98,6 +99,19 @@ export function createGame(container:HTMLElement) {
   // both are the one saved setting, so the choice is still there after a reload.
   const saveSettings=()=>{try{localStorage.setItem('silence-settings',JSON.stringify(settings));}catch{}};
   const objectiveHud=world2?createObjectiveHud(container,{enabled:()=>settings.objectiveHints,setEnabled:on=>{settings.objectiveHints=on;saveSettings();}}):undefined;
+  // I: the backpack. Opening it frees the mouse to drag things about (the view stops turning, walking goes on); losing the pointer lock
+  // for it is not a pause. Closing it takes the mouse back.
+  let inventoryOpen=false;
+  const inventory=world2?createInventory(container,{
+    read:()=>world2.inventory(),
+    move:(from,to)=>{world2.moveItem(from,to);},
+    drop:slot=>{if(world2.drop(slot))shadowDirty=true;},
+    onOpenChange:open=>{
+      inventoryOpen=open;
+      if(open){if(document.pointerLockElement===renderer.domElement)document.exitPointerLock();}
+      else start();
+    },
+  }):undefined;
   // Sprint stamina (game/sim/player/stamina.ts) and its bar, which only shows while stamina is below full (game/ui/stamina-hud.ts).
   const stamina=createStamina(),staminaHud=createStaminaHud(container);
   const interact=(pickupOnly=false)=>grab?false:world2?world2.activate(pickupOnly)||(!pickupOnly&&flashlight.toggle()):flashlight.interact(pickupOnly);
@@ -201,7 +215,7 @@ export function createGame(container:HTMLElement) {
       } catch { pointerLockPending=false; /* Drag controls remain available inside embedded browsers. */ }
     }
   };
-  const mouseDown=(e:MouseEvent)=>{if(e.button!==0||admin.open||performance.now()-lastTouch<700)return;if(isActive())mouseTap.begin(performance.now());else mouseTap.cancel();drag=true;mouseX=e.clientX;mouseY=e.clientY;start();};
+  const mouseDown=(e:MouseEvent)=>{if(e.button!==0||admin.open||inventoryOpen||performance.now()-lastTouch<700)return;if(isActive())mouseTap.begin(performance.now());else mouseTap.cancel();drag=true;mouseX=e.clientX;mouseY=e.clientY;start();};
   const mouseUp=(e:MouseEvent)=>{if(e.button===0&&drag&&isActive()&&mouseTap.end(performance.now())&&interact())shadowDirty=true;drag=false;};
   const mouseMove=(e:MouseEvent)=>{
     if(admin.open||grab)return;
@@ -215,6 +229,7 @@ export function createGame(container:HTMLElement) {
     if((e.code==='F2'||e.code==='Backquote')&&!e.repeat){e.preventDefault();admin.show('developer');return;}
     if(admin.open){if(e.code==='Escape'){e.preventDefault();admin.close();}return;}
     if(['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','ShiftLeft','ShiftRight','ControlLeft','ControlRight','KeyF','Space'].includes(e.code))e.preventDefault();
+    if(e.code==='Escape'&&!e.repeat&&inventoryOpen){e.preventDefault();inventory?.close();return;}
     if(e.code==='Escape'&&!e.repeat){e.preventDefault();admin.show();return;}
     if(Object.values(settings.bindings).includes(e.code))e.preventDefault();
     keys.add(e.code);
@@ -222,6 +237,7 @@ export function createGame(container:HTMLElement) {
     if(e.code===settings.bindings.rise&&!e.repeat&&isActive()&&!grab){if(world2?.climbing)world2.letGo();else if(!flying&&!airborne)jumpRequested=true;}
     if(e.code===settings.bindings.drop&&!e.repeat&&isActive()&&!grab&&world2?.drop())shadowDirty=true;
     if(e.code===OBJECTIVE_KEY&&!e.repeat&&isActive()&&!grab&&!Object.values(settings.bindings).includes(e.code))objectiveHud?.toggle();
+    if(e.code===INVENTORY_KEY&&!e.repeat&&isActive()&&!grab&&!Object.values(settings.bindings).includes(e.code)){e.preventDefault();inventory?.toggle();}
     if(e.code===PERF_OVERLAY_KEY&&!e.repeat&&!Object.values(settings.bindings).includes(e.code)){settings.perfOverlay=!settings.perfOverlay;saveSettings();}
     if(e.code===settings.bindings.fullscreen && !loading && !e.repeat){
       if(!document.fullscreenElement)void container.requestFullscreen?.().catch(()=>{});
@@ -243,6 +259,8 @@ export function createGame(container:HTMLElement) {
       void audio.resume();
     }else if(pointerWasLocked){
       pointerWasLocked=false;
+      // Let go of on purpose, for the backpack: not a pause.
+      if(inventoryOpen)return;
       // Chrome can consume Escape while releasing the mouse, without a keydown.
       admin.show();
     }
@@ -474,11 +492,13 @@ export function createGame(container:HTMLElement) {
       drawList(){return drawList(scene,camera);},
       /** The scene itself, for one-off inspection from the console (instance positions, materials). */
       scene(){return scene;},
+      /** The player's camera, for picking from the console (what is under this pixel). */
+      camera(){return camera;},
       /** The forest's crown band (metres, near crown to light crown), live: set x and y to measure another band. */
       crownBand(){return forest.crownBand;},
       /** The eye's state: the metered scene luminance (log2) it has adapted to and the exposure the final image applies (dev). */
       exposure(){const t=atmosphere.adaptedTarget(),h=new Uint16Array(4);renderer.readRenderTargetPixels(t,0,0,1,1,h);const b=Array.from(h,THREE.DataUtils.fromHalfFloat);const g=scene.userData.grade as Grade|undefined;
-        const metered=g?g.key/Math.max(2**b[0],1e-6):0;return{log2:+b[0].toFixed(3),metered:+metered.toFixed(3),exposure:g?+(perfOn('eyeAnchor')?eyeExposure(metered,g):Math.min(g.maxExposure,Math.max(g.minExposure,metered))).toFixed(3):null,anchor:g?.anchor};},
+        const metered=g?g.key/Math.max(2**b[0],1e-6):0,overall=g?g.key/Math.max(2**b[1],1e-6):0;return{log2:+b[0].toFixed(3),plain:+b[1].toFixed(3),metered:+metered.toFixed(3),exposure:g?+(perfOn('eyeAnchor')?eyeExposure(metered,g,overall):Math.min(g.maxExposure,Math.max(g.minExposure,metered))).toFixed(3):null,anchor:g?.anchor};},
       /** What the sun's shadow pass would draw right now: casters inside the shadow camera's frustum. */
       shadowList(){sun.shadow.updateMatrices(sun);return drawList(scene,camera,sun.shadow.camera);},
       /** Of the instances the sun's shadow pass submits, how many reach the shadow frustum. */
@@ -683,7 +703,9 @@ export function createGame(container:HTMLElement) {
     if(probe){const m=probe.marks;m.terrain0=startTerrain;m.forest0=startForest;m.forest1=endForest;}
     const storyChanged=story.update(player);
     const worldChanged=world2?world2.update({dt,time:elapsed,player,darkness,active:active&&!grab,simulate}):false;
-    if(objectiveHud&&world2)objectiveHud.update({now,allowed:active&&!grab,text:objectiveText(world2.objectiveState,heldKind(world2.objectiveState,world2.localPlayer),{dropKey:coarse?undefined:keyLabel(settings.bindings.drop)})});
+    if(objectiveHud&&world2)objectiveHud.update({now,allowed:active&&!grab,text:objectiveText(world2.objectiveState,guideKind(world2.objectiveState,world2.localPlayer),{dropKey:coarse?undefined:keyLabel(settings.bindings.drop),room:hasRoom(world2.objectiveState,world2.localPlayer)})});
+    // The backpack panel follows what is carried (a pickup or a drop with it open), and goes away with play (a menu, being taken).
+    if(inventoryOpen){if(!active||grab)inventory?.close();else inventory?.refresh();}
     if(probe)probe.marks.world1=performance.now();
     const creatureWasVisible=creature.visible;
     if(forest.collisionVersion!==forestCollisionVersion){forestCollisionVersion=forest.collisionVersion;collisions.replace('forest',forest.solidColliders);}
@@ -762,7 +784,7 @@ export function createGame(container:HTMLElement) {
     window.removeEventListener('mouseup',mouseUp);window.removeEventListener('mousemove',mouseMove);window.removeEventListener('keydown',keyDown);window.removeEventListener('keyup',keyUp);window.removeEventListener('blur',blur);window.removeEventListener('focus',focus);window.removeEventListener('resize',resize);window.visualViewport?.removeEventListener('resize',resize);densityQuery?.removeEventListener('change',densityChanged);window.removeEventListener('orientationchange',clearInput);
     document.removeEventListener('pointerlockchange',lockChange);document.removeEventListener('pointerlockerror',lockError);document.removeEventListener('visibilitychange',visibilityChange);
     renderer.domElement.removeEventListener('mousedown',mouseDown);renderer.domElement.removeEventListener('touchstart',touchStart);renderer.domElement.removeEventListener('touchmove',touchUpdate);renderer.domElement.removeEventListener('touchend',touchEnd);renderer.domElement.removeEventListener('touchcancel',touchEnd);
-    unsubscribeNoise();blackout.remove();objectiveHud?.dispose();staminaHud.dispose();world2?.dispose();admin.dispose();slicer.dispose();perfOverlay.dispose();flashlight.dispose();sun.shadow.dispose();sky.dispose();audio.dispose();encounters.dispose();forest.dispose();story.dispose();terrain.dispose();atmosphere.dispose();
+    unsubscribeNoise();blackout.remove();objectiveHud?.dispose();inventory?.dispose();staminaHud.dispose();world2?.dispose();admin.dispose();slicer.dispose();perfOverlay.dispose();flashlight.dispose();sun.shadow.dispose();sky.dispose();audio.dispose();encounters.dispose();forest.dispose();story.dispose();terrain.dispose();atmosphere.dispose();
     scene.traverse(object=>{if(object instanceof THREE.Mesh){object.geometry.dispose();const mats=Array.isArray(object.material)?object.material:[object.material];for(const mat of mats){for(const v of Object.values(mat))if(v instanceof THREE.Texture)v.dispose();mat.dispose();}}});
     renderer.dispose();renderer.domElement.remove();
   };

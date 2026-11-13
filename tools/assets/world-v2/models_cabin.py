@@ -479,10 +479,13 @@ def cabin():
     def blanket(u, v):
         x = mx0 + .5 + u * (mx1 - mx0 - .48)
         z, y = drape_at(v, x)
-        fold = .012 * max(0.0, math.sin(u * 13 + v * 4)) * max(0.0, math.sin(u * 5 - 1))
+        # Two soft, broad rucks across it (a sharp-crested fold read as a tear in the cloth).
+        fold = .007 * (.5 - .5 * math.cos(2 * math.pi * min(1.0, max(0.0, u * 2.2 - .3)))) * (.6 + .4 * math.sin(v * 3 + 1))
         return np.array((x, y + fold * (z < mz1), z + fold * .5 * (z > z1)))
     m.surface("blanket", blanket, 26, 24, (mx1 - mx0 - .48, 1.2), flip=True, metres_per_uv=1)
     m.collide_box((hx0 + hx1) / 2, (z0 + z1) / 2, (hx1 - hx0) / 2 + .06, (z1 - z0) / 2 + .06, FLOOR, FLOOR + .7, tag="bed")
+    # Where the backpack is left: standing on the blanket at the foot of the bed (the game puts it there, objectives-runtime.ts).
+    m.hook("backpack", (2.62, base + .13 + .004, (z0 + z1) / 2 + .04))
 
     # A hurricane lantern hung on a wire from the ridge log over the table, lit day and night. Its light is baked into the cabin
     # (tiled.py, lamps): a real light would shine through the log walls onto the ground outside, and a shadowed one costs every
@@ -500,6 +503,9 @@ def cabin():
     m.tube([(lx - .072, ly + .27, lz), (lx - .06, ly + .4, lz), (lx, ly + .44, lz), (lx + .06, ly + .4, lz), (lx + .072, ly + .27, lz)], .0035, "iron", 5)
     m.tube([(lx, ly + .435, lz), (lx, ridge_bottom + .01, lz)], .0025, "iron", 4)
     m.lamps = [dict(at=(lx, ly + .17, lz), radius=.025)]
+    # The room, for loose things that come into it (a pickup, the door leaf): inside this box the game gives them the room's
+    # dim sky and the lantern's light (prop-materials.ts PROP_ROOM).
+    m.rooms = [dict(min=[-W + R, FLOOR - .05, -D + R], max=[W - R, rafter_axis(0), D - R], lamp="lamp")]
     m.hook("lamp", (lx, ly + .17, lz))
 
     tx, tz = 1.0, -.6
@@ -510,7 +516,10 @@ def cabin():
         for sz in (-.24, .24):
             hq.round_log(m, (tx + sx, FLOOR, tz + sz), (tx + sx * 1.02, FLOOR + .74, tz + sz), .04, "logwood", caps=(False, False))
         m.beam((tx + sx, FLOOR + .66, tz - .27), (tx + sx, FLOOR + .66, tz + .27), .05, .08, "wood_dark")
-    m.collide_box(tx, tz, .72, .32, FLOOR, FLOOR + .8, tag="table")
+    # Only the top is solid: it still stops a player walking into the table, and leaves the floor under it in view (the
+    # backpack lies there, and a pickup needs a clear line from the eye, interaction.ts lineOfSight).
+    m.collide_box(tx, tz, .72, .32, FLOOR + .66, FLOOR + .8, tag="table")
+
     for sx, sz in ((-.3, .6), (.55, .55)):
         hq.round_log(m, (tx + sx, FLOOR, tz + sz), (tx + sx, FLOOR + .44, tz + sz), .17, "bark", taper=0, caps=(False, True), bevel=.008)
     # On the table: a tin plate, a cup, a hurricane lamp.

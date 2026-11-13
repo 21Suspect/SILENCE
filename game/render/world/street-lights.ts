@@ -1,3 +1,4 @@
+import { LIGHT_TUNING } from '../../core/light-tuning';
 import * as THREE from 'three';
 import type { Pois } from '../props/pois';
 
@@ -209,7 +210,7 @@ export function createStreetLights(o: StreetLightOptions) {
       for (const s of slots) {
         const l = s.id ? working.find(w => w.id === s.id) : undefined;
         const level = l ? l.shown * ease(s.level) : 0;
-        s.light.intensity = level * LAMP.candela;
+        s.light.intensity = level * LAMP.candela * LIGHT_TUNING.lamps;
         if (l) tint(l, 1, s.light.color);
         s.light.visible = anyLit;
       }

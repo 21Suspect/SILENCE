@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { initialState, applyAction, replay, heldItem, firstEmptySlot, insertedFuses } from '../../../game/sim/objectives/objectives.ts';
+import { initialState, applyAction, replay, heldItem, firstEmptySlot, insertedFuses, hasPack, carries, hasRoom, PACK_SLOTS } from '../../../game/sim/objectives/objectives.ts';
 
 const me = 'p1', you = 'p2';
 const run = (state, ...actions) => replay(actions, state);
@@ -14,12 +14,14 @@ const winning = [
   { type: 'transmit', player: me },
 ];
 
-test('the world starts with three fuses and one jerry can, all lying at their places', () => {
+test('the world starts with three fuses, one jerry can and a backpack in the cabin, all lying at their places', () => {
   const s = initialState();
   assert.deepEqual(Object.entries(s.items).map(([id, i]) => [id, i.kind, i.poi, i.status]), [
     ['fuse-mine', 'fuse', 'mine', 'world'], ['fuse-lookout', 'fuse', 'lookout', 'world'],
     ['fuse-logstack', 'fuse', 'logstack', 'world'], ['jerry-camp', 'jerry', 'camp', 'world'],
+    ['backpack-cabin', 'backpack', 'cabin', 'world'],
   ]);
+  assert.deepEqual(s.packs, {}, 'nobody starts with a backpack');
   assert.equal(s.phase, 'gather');
   assert.deepEqual(s.fuseBox, [null, null, null]);
   assert.notEqual(initialState().items, s.items, 'every call returns a fresh object');
@@ -32,7 +34,7 @@ test('the full loop ends in signalSent, and each step moves the phase on', () =>
   assert.deepEqual(phases, ['gather', 'fueled', 'running', 'running', 'running', 'running', 'running', 'running', 'powered', 'signalSent']);
   assert.equal(s.signalBy, me);
   assert.deepEqual(s.carrying, {});
-  assert.ok(Object.values(s.items).every(i => i.status === 'used'));
+  assert.ok(Object.values(s.items).filter(i => i.kind !== 'backpack').every(i => i.status === 'used'));
   assert.equal(insertedFuses(s), 3);
 });
 
@@ -164,4 +166,104 @@ test('malformed actions are refused, never thrown', () => {
     assert.equal(r.events.length, 1);
     assert.equal(r.events[0].type, 'refused');
   }
+});
+
+// --- the backpack ------------------------------------------------------------------------------------------------------
+
+const withPack = (...actions) => run(initialState(), { type: 'pickup', player: me, item: 'backpack-cabin' }, ...actions);
+/** A world with extra fuses lying about, to fill a pack. */
+const crowded = n => {
+  const s = initialState();
+  for (let i = 0; i < n; i++) s.items[`fuse-extra-${i}`] = { kind: 'fuse', poi: 'mine', status: 'world' };
+  return s;
+};
+
+test('the backpack is worn, not carried: it gives an empty pack of twelve and leaves the hand free', () => {
+  const { state: s, events } = withPack();
+  assert.equal(s.items['backpack-cabin'].status, 'worn');
+  assert.equal(s.items['backpack-cabin'].holder, me);
+  assert.ok(hasPack(s, me));
+  assert.equal(PACK_SLOTS, 12);
+  assert.deepEqual(s.packs[me], Array(12).fill(null));
+  assert.equal(heldItem(s, me), undefined, 'the hand is still empty');
+  assert.equal(events[0].type, 'picked-up');
+  assert.equal(events[1].type, 'noise');
+  assert.ok(!hasPack(s, you));
+  assert.deepEqual(JSON.parse(JSON.stringify(s)), s, 'state is still plain JSON');
+});
+
+test('with a backpack the hand fills first, then the pack slot by slot; without one a full hand refuses', () => {
+  const without = run(initialState(), { type: 'pickup', player: me, item: 'fuse-mine' }, { type: 'pickup', player: me, item: 'fuse-lookout' });
+  assert.equal(without.events.at(-1).reason, 'hands-full');
+  const { state: s, events } = withPack({ type: 'pickup', player: me, item: 'fuse-mine' }, { type: 'pickup', player: me, item: 'fuse-lookout' }, { type: 'pickup', player: me, item: 'jerry-camp' });
+  assert.equal(heldItem(s, me), 'fuse-mine');
+  assert.deepEqual(s.packs[me].slice(0, 3), ['fuse-lookout', 'jerry-camp', null]);
+  assert.equal(s.items['fuse-lookout'].status, 'packed');
+  assert.deepEqual(events.filter(e => e.type === 'picked-up').map(e => e.to), [undefined, 'hand', 0, 1]);
+});
+
+test('a full pack and a full hand refuse a thirteenth pickup', () => {
+  let s = run(crowded(14), { type: 'pickup', player: me, item: 'backpack-cabin' }).state;
+  for (let i = 0; i < 13; i++) s = applyAction(s, { type: 'pickup', player: me, item: `fuse-extra-${i}` }).state;
+  assert.ok(!hasRoom(s, me));
+  const r = applyAction(s, { type: 'pickup', player: me, item: 'fuse-extra-13' });
+  assert.equal(r.state, s);
+  assert.equal(r.events[0].reason, 'hands-full');
+});
+
+test('moving swaps between the hand and any slot, and between slots', () => {
+  let { state: s } = withPack({ type: 'pickup', player: me, item: 'fuse-mine' }, { type: 'pickup', player: me, item: 'jerry-camp' });
+  // hand: fuse, slot 0: jerry
+  s = applyAction(s, { type: 'move', player: me, from: 0, to: 'hand' }).state;
+  assert.equal(heldItem(s, me), 'jerry-camp');
+  assert.equal(s.packs[me][0], 'fuse-mine');
+  assert.equal(s.items['jerry-camp'].status, 'held');
+  assert.equal(s.items['fuse-mine'].status, 'packed');
+  s = applyAction(s, { type: 'move', player: me, from: 0, to: 11 }).state;
+  assert.deepEqual([s.packs[me][0], s.packs[me][11]], [null, 'fuse-mine']);
+  s = applyAction(s, { type: 'move', player: me, from: 'hand', to: 5 }).state;
+  assert.equal(heldItem(s, me), undefined, 'moving into an empty slot empties the hand');
+  assert.equal(s.packs[me][5], 'jerry-camp');
+  const event = applyAction(s, { type: 'move', player: me, from: 5, to: 6 }).events[0];
+  assert.deepEqual(event, { type: 'moved', player: me, from: 5, to: 6 });
+});
+
+test('moves that make no sense are refused and change nothing', () => {
+  const plain = run(initialState(), { type: 'pickup', player: me, item: 'fuse-mine' }).state;
+  assert.equal(applyAction(plain, { type: 'move', player: me, from: 'hand', to: 0 }).events[0].reason, 'no-pack');
+  const { state: s } = withPack();
+  for (const [from, to, reason] of [[0, 1, 'empty-slot'], ['hand', 2, 'empty-slot'], [0, 12, 'bad-slot'], [-1, 0, 'bad-slot'], [3, 3, 'bad-slot'], [1.5, 0, 'bad-slot']]) {
+    const r = applyAction(s, { type: 'move', player: me, from, to });
+    assert.equal(r.state, s);
+    assert.equal(r.events[0].reason, reason, `${from} -> ${to}`);
+  }
+});
+
+test('dropping from a pack slot puts that item on the ground and frees the slot; the hand is untouched', () => {
+  const at = { x: 3, z: -4, y: .4 };
+  let { state: s } = withPack({ type: 'pickup', player: me, item: 'fuse-mine' }, { type: 'pickup', player: me, item: 'jerry-camp' });
+  const r = applyAction(s, { type: 'drop', player: me, slot: 0, at });
+  s = r.state;
+  assert.equal(s.packs[me][0], null);
+  assert.equal(s.items['jerry-camp'].status, 'world');
+  assert.deepEqual(s.items['jerry-camp'].at, at);
+  assert.equal(heldItem(s, me), 'fuse-mine');
+  assert.deepEqual(r.events.map(e => e.type), ['dropped', 'noise']);
+  assert.equal(applyAction(s, { type: 'drop', player: me, slot: 0 }).events[0].reason, 'empty-slot');
+  assert.equal(applyAction(initialState(), { type: 'drop', player: me, slot: 0 }).events[0].reason, 'no-pack');
+});
+
+test('the generator and the fuse box take what they need from the pack when the hand holds something else', () => {
+  let { state: s } = withPack({ type: 'pickup', player: me, item: 'fuse-mine' }, { type: 'pickup', player: me, item: 'jerry-camp' });
+  assert.ok(carries(s, me, 'jerry'));
+  s = applyAction(s, { type: 'refuel', player: me }).state;
+  assert.ok(s.generator.fuel);
+  assert.equal(heldItem(s, me), 'fuse-mine', 'the fuse stays in hand');
+  assert.equal(s.packs[me][0], null);
+  s = run(s, { type: 'pull-start', player: me }, { type: 'move', player: me, from: 'hand', to: 7 }).state;
+  assert.equal(heldItem(s, me), undefined);
+  s = applyAction(s, { type: 'insert-fuse', player: me, slot: 0 }).state;
+  assert.equal(insertedFuses(s), 1);
+  assert.equal(s.packs[me][7], null);
+  assert.equal(applyAction(s, { type: 'insert-fuse', player: me, slot: 1 }).events[0].reason, 'wrong-item');
 });

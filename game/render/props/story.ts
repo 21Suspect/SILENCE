@@ -5,6 +5,7 @@ import { createRockGeometry, createRockMaterial, createWeatheredWoodMaterial } f
 import { varyDirectionalTexture } from '../world/texture-variation';
 import type { SolidCollider } from '../../sim/world/collision';
 import { WORLD_V2 } from '../../sim/world/world-flags';
+import { structureClearance, vegetationExclusion } from '../../sim/world/world';
 
 /** Quiet, unmarked traces of people who used to visit this part of the forest. */
 export function createStory(scene: THREE.Scene, heightAt: (x: number, z: number) => number) {
@@ -120,11 +121,16 @@ export function createStory(scene: THREE.Scene, heightAt: (x: number, z: number)
   // Two rusted straps remain where the front beam was once reinforced.
   for (const x of [-1.56, 1.56]) add(new THREE.BoxGeometry(.13, .22, .008), rust, point(x, 2.4, 1.015), new THREE.Euler(0, yaw, 0));
 
+  // These traces stand at fixed spots laid out for the first world. In the rebuilt one a building or a yard may stand there now
+  // (the cabin was built over the last three boundary stones, one poking through its floor): nothing is placed within a metre of
+  // a building's footprint or on a path or trodden yard. (The waymarker and the heath fence below are clear of all of them.)
+  const clear = (x: number, z: number) => !WORLD_V2 || (structureClearance(x, z) > 1 && vegetationExclusion(x, z) < .5);
   // An old line of small boundary stones no longer quite follows the path.
   for (let i = 0; i < 8; i++) {
     const x = -10.8 - i * .57 + (random() - .5) * .4, z = -22 - i * 2.6;
-    const g = createRockGeometry(813 + i * 51);
     const radius = .15 + random() * .16, tall = .24 + random() * .18;
+    if (!clear(x, z)) { random(); random(); random(); continue; }
+    const g = createRockGeometry(813 + i * 51);
     g.scale(radius, tall, radius * .81);
     solidColliders.push({kind:'capsule',ax:x,az:z,bx:x,bz:z,radius,minY:heightAt(x,z)-tall*.61,maxY:heightAt(x,z)+tall*1.39,tag:'boundary stone'});
     add(g, stone, new THREE.Vector3(x, heightAt(x, z) + tall * .39, z), new THREE.Euler((random() - .5) * .4, random() * 6, (random() - .5) * .4));

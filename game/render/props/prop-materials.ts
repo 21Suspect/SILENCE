@@ -1,3 +1,4 @@
+import { LIGHT_TUNING, lightTuningVersion } from '../../core/light-tuning';
 import * as THREE from 'three';
 
 /**
@@ -41,14 +42,87 @@ const MOSS = new THREE.Color(.075, .095, .03);
  * flame, about 1900 K. In the game's units (the sun is 1.62, the torch 14, a street lamp 16) 2.5 lights the cabin's room to
  * about half the shade outside by day and reads as a warm, steady lantern at night.
  */
-export const PROP_LAMP = { candela: { value: 2.5 }, colour: { value: new THREE.Color(1, .6, .28) } };
 /** Luminance of a lamp's lit globe per candela of the lamp (its glass is about 0.015 m2 seen from the side). */
 const GLOW_PER_CANDELA = 60;
 const glows = new Set<THREE.MeshStandardMaterial>();
+// The uniform reads its value as it is uploaded, so the developer tab's lamp knob (core/light-tuning.ts) applies at once; the
+// globes' glow follows it the first frame they are drawn after a change.
+let lampCandela = 2.5, glowVersion = -1;
+export const PROP_LAMP = {
+  candela: { get value() {
+    if (glowVersion !== lightTuningVersion) { glowVersion = lightTuningVersion; for (const m of glows) m.emissiveIntensity = lampCandela * LIGHT_TUNING.lamps * GLOW_PER_CANDELA; }
+    return lampCandela * LIGHT_TUNING.lamps;
+  }, set value(candela: number) { lampCandela = candela; glowVersion = -1; } },
+  colour: { value: new THREE.Color(1, .6, .28) },
+};
 /** Set every baked lamp's brightness (and its globe's glow) at once. */
 export function setPropLamp(candela: number) {
   PROP_LAMP.candela.value = candela;
-  for (const m of glows) m.emissiveIntensity = candela * GLOW_PER_CANDELA;
+  for (const m of glows) m.emissiveIntensity = candela * LIGHT_TUNING.lamps * GLOW_PER_CANDELA;
+}
+
+/**
+ * A room of a tiled prop (the cabin): its box in the prop's own frame and its lamp. The prop's own surfaces know they are
+ * indoors (the macro map's sky openness and the baked lamp); loose things that come and go inside it (pickups, a door leaf)
+ * do not, and without this a backpack on the bed took the full blue sky's light and glowed pale in a dim room. In the room's
+ * box they take the same share of the sky as a closed room (tiled.py INDOOR_AMBIENT) and the lamp's light as a plain
+ * point (they are near it, and nothing in the room shadows it much). One room for now: the cabin's.
+ */
+export const PROP_ROOM = {
+  toLocal: { value: new THREE.Matrix4() }, min: { value: new THREE.Vector3() }, max: { value: new THREE.Vector3() },
+  lamp: { value: new THREE.Vector3() }, on: { value: 0 },
+};
+const INDOOR_AMBIENT = .16;
+/** Set the room: `toLocal` takes world positions into the prop's frame, where it spans `min` to `max`; `lamp` is in world metres. */
+export function setPropRoom(toLocal: THREE.Matrix4, min: readonly number[], max: readonly number[], lamp?: THREE.Vector3) {
+  PROP_ROOM.toLocal.value.copy(toLocal); PROP_ROOM.min.value.fromArray(min); PROP_ROOM.max.value.fromArray(max);
+  if (lamp) PROP_ROOM.lamp.value.copy(lamp);
+  PROP_ROOM.on.value = 1;
+}
+const ROOM_VERTEX = `
+  vec4 propWorld = vec4( transformed, 1. );
+  #ifdef USE_INSTANCING
+    propWorld = instanceMatrix * propWorld;
+  #endif
+  vPropWorld = ( modelMatrix * propWorld ).xyz;`;
+const ROOM_FRAGMENT = `
+  {
+    // Inside the room's box (soft over its last 15 cm), the sky is mostly shut out and the lamp lights it.
+    vec3 local = ( uRoomToLocal * vec4( vPropWorld, 1. ) ).xyz;
+    vec3 box = smoothstep( uRoomMin, uRoomMin + .15, local ) * ( 1. - smoothstep( uRoomMax - .15, uRoomMax, local ) );
+    float inside = box.x * box.y * box.z * uRoomOn;
+    reflectedLight.indirectDiffuse *= mix( 1., ${INDOOR_AMBIENT.toFixed(2)}, inside );
+    reflectedLight.indirectSpecular *= mix( 1., ${INDOOR_AMBIENT.toFixed(2)}, inside );
+    vec3 toLamp = uRoomLamp - vPropWorld;
+    float lampDistance = max( dot( toLamp, toLamp ), .04 );
+    vec3 lampDirection = normalize( ( viewMatrix * vec4( toLamp, 0. ) ).xyz );
+    reflectedLight.directDiffuse += inside * saturate( dot( normal, lampDirection ) ) * uLampCandela / lampDistance * uLampColour * BRDF_Lambert( material.diffuseColor );
+  }`;
+/** Give a standard material the room's light (see PROP_ROOM); chains any patch it already has. */
+export function patchInterior(material: THREE.MeshStandardMaterial) {
+  const before = material.onBeforeCompile, key = material.customProgramCacheKey;
+  material.onBeforeCompile = (shader, renderer) => {
+    before?.call(material, shader, renderer);
+    interior(shader);
+  };
+  material.customProgramCacheKey = () => `${key.call(material)}|silence-room-v1`;
+  material.needsUpdate = true;
+}
+function interior(shader: THREE.WebGLProgramParametersWithUniforms) {
+  shader.uniforms.uRoomToLocal = PROP_ROOM.toLocal; shader.uniforms.uRoomMin = PROP_ROOM.min; shader.uniforms.uRoomMax = PROP_ROOM.max;
+  shader.uniforms.uRoomLamp = PROP_ROOM.lamp; shader.uniforms.uRoomOn = PROP_ROOM.on;
+  shader.uniforms.uLampCandela ??= PROP_LAMP.candela; shader.uniforms.uLampColour ??= PROP_LAMP.colour;
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nvarying vec3 vPropWorld;')
+    .replace('#include <project_vertex>', `#include <project_vertex>${ROOM_VERTEX}`);
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', `#include <common>
+varying vec3 vPropWorld;
+uniform mat4 uRoomToLocal;
+uniform vec3 uRoomMin,uRoomMax,uRoomLamp;
+uniform float uRoomOn;
+${shader.fragmentShader.includes('uLampCandela;') ? '' : 'uniform float uLampCandela;\nuniform vec3 uLampColour;'}`)
+    .replace('#include <aomap_fragment>', `#include <aomap_fragment>${ROOM_FRAGMENT}`);
 }
 
 function patch(material: THREE.MeshStandardMaterial, vary: number, lampMax: number) {
@@ -94,7 +168,12 @@ function patch(material: THREE.MeshStandardMaterial, vary: number, lampMax: numb
       .replace('#include <aomap_fragment>', THREE.ShaderChunk.aomap_fragment.replace('texture2D( aoMap, vAoMapUv ).r',
         'propMacro.r * mix( 1., texture2D( roughnessMap, vRoughnessMapUv ).r, .8 )'));
   };
-  material.customProgramCacheKey = () => 'silence-prop-library-v2';
+  // Loose library-textured things (a door leaf) take the room's light; a prop with its own baked lamp (the cabin) already has it.
+  if (!lampMax) {
+    const own = material.onBeforeCompile;
+    material.onBeforeCompile = (shader, renderer) => { own.call(material, shader, renderer); interior(shader); };
+  }
+  material.customProgramCacheKey = () => `silence-prop-library-v3-${lampMax ? 'lit' : 'room'}`;
 }
 
 /**

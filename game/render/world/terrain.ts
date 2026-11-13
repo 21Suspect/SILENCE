@@ -226,7 +226,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
       // Moss is never a whole carpet with an outline: a broken mask over several scales, held below full cover, so the height
       // blend lets it fill the hollows between the needle mats first and the floor shows through its edges.
       float mossField=damp*.55+surfaceNoise(p*.31+77.)*.2+surfaceNoise(p*1.3+11.)*.15+surfaceNoise(p*4.7)*.1;
-      float wMoss=.72*smoothstep(.22,.78,mossField)*level*(1.-vBiome.w)*ground*(1.-dirtCoverage*mix(1.,uPathTune.z,pathSoft))*(1.-leafBlend*.45);
+      float wMoss=.66*smoothstep(.18,.86,mossField)*level*(1.-vBiome.w)*ground*(1.-dirtCoverage*mix(1.,uPathTune.z,pathSoft))*(1.-leafBlend*.45);
       float wFloor=max(.08,1.-max(max(max(wRock,wRocky),max(wPath,wRoots)),max(wLitter,wMoss)));
       ${RELIEF?`      // ---- Parallax occlusion on the near ground. The view ray is marched down into the leading layer's relief (the colour's
       // alpha), and every layer is then read where the ray meets that relief: needle mats, roots and stones stand above the
@@ -362,7 +362,10 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
       if(wLitter>.02||road>.001)cLitter=samplePatchLayer(uGroundColor,litterP,1.);
       // The roots scan is pale, dry dirt; on this floor the soil round a trunk is dark and damp.
       if(wRoots>.02){cRoots=samplePatchLayer(uGroundColor,rootsP,2.);cRoots.rgb*=vec3(.74,.72,.68);}
-      if(wMoss>.02)cMoss=samplePatchLayer(uGroundColor,mossP,3.);
+      // The moss scan is a deep, pure green (linear mean .028/.055/.010: half the floor's brightness, hue 96, 82 % saturated) and
+      // read as dark green blots on the brown floor. Brought to a damp forest moss: 40 % of its colour drained, then an olive tint
+      // to a mean of .072/.083/.034 (hue 73, 59 %), near the floor's own brightness, so it reads as part of the floor.
+      if(wMoss>.02){cMoss=samplePatchLayer(uGroundColor,mossP,3.);cMoss.rgb=mix(vec3(dot(cMoss.rgb,vec3(.2126,.7152,.0722))),cMoss.rgb,.6)*vec3(2.06,1.62,1.41);}
       if(wPath>.02||road>.001){
         cPath=samplePatchLayer(uGroundColor,pathP,pathLayer);
         // Each candidate brought to this floor: the leafy mud a little warmer, the forest mud out of near black, the pale earth brown.
@@ -437,9 +440,10 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
       float wet=1.-smoothstep(.05,.65,vGroundPosition.y+5.2);
       if(sandCover>.001){
         vec3 scan=coastPatch(uCoastalMap,coastDetail,0.).rgb;
-        // Preserve photographed grain while giving quartz sand its pale albedo.
+        // Preserve photographed grain while giving the sand a real beach's albedo: dry quartz-and-shell sand reflects .3 to .45.
+        // At .88/.76/.56 (a mean near .55) it read as snow and blinded the eye coming out of the wood (0 to 255: 193 in shade).
         float grain=clamp(dot(scan,vec3(.2126,.7152,.0722))*1.25+.38,.42,.9);
-        vec3 sand=vec3(.88,.76,.56)*grain;
+        vec3 sand=SAND_ALBEDO*grain;
         sand*=mix(1.,.46,wet);
         groundColor=mix(groundColor,sand,sandCover);
       }
@@ -520,7 +524,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
       TexturePatch detail=groundTexturePatch(vHorizon.xz/2.1);
       float snow=snowCoverage(vHorizon,normalize(vRidgeNormal));
       float sand=(1.-smoothstep(beachWidth(vHorizon.xz)*.65,beachWidth(vHorizon.xz)+8.,coastDistance(vHorizon.xz)))*smoothstep(.55,.9,vRidgeNormal.y);
-      diffuseColor.rgb=mix(diffuseColor.rgb,vec3(.88,.76,.56)*clamp(dot(coastPatch(uCoastalMap,detail,0.).rgb,vec3(.2126,.7152,.0722))*1.25+.38,.42,.9),sand);
+      diffuseColor.rgb=mix(diffuseColor.rgb,SAND_ALBEDO*clamp(dot(coastPatch(uCoastalMap,detail,0.).rgb,vec3(.2126,.7152,.0722))*1.25+.38,.42,.9),sand);
       diffuseColor.rgb=mix(diffuseColor.rgb,coastPatch(uCoastalMap,detail,1.).rgb*vec3(.88,.94,1.),snow);
       `:''}
     `);

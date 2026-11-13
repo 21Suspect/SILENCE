@@ -7,12 +7,13 @@
  * fuses into the hut's fuse box while it runs, then transmit.
  */
 export type PlayerId = string;
-export type ItemKind = 'fuse' | 'jerry';
+export type ItemKind = 'fuse' | 'jerry' | 'backpack';
 export type Item = {
   kind: ItemKind;
   /** Asset name of the place it sits at (matches game/data/world-assets.json). */
   poi: string;
-  status: 'world' | 'held' | 'used';
+  /** held: in the hand; packed: in the holder's backpack; worn: the backpack itself, on the holder's back. */
+  status: 'world' | 'held' | 'packed' | 'worn' | 'used';
   holder?: PlayerId;
   /** Set when a player put it down somewhere other than its home. */
   at?: { x: number; z: number; y?: number };
@@ -20,7 +21,10 @@ export type Item = {
 export type Phase = 'gather' | 'fueled' | 'running' | 'powered' | 'signalSent';
 export type ObjectiveState = {
   items: Record<string, Item>;
+  /** What each player has in hand: one thing. */
   carrying: Record<PlayerId, string>;
+  /** Each backpack wearer's pack: PACK_SLOTS slots, row by row, an item id or null. A player without one has no entry. */
+  packs: Record<PlayerId, (string | null)[]>;
   generator: { fuel: boolean; running: boolean };
   /** Item id per fuse-box slot, null while empty. */
   fuseBox: (string | null)[];
@@ -28,10 +32,14 @@ export type ObjectiveState = {
   phase: Phase;
 };
 
+/** A place something can be carried: the hand, or a backpack slot (0 .. PACK_SLOTS - 1). */
+export type Slot = 'hand' | number;
 export type ObjectiveAction =
   | { type: 'pickup'; player: PlayerId; item: string }
-  /** Without this a player who grabbed a fuse first could never lift the jerry can. */
-  | { type: 'drop'; player: PlayerId; at?: { x: number; z: number; y?: number } }
+  /** Without this a player who grabbed a fuse first could never lift the jerry can. `slot` drops from the pack; the default is the hand. */
+  | { type: 'drop'; player: PlayerId; at?: { x: number; z: number; y?: number }; slot?: Slot }
+  /** Rearranging: whatever is at `from` goes to `to`, and whatever was at `to` comes back to `from`. Needs a backpack. */
+  | { type: 'move'; player: PlayerId; from: Slot; to: Slot }
   | { type: 'refuel'; player: PlayerId }
   | { type: 'pull-start'; player: PlayerId }
   | { type: 'insert-fuse'; player: PlayerId; slot: number }
@@ -40,12 +48,14 @@ export type ObjectiveAction =
 export type RefusalReason =
   | 'unknown-action' | 'unknown-item' | 'unavailable' | 'hands-full' | 'empty-hands' | 'wrong-item'
   | 'already-fueled' | 'no-fuel' | 'already-running' | 'no-power' | 'bad-slot' | 'slot-taken'
-  | 'not-ready' | 'complete';
+  | 'not-ready' | 'complete' | 'no-pack' | 'empty-slot';
 
 export type ObjectiveEvent =
   /** What the creature AI listens to. The reducer knows places by name only; the runtime adds x/z. */
   | { type: 'noise'; loudness: number; source: string; poi?: string; x?: number; z?: number }
-  | { type: 'picked-up'; player: PlayerId; item: string; kind: ItemKind }
+  /** `to`: where it went, the hand or a pack slot (a backpack is worn, not carried, and has none). */
+  | { type: 'picked-up'; player: PlayerId; item: string; kind: ItemKind; to?: Slot }
+  | { type: 'moved'; player: PlayerId; from: Slot; to: Slot }
   | { type: 'dropped'; player: PlayerId; item: string; kind: ItemKind; at?: { x: number; z: number; y?: number } }
   | { type: 'refueled'; player: PlayerId; item: string }
   | { type: 'generator-started'; player: PlayerId }
@@ -55,6 +65,8 @@ export type ObjectiveEvent =
   | { type: 'refused'; action: string; player?: PlayerId; reason: RefusalReason };
 
 export const FUSE_SLOTS = 3;
+/** The backpack's grid: three across, four down (game/ui/inventory.ts lays it out the same way). */
+export const PACK_COLUMNS = 3, PACK_ROWS = 4, PACK_SLOTS = PACK_COLUMNS * PACK_ROWS;
 
 export function initialState(): ObjectiveState {
   return {
@@ -63,8 +75,10 @@ export function initialState(): ObjectiveState {
       'fuse-lookout': { kind: 'fuse', poi: 'lookout', status: 'world' },
       'fuse-logstack': { kind: 'fuse', poi: 'logstack', status: 'world' },
       'jerry-camp': { kind: 'jerry', poi: 'camp', status: 'world' },
+      'backpack-cabin': { kind: 'backpack', poi: 'cabin', status: 'world' },
     },
     carrying: {},
+    packs: {},
     generator: { fuel: false, running: false },
     fuseBox: Array.from({ length: FUSE_SLOTS }, () => null),
     signalBy: null,
@@ -78,10 +92,30 @@ export const heldKind = (state: ObjectiveState, player: PlayerId): ItemKind | un
   return id === undefined ? undefined : state.items[id]?.kind;
 };
 export const firstEmptySlot = (state: ObjectiveState): number => state.fuseBox.indexOf(null);
+export const hasPack = (state: ObjectiveState, player: PlayerId): boolean => Object.hasOwn(state.packs ?? {}, player);
+/** Where a player carries something of this kind: the hand first, then the pack's first slot that has one; undefined if nowhere. */
+export function carriedSlot(state: ObjectiveState, player: PlayerId, kind: ItemKind): Slot | undefined {
+  const held = state.carrying[player];
+  if (held !== undefined && state.items[held]?.kind === kind) return 'hand';
+  const at = (state.packs?.[player] ?? []).findIndex(id => id !== null && state.items[id]?.kind === kind);
+  return at >= 0 ? at : undefined;
+}
+export const carries = (state: ObjectiveState, player: PlayerId, kind: ItemKind): boolean => carriedSlot(state, player, kind) !== undefined;
+/**
+ * The carried thing the objective should talk about: the jerry can while the generator wants fuel, a fuse once it runs, wherever
+ * either is carried (hand or backpack); otherwise what is in hand.
+ */
+export function guideKind(state: ObjectiveState, player: PlayerId): ItemKind | undefined {
+  if (!state.generator.fuel && carries(state, player, 'jerry')) return 'jerry';
+  if (state.generator.running && carries(state, player, 'fuse')) return 'fuse';
+  return heldKind(state, player);
+}
+/** Whether a pickup would find room: an empty hand, or a free pack slot. */
+export const hasRoom = (state: ObjectiveState, player: PlayerId): boolean => state.carrying[player] === undefined || (state.packs?.[player] ?? []).includes(null);
 export const insertedFuses = (state: ObjectiveState): number => state.fuseBox.filter(Boolean).length;
 
 // Loudness is what a creature a hundred metres away could plausibly hear: 1 is the generator roaring awake.
-const LOUD = { fuse: .08, jerry: .2, dropFuse: .12, dropJerry: .35, refuel: .35, start: .95, insert: .22, radio: .65 };
+const LOUD = { fuse: .08, jerry: .2, backpack: .06, dropFuse: .12, dropJerry: .35, refuel: .35, start: .95, insert: .22, radio: .65 };
 
 const phaseOf = (s: ObjectiveState): Phase =>
   s.signalBy !== null ? 'signalSent'
@@ -91,11 +125,19 @@ const phaseOf = (s: ObjectiveState): Phase =>
 const copy = (s: ObjectiveState): ObjectiveState => ({
   items: Object.fromEntries(Object.entries(s.items).map(([id, item]) => [id, { ...item }])),
   carrying: { ...s.carrying },
+  packs: Object.fromEntries(Object.entries(s.packs ?? {}).map(([id, pack]) => [id, pack.slice()])),
   generator: { ...s.generator },
   fuseBox: s.fuseBox.slice(),
   signalBy: s.signalBy,
   phase: s.phase,
 });
+
+const isPackSlot = (s: unknown): s is number => typeof s === 'number' && Number.isInteger(s) && s >= 0 && s < PACK_SLOTS;
+/** Empty a carried place in `next` (already a copy) and return what was there. */
+function take(next: ObjectiveState, player: PlayerId, from: Slot): string {
+  if (from === 'hand') { const id = next.carrying[player]; delete next.carrying[player]; return id; }
+  const id = next.packs[player][from] as string; next.packs[player][from] = null; return id;
+}
 
 export type Reduction = { state: ObjectiveState; events: ObjectiveEvent[] };
 
@@ -110,41 +152,79 @@ export function applyAction(state: ObjectiveState, action: ObjectiveAction): Red
   const refuse = (reason: RefusalReason): Reduction => ({ state, events: [{ type: 'refused', action: String(a?.type), ...(player ? { player } : {}), reason }] });
   if (player === undefined) return refuse('unknown-action');
   if (state.phase === 'signalSent') return refuse('complete');
-  const held = state.carrying[player], holding = held === undefined ? undefined : state.items[held];
+  const held = state.carrying[player];
 
   switch (a.type) {
     case 'pickup': {
       const id = (a as { item?: unknown }).item, item = typeof id === 'string' && Object.hasOwn(state.items, id) ? state.items[id] : undefined;
       if (!item) return refuse('unknown-item');
       if (item.status !== 'world') return refuse('unavailable');
-      if (held !== undefined) return refuse('hands-full');
+      const where = item.at ? { x: item.at.x, z: item.at.z } : { poi: item.poi };
+      if (item.kind === 'backpack') {
+        // Worn, not carried: it takes neither the hand nor a slot, and a second one is no use.
+        if (hasPack(state, player)) return refuse('unavailable');
+        const next = copy(state), worn = next.items[id as string];
+        worn.status = 'worn'; worn.holder = player; delete worn.at; next.packs[player] = Array.from({ length: PACK_SLOTS }, () => null);
+        return { state: next, events: [
+          { type: 'picked-up', player, item: id as string, kind: item.kind },
+          { type: 'noise', loudness: LOUD.backpack, source: 'pickup', ...where },
+        ] };
+      }
+      // The hand first; with a backpack, the first free slot when the hand is full.
+      const slot = held === undefined ? 'hand' : (state.packs?.[player] ?? []).indexOf(null);
+      if (slot === -1) return refuse('hands-full');
       const next = copy(state), taken = next.items[id as string];
-      taken.status = 'held'; taken.holder = player; delete taken.at; next.carrying[player] = id as string;
+      taken.holder = player; delete taken.at;
+      if (slot === 'hand') { taken.status = 'held'; next.carrying[player] = id as string; } else { taken.status = 'packed'; next.packs[player][slot] = id as string; }
       return { state: next, events: [
-        { type: 'picked-up', player, item: id as string, kind: item.kind },
-        { type: 'noise', loudness: item.kind === 'jerry' ? LOUD.jerry : LOUD.fuse, source: 'pickup', ...(item.at ? { x: item.at.x, z: item.at.z } : { poi: item.poi }) },
+        { type: 'picked-up', player, item: id as string, kind: item.kind, to: slot },
+        { type: 'noise', loudness: item.kind === 'jerry' ? LOUD.jerry : LOUD.fuse, source: 'pickup', ...where },
       ] };
     }
     case 'drop': {
-      if (held === undefined || !holding) return refuse('empty-hands');
+      const from = (a as { slot?: unknown }).slot ?? 'hand';
+      if (from !== 'hand' && !isPackSlot(from)) return refuse('bad-slot');
+      if (from !== 'hand' && !hasPack(state, player)) return refuse('no-pack');
+      const id = from === 'hand' ? held : state.packs[player][from as number] ?? undefined;
+      if (id === undefined || !state.items[id]) return refuse(from === 'hand' ? 'empty-hands' : 'empty-slot');
       const raw = (a as { at?: { x?: unknown; z?: unknown; y?: unknown } }).at;
       // y is where the player's feet were: on a cabin floor that is above the terrain beneath it.
       const at = raw && Number.isFinite(raw.x) && Number.isFinite(raw.z) ? { x: raw.x as number, z: raw.z as number, ...(Number.isFinite(raw.y) ? { y: raw.y as number } : {}) } : undefined;
-      const next = copy(state), dropped = next.items[held];
-      dropped.status = 'world'; delete dropped.holder; if (at) dropped.at = at; delete next.carrying[player];
+      const next = copy(state), dropped = next.items[id];
+      dropped.status = 'world'; delete dropped.holder; if (at) dropped.at = at;
+      if (from === 'hand') delete next.carrying[player]; else next.packs[player][from as number] = null;
       return { state: next, events: [
-        { type: 'dropped', player, item: held, kind: dropped.kind, ...(at ? { at } : {}) },
+        { type: 'dropped', player, item: id, kind: dropped.kind, ...(at ? { at } : {}) },
         { type: 'noise', loudness: dropped.kind === 'jerry' ? LOUD.dropJerry : LOUD.dropFuse, source: 'drop', ...(at ? { x: at.x, z: at.z } : { poi: dropped.poi }) },
       ] };
     }
-    case 'refuel': {
-      if (holding?.kind !== 'jerry' || held === undefined) return refuse('wrong-item');
-      if (state.generator.fuel) return refuse('already-fueled');
+    case 'move': {
+      const { from, to } = a as { from?: unknown; to?: unknown };
+      if (!hasPack(state, player)) return refuse('no-pack');
+      if (!(from === 'hand' || isPackSlot(from)) || !(to === 'hand' || isPackSlot(to)) || from === to) return refuse('bad-slot');
+      const at = (s: Slot) => s === 'hand' ? held ?? null : state.packs[player][s];
+      const moving = at(from as Slot), other = at(to as Slot);
+      if (moving === null) return refuse('empty-slot');
       const next = copy(state);
-      next.items[held].status = 'used'; delete next.items[held].holder; delete next.carrying[player];
+      const put = (s: Slot, id: string | null) => {
+        if (s === 'hand') { if (id === null) delete next.carrying[player]; else next.carrying[player] = id; }
+        else next.packs[player][s] = id;
+        if (id !== null) next.items[id].status = s === 'hand' ? 'held' : 'packed';
+      };
+      put(to as Slot, moving); put(from as Slot, other);
+      // Near silent: a creature hears the drop, not the rummaging.
+      return { state: next, events: [{ type: 'moved', player, from: from as Slot, to: to as Slot }] };
+    }
+    case 'refuel': {
+      // The can in hand, or one from the pack.
+      const from = carriedSlot(state, player, 'jerry');
+      if (from === undefined) return refuse('wrong-item');
+      if (state.generator.fuel) return refuse('already-fueled');
+      const next = copy(state), used = take(next, player, from);
+      next.items[used].status = 'used'; delete next.items[used].holder;
       next.generator.fuel = true; next.phase = phaseOf(next);
       return { state: next, events: [
-        { type: 'refueled', player, item: held },
+        { type: 'refueled', player, item: used },
         { type: 'noise', loudness: LOUD.refuel, source: 'refuel', poi: 'generator' },
       ] };
     }
@@ -161,15 +241,16 @@ export function applyAction(state: ObjectiveState, action: ObjectiveAction): Red
     case 'insert-fuse': {
       const slot = (a as { slot?: unknown }).slot;
       if (!state.generator.running) return refuse('no-power');
-      if (holding?.kind !== 'fuse' || held === undefined) return refuse('wrong-item');
+      const from = carriedSlot(state, player, 'fuse');
+      if (from === undefined) return refuse('wrong-item');
       if (typeof slot !== 'number' || !Number.isInteger(slot) || slot < 0 || slot >= FUSE_SLOTS) return refuse('bad-slot');
       if (state.fuseBox[slot] !== null) return refuse('slot-taken');
-      const next = copy(state);
-      next.items[held].status = 'used'; delete next.items[held].holder; delete next.carrying[player];
-      next.fuseBox[slot] = held;
+      const next = copy(state), used = take(next, player, from);
+      next.items[used].status = 'used'; delete next.items[used].holder;
+      next.fuseBox[slot] = used;
       const before = next.phase; next.phase = phaseOf(next);
       const events: ObjectiveEvent[] = [
-        { type: 'fuse-inserted', player, item: held, slot, inserted: insertedFuses(next) },
+        { type: 'fuse-inserted', player, item: used, slot, inserted: insertedFuses(next) },
         { type: 'noise', loudness: LOUD.insert, source: 'fuse-insert', poi: 'hut' },
       ];
       if (next.phase === 'powered' && before !== 'powered') events.push({ type: 'power-restored' });

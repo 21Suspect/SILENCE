@@ -2,7 +2,7 @@ import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { SimplifyModifier } from 'three/addons/modifiers/SimplifyModifier.js';
-import { WORLD_RADIUS, biomeAt, noise } from '../../sim/world/world';
+import { WORLD_RADIUS, biomeAt, noise, structureClearance } from '../../sim/world/world';
 import { createEcology, type Flora, type GrownPlant } from '../../sim/world/ecology';
 import type { LayoutCell } from '../../sim/world/placement';
 import { createVegetationBatcher, type VegetationBatchDefinition } from './vegetation-batches';
@@ -415,8 +415,9 @@ export function createUndergrowth(
     // shade it is the same kind of leaf, a little paler than ivy.
     // Both scans were shot fresh under studio light: ivy at linear .15/.23/.10, the rosette leaves dandelion-bright at
     // .37/.45/.11, both far greener than the ferns and moss round them. Taken down to a weathered forest-floor green: darker,
-    // with green cut most so the leaves lose their neon cast (ivy to about .09/.11/.05).
-    ivyMaterial.color.multiply(new THREE.Color(.6, .48, .5));
+    // with green cut most so the leaves lose their neon cast. Ivy goes to about .09/.11/.036, an olive: at .09/.11/.05 the patches
+    // turned teal in the shade, where only the sky lights them, and read as dark blue-green spots on the brown and olive floor.
+    ivyMaterial.color.multiply(new THREE.Color(.62, .5, .36));
     rosetteMaterial.color.multiply(new THREE.Color(.42, .34, .38));
     // Tussocks are the deep green Grass Medium 01: the paler Medium 02 read as dry straw on the damp, mossy floor.
     const grassMaterial = prepareMaterial(lushGrass.meshes[0].material, lushGrass.alpha, TUSSOCK_RANGE, .6, 'near', TUSSOCK_LOD);
@@ -520,6 +521,9 @@ export function createUndergrowth(
       const x = (ix + hash(ix, iz, 1)) * .32;
       const z = (iz + hash(ix, iz, 2)) * .32;
       if (Math.hypot(x, z) > WORLD_RADIUS-55) continue;
+      // Grass grows right up to a wall but never inside: the dunes below set aside the exclusion field, and the field's
+      // footprint edge is soft, so the building's own rectangle is tested exactly (149 blades stood in the pumphouse).
+      if (WORLD_V2 && structureClearance(x, z) < .08) continue;
       const dune = WORLD_V2 && coastDistance(x,z)>beachWidth(x,z)*.82 && coastDistance(x,z)<beachWidth(x,z)+18;
       const e = dune ? Math.min(.2,exclusion(x,z)) : exclusion(x, z);
       if (e > .91) continue;
@@ -565,7 +569,7 @@ export function createUndergrowth(
       if (Math.hypot(x, z) > WORLD_RADIUS-55 || Math.hypot(x + 18, z + 46) < 2) continue;
       // Dune grass only: everywhere else the tussocks are grown with the other plants (growFlora).
       const dune = WORLD_V2 && coastDistance(x,z)>beachWidth(x,z)*.74 && coastDistance(x,z)<beachWidth(x,z)+14;
-      if (!dune) continue;
+      if (!dune || structureClearance(x, z) < .3) continue;
       const e = Math.min(.25,exclusion(x,z)), p = patch(x, z);
       if (hash(cx * 39 + i, cz, 104) > (.3 + p * .57) * (1 - e) * (1-biomeAt(x,z).alpine*.91)) continue;
       const plant=makePlant(x,z,cx*59+i,cz,105,i%3,(dune?1.35:.9)+hash(cx*67+i,cz,107)*1.15);
@@ -603,7 +607,8 @@ export function createUndergrowth(
     const byFlora = new Map<Flora, Plant[]>();
     for (const g of ecology.grow(cx, cz)) {
       const plant = toPlant(g);
-      if (!plant) continue;
+      // The ecology reads the exclusion from a coarse raster, which blurs a small hut's footprint away: test the building exactly.
+      if (!plant || (WORLD_V2 && structureClearance(plant.x, plant.z) < .3)) continue;
       let list = byFlora.get(g.flora);
       if (!list) byFlora.set(g.flora, list = []);
       list.push(plant);

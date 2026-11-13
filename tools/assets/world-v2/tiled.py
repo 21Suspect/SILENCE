@@ -411,4 +411,6 @@ def build(model, shots=None, samples=24):
     entry = dict(url=f"/world/{model.name}.glb", radius=model.radius, colliders=model.colliders, hooks=model.hooks, ladders=model.ladders)
     if model.doors:
         entry["doors"] = model.doors
+    if getattr(model, "rooms", None):
+        entry["rooms"] = [dict(min=[round(v, 3) for v in r["min"]], max=[round(v, 3) for v in r["max"]], lamp=r.get("lamp")) for r in model.rooms]
     return entry
