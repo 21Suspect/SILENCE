@@ -268,9 +268,9 @@ def attach_macro(path, macro, name, quality=88):
 LAMP_MAX = 4.0     # irradiance per candela stored at full scale (a surface 0.5 m from the flame)
 
 
-def _soften(a, sigma=1.4):
-    """A small Gaussian blur, separable: what is left of the bake's noise after its samples (a lantern's light is soft anyway;
-    the bake margin keeps islands from bleeding into each other at this radius)."""
+def _soften(a, sigma=.8):
+    """A small Gaussian blur, separable: what is left of the bake's noise after its samples. Under a texel of radius, so it
+    stays inside the 3-texel gaps the atlas leaves between islands."""
     r = int(math.ceil(sigma * 3))
     k = np.exp(-np.arange(-r, r + 1) ** 2 / (2 * sigma * sigma))
     k /= k.sum()
@@ -278,7 +278,7 @@ def _soften(a, sigma=1.4):
     return np.apply_along_axis(lambda col: np.convolve(np.pad(col, r, mode="edge"), k, mode="valid"), 0, a)
 
 
-def bake_lamps(obj, model, size, samples=384):
+def bake_lamps(obj, model, size, samples=1024):
     """The light of the model's lamps (`model.lamps`: [{at, radius}]), with their shadows and one bounce off surfaces of the
     library's own colours: irradiance per candela on every texel of the macro atlas. A 1 cd point is a Blender point light of
     4 pi W, and Cycles' diffuse light pass is irradiance / pi (measured: 0.317 at 1 m), hence the factor pi."""
@@ -383,7 +383,9 @@ def build(model, shots=None, samples=24):
     kit.atlas_uv(obj, model)
     macro = bake_macro(obj, model.tex, samples)
     log(model.name, "macro baked")
-    lit = bake_lamps(obj, model, max(512, model.tex // 2))
+    # At the atlas's own size: its islands are packed 3 texels apart, so a coarser map (or a wider blur) bleeds the light of
+    # one surface into the next, and a log end outside glowed with the room's light.
+    lit = bake_lamps(obj, model, model.tex)
     tile_uvs(obj, model)
     names = sorted(model.parts)
     # Swap each slot in place: clearing the slots would reset every face to the first one.
