@@ -21,7 +21,8 @@ game/                 all game code
   render/             everything drawn with three.js
     world/            terrain (+ terrain-worker), forest, undergrowth, vegetation batches, river, sky, atmosphere (fog and
                       post chain), sun shadows, street lights, power lines, materials (texture-variation.ts patches;
-                      bark-relief.ts gives trunks parallax, sun self-shadow and cavity), ambient life
+                      bark-relief.ts gives trunks parallax, sun self-shadow and cavity; relief-math.ts mirrors the ground's
+                      relief march and patch height blend), ambient life
     props/            POIs (streamed GLB props), doors, the rebuilt world's assembly (world-v2.ts), story props,
                       interaction prompts, objective props, the flashlight
     creature/         encounters.ts (hosts the brain in the scene), the Listener's model, rig and gait, tree crawl
@@ -34,6 +35,7 @@ game/                 all game code
 tests/                node:test suites in the same folders as the code; tests/helpers lets Node load extensionless imports
 tools/
   assets/             Blender pipeline: world-v2 props (build.py, kit.py, review.py), creature-v2, coastal textures, audio
+  ghosting/           the ground's texture-ghosting diagnostic: in-page runner, receiver, metrics, report (see AGENTS.md)
   playtest/           headless playtest bot, night runner and report, creature and navigation probes, map renderer
   sounds/             dev soundboard page (/tools/sounds/ under npm run dev)
   world-map.mjs       top-down maps of generated worlds
