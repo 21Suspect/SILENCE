@@ -2,6 +2,7 @@
  * +Z is inland: alpine headwaters feed a lake, whose outlet reaches the southern sea.
  */
 import { noise, fbm, riverX, waterHeightAt, smooth } from './world-noise';
+import { gradientNoise, erosionFilter } from './mountain-noise';
 
 export const SEA_LEVEL = -5.2;
 export const LAKE_LEVEL = .6;
@@ -91,13 +92,35 @@ export function broadWaterLevelAt(x: number, z: number): number | undefined {
 export function mountainFoot(x: number) {
   return 342 + Math.sin(x * .009 + .2) * 29 + Math.sin(x * .027 + 1) * 11;
 }
-// Unequal, differently oriented ridges overlap into a range. A broad central
-// saddle and offset spurs replace identical radial cone silhouettes.
-const peaks = [
-  [-345, 516, 132, 158, 205, -.45], [-185, 536, 170, 173, 185, .35],
-  [-42, 487, 116, 134, 202, -.68], [116, 556, 177, 184, 215, .60],
-  [285, 502, 142, 150, 180, -.23], [416, 568, 119, 175, 205, .85],
+/**
+ * The island's range: six massifs, 120 to 175 m, joined by a lower crest, then carved by the erosion filter (mountain-noise.ts).
+ * Real mountains are broad masses about three times as wide as they are high, with rounded, broken summits, cut into gullies
+ * that run down the fall line and branch, with ribs and buttresses between them. The first range (smooth ellipse ridges) read
+ * as grey hills; the second (three-faced horns with ridged crags) as needles and combs. Each massif is a bell (a convex summit
+ * over a concave foot) on a warped, turned ellipse; the gullies are 190 m apart at their widest and up to 24 m deep (at 150 m and 40 m the ribs between them stood up
+ * as needles seen end-on and the flanks read as blocks), less on
+ * the lower slopes and none on the crest; three octaves only (finer ones fluted the faces like clay badlands and sawed the crest; the
+ * rock's own detail is the surface's job, mountain-surface.ts) (60 m deep and five octaves fine, they fluted the faces into organ pipes and the skyline into spires).
+ */
+const MASSIFS = [
+  [-345, 532, 130, 330, 240, -.4], [-185, 552, 165, 330, 255, .3], [-38, 522, 120, 290, 215, -.6],
+  [118, 572, 175, 350, 260, .6], [287, 525, 145, 315, 240, -.2], [420, 580, 130, 300, 250, .8],
 ] as const;
+const smax=(a:number,b:number,k:number)=>Math.max(a,b)+Math.log(1+Math.exp(-Math.abs(a-b)/k))*k;
+const warp=(x:number,z:number,o:number)=>{let s=0,a=.5,f=1,t=0;for(let i=0;i<o;i++){s+=a*gradientNoise(x*f+i*31.7,z*f-i*17.3);t+=a;a*=.5;f*=2.03;}return s/t;};
+function massifs(x:number,z:number){
+  const ux=warp(x/310,z/310,3)*.22,uz=warp(x/310-7,z/310+5,3)*.22;
+  let h=0;
+  for(const [mx,mz,hh,rx,rz,turn] of MASSIFS){
+    const dx=x+rx*ux-mx,dz=z+rz*uz-mz,c=Math.cos(turn),s=Math.sin(turn);
+    const u2=((dx*c+dz*s)/rx)**2+((-dx*s+dz*c)/rz)**2;
+    if(u2<4)h=smax(h,hh*Math.exp(-u2*2.4),18);
+  }
+  const crest=60*Math.exp(-(((z-548-30*gradientNoise(x/260,3.1))/85)**2))*(.6+.4*warp(x/200,9,2));
+  h=smax(h,crest,14);
+  // Broad, uneven summits rather than sharp crest lines: a smooth swell, not ridged noise (whose crests the gullies cut into combs).
+  return Math.max(0,h*(1+.14*warp(x/260+3,z/260-1,3)));
+}
 /** Rugged asymmetric ranges. Steep lower scarps are actual impassable terrain. */
 export function mountainRelief(x: number, z: number) {
   const foot = mountainFoot(x), north = smooth(z, foot - 65, foot + 105) ** 2;
@@ -105,25 +128,17 @@ export function mountainRelief(x: number, z: number) {
   const side = Math.abs(x + 16 * Math.sin(z * .007)) - sideLine;
   if(north<=0 && side<=0)return 0;
   const scarp = 14 * smooth(z, foot - 45, foot + 115);
-  const wx=x+22*fbm(x*.014+13,z*.014-8,2), wz=z+16*fbm(x*.017-6,z*.017+24,2);
-  let peak = 0;
-  for (const [px, pz, h, rx, rz, angle] of peaks) {
-    const co=Math.cos(angle),si=Math.sin(angle),dx=wx-px,dz=wz-pz;
-    const across=(dx*co+dz*si)/rx,along=(-dx*si+dz*co)/rz;
-    // A weathered crest running along each massif, with unequal ridge flanks.
-    const flank=Math.abs(across)*(across<0?.84:1.13);
-    const ridge=Math.max(0,1-flank-along*along);
-    peak=Math.max(peak,h*Math.pow(ridge,1.16));
-  }
-  const ribs=(1-Math.abs(fbm(x*.027+17,z*.027-5,3)));
-  // Unequal gullies subdivide each flank; fine detail fades out in the foothills.
-  const gullies=Math.pow(Math.abs(fbm(wx*.045,wz*.021,3)),.65);
-  const broken=(ribs*ribs*18+fbm(x*.065,z*.065,2)*5-gullies*24)*north;
+  // The massifs rise behind the foot, not on it: reaching down to it they stood 60 to 100 m over the road's mouths, which then
+  // ran into vertical cuttings that high (fins from across the lake). Their feet now start 30 m north of the foot.
+  const rise=(z2:number)=>smooth(z2-foot,30,200);
+  const lifted=(x2:number,z2:number)=>massifs(x2,z2)*rise(z2);
+  const base=lifted(x,z),e=2,sx=(lifted(x+e,z)-lifted(x-e,z))/(2*e),sz=(lifted(x,z+e)-lifted(x,z-e))/(2*e);
+  const peak=Math.max(0,base+erosionFilter(x,z,sx,sz,190,24*Math.min(1,base/110),3));
+  const range=scarp+peak*north;
   const valleyDistance=Math.abs(x-riverX(z));
   const valleyWidth=34+13*Math.sin(z*.019)+8*Math.sin(z*.047);
   const valleyBlend=smooth(valleyDistance,8,valleyWidth+85);
   const valleyFloor=waterHeightAt(z)+2+valleyDistance*.20;
-  const range=scarp+peak*north+broken;
   const drained=Math.min(range,valleyFloor+(range-valleyFloor)*valleyBlend);
   const headlands = (36 + 15 * noise(x * .018, z * .018)) * smooth(side, 0, 85)
     + 19 * smooth(side, 25, 90) * (1 - Math.abs(fbm(x * .028, z * .028, 2)));
@@ -150,8 +165,10 @@ export function coastalTerrain(x: number, z: number, forest: number) {
   }
   return height;
 }
+// The island's massifs are bare rock to their summits (140 to 200 m, as broad as the reference lake country's), as alpine
+// lake country is in summer; the far range carries the snow (far-range.ts).
 export function snowCoverage(x: number, z: number, height: number, slope = 0) {
-  const line = 86 + 8 * Math.sin(x * .037 + z * .019) + 5 * Math.sin(z * .063);
+  const line = 330 + 8 * Math.sin(x * .037 + z * .019) + 5 * Math.sin(z * .063);
   return smooth(height, line, line + 22) * (1 - smooth(slope, .65, 1.5));
 }
 /** No noise-helper dependency: can also be used by the water material. */
@@ -167,7 +184,7 @@ export const coastalGLSL = `
   float lakeJoin(float a,float b){float h=max(12.-abs(a-b),0.)/12.;return min(a,b)-h*h*3.;}
   float lakeDistance(vec2 p){vec2 d=p-vec2(${LAKE_CENTER.x.toFixed(8)},100.);float basin=lakeJoin(lakeJoin(lakeEllipse(d,vec2(0.),vec2(70.,80.)),lakeEllipse(d,vec2(38.,77.),vec2(48.,62.))),lakeEllipse(d,vec2(22.,-75.),vec2(36.,58.)));return basin+2.2*sin(p.x*.12+p.y*.045)+1.4*sin(p.y*.135-p.x*.037);}
   float mouthRound(float d,vec2 p){if(d>16.)return d;float shore=min(coastDistance(p)-3.,lakeDistance(p));float h=max(${MOUTH_ROUND.toFixed(1)}-abs(d-shore),0.)/${MOUTH_ROUND.toFixed(1)};return max(0.,d-h*h*${MOUTH_PULL.toFixed(2)}*(1.-smoothstep(6.,15.,d)));}
-  float snowCoverage(vec3 p,vec3 n){float line=86.+8.*sin(p.x*.037+p.z*.019)+5.*sin(p.z*.063);float slope=length(n.xz)/max(.01,abs(n.y));return smoothstep(line,line+22.,p.y)*(1.-smoothstep(.65,1.5,slope));}
+  float snowCoverage(vec3 p,vec3 n){float line=330.+8.*sin(p.x*.037+p.z*.019)+5.*sin(p.z*.063);float slope=length(n.xz)/max(.01,abs(n.y));return smoothstep(line,line+22.,p.y)*(1.-smoothstep(.65,1.5,slope));}
 `;
 /** GLSL twin of {@link lakeOutline}; the including shader must already define streamCentre. */
 export const lakeOutlineGLSL = `

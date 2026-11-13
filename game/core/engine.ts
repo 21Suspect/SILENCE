@@ -16,6 +16,7 @@ import { renderRatio } from './quality';
 import { createCollisionWorld, moveCharacter, characterSupportAt, solidContact } from '../sim/world/collision';
 import { createAdmin } from '../ui/admin';
 import { createSky } from '../render/world/sky';
+import { createFarRange } from '../render/world/far-range';
 import { biomeAt, riverSurfaceAt, WORLD_DESTINATIONS } from '../sim/world/world';
 import { createFlashlight } from '../render/props/flashlight';
 import { createTapTracker } from './tap';
@@ -54,7 +55,10 @@ export function createGame(container:HTMLElement) {
   const manager=THREE.DefaultLoadingManager,oldStart=manager.onStart,oldLoad=manager.onLoad,oldProgress=manager.onProgress;
   manager.onStart=()=>{pendingAssets++;lastAsset=performance.now();};manager.onLoad=()=>{pendingAssets=0;lastAsset=performance.now();};manager.onProgress=()=>{lastAsset=performance.now();texturesDirty=true;};
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(69,window.innerWidth/window.innerHeight,.075,1800);
+  // The far plane reaches the far mountains (render/world/far-range.ts, 1.3 to 9.5 km). Depth precision near the eye is set by the
+  // near plane alone (1/z), so this costs the near ground nothing; at 9.5 km a depth step is about 70 m, and the farthest ridge
+  // still sits in front of the sky, which is drawn at a depth of .999999 (a far plane of 20 km leaves room to 15 km).
+  const camera = new THREE.PerspectiveCamera(69,window.innerWidth/window.innerHeight,.075,20000);
   camera.rotation.order='YXZ';camera.layers.enable(2);
   // The field of view the settings ask for, eased towards; the sprint widening is added on top of it each frame.
   let baseFov=camera.fov;
@@ -76,6 +80,7 @@ export function createGame(container:HTMLElement) {
   const sunShadow=createStableSunShadow(sun,renderer.capabilities.maxTextureSize,()=>perfOn('sunShadowThrottle'));
   scene.add(sun,sun.target);
   const sky=createSky(renderer,scene,sun,hemi);
+  const farRange=WORLD_V2?createFarRange(scene,renderer):undefined;
   const player=new THREE.Vector3(pathX(12),heightAt(pathX(12),12),12);
   const terrain=createTerrain(scene,player,renderer);
   const forest=createForest(scene,heightAt,exclusion,player);
@@ -784,7 +789,7 @@ export function createGame(container:HTMLElement) {
     window.removeEventListener('mouseup',mouseUp);window.removeEventListener('mousemove',mouseMove);window.removeEventListener('keydown',keyDown);window.removeEventListener('keyup',keyUp);window.removeEventListener('blur',blur);window.removeEventListener('focus',focus);window.removeEventListener('resize',resize);window.visualViewport?.removeEventListener('resize',resize);densityQuery?.removeEventListener('change',densityChanged);window.removeEventListener('orientationchange',clearInput);
     document.removeEventListener('pointerlockchange',lockChange);document.removeEventListener('pointerlockerror',lockError);document.removeEventListener('visibilitychange',visibilityChange);
     renderer.domElement.removeEventListener('mousedown',mouseDown);renderer.domElement.removeEventListener('touchstart',touchStart);renderer.domElement.removeEventListener('touchmove',touchUpdate);renderer.domElement.removeEventListener('touchend',touchEnd);renderer.domElement.removeEventListener('touchcancel',touchEnd);
-    unsubscribeNoise();blackout.remove();objectiveHud?.dispose();inventory?.dispose();staminaHud.dispose();world2?.dispose();admin.dispose();slicer.dispose();perfOverlay.dispose();flashlight.dispose();sun.shadow.dispose();sky.dispose();audio.dispose();encounters.dispose();forest.dispose();story.dispose();terrain.dispose();atmosphere.dispose();
+    unsubscribeNoise();blackout.remove();objectiveHud?.dispose();inventory?.dispose();staminaHud.dispose();world2?.dispose();admin.dispose();slicer.dispose();perfOverlay.dispose();flashlight.dispose();sun.shadow.dispose();sky.dispose();farRange?.dispose();audio.dispose();encounters.dispose();forest.dispose();story.dispose();terrain.dispose();atmosphere.dispose();
     scene.traverse(object=>{if(object instanceof THREE.Mesh){object.geometry.dispose();const mats=Array.isArray(object.material)?object.material:[object.material];for(const mat of mats){for(const v of Object.values(mat))if(v instanceof THREE.Texture)v.dispose();mat.dispose();}}});
     renderer.dispose();renderer.domElement.remove();
   };

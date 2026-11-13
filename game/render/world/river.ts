@@ -365,7 +365,8 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
   // shoreline comes from the same geographic mask and opaque depth as terrain.
   function broadSurface(name:string,kind:number,x0:number,x1:number,z0:number,z1:number,nx:number,nz:number){
     const p:number[]=[],u:number[]=[],k:number[]=[],idx:number[]=[];
-    const nearCoast=(t:number)=>{const signed=t*2-1,q=Math.abs(signed);return Math.sign(signed)*(q<.8?q/.8*850:850+3150*((q-.8)/.2)**2);};
+    // Out to 16 km: the camera now sees the far mountains (far-range.ts), and an edge of the sea at 4 km showed under them.
+    const nearCoast=(t:number)=>{const signed=t*2-1,q=Math.abs(signed);return Math.sign(signed)*(q<.8?q/.8*850:850+15150*((q-.8)/.2)**2);};
     for(let j=0;j<=nz;j++)for(let i=0;i<=nx;i++){
       let x=THREE.MathUtils.lerp(x0,x1,i/nx),z=THREE.MathUtils.lerp(z0,z1,j/nz);
       if(kind===3){
@@ -382,9 +383,9 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
     scene.add(mesh);return mesh;
   }
   const lake=WORLD_V2?broadSurface('Lake — connected alpine watershed',2,LAKE_CENTER.x-LAKE_RADII.x*1.4,LAKE_CENTER.x+LAKE_RADII.x*1.4,LAKE_CENTER.z-LAKE_RADII.z*1.4,LAKE_CENTER.z+LAKE_RADII.z*1.4,52,72):null;
-  const sea=WORLD_V2?broadSurface('Open sea — coastal horizon',3,-4000,4000,-4000,4000,80,100):null;
+  const sea=WORLD_V2?broadSurface('Open sea — coastal horizon',3,-16000,16000,-16000,16000,80,100):null;
   const lakeBounds=new THREE.Box3(new THREE.Vector3(LAKE_CENTER.x-LAKE_RADII.x*1.4,LAKE_LEVEL-.2,LAKE_CENTER.z-LAKE_RADII.z*1.4),new THREE.Vector3(LAKE_CENTER.x+LAKE_RADII.x*1.4,LAKE_LEVEL+.2,LAKE_CENTER.z+LAKE_RADII.z*1.4));
-  const seaBounds=new THREE.Box3(new THREE.Vector3(-4000,SEA_LEVEL-.3,-4000),new THREE.Vector3(4000,SEA_LEVEL+.3,4000));
+  const seaBounds=new THREE.Box3(new THREE.Vector3(-16000,SEA_LEVEL-.3,-16000),new THREE.Vector3(16000,SEA_LEVEL+.3,16000));
   let lakeNearby=false,seaNearby=false;
   const frustum=new THREE.Frustum(),viewProjection=new THREE.Matrix4();
   const bounds:THREE.Box3[]=[];

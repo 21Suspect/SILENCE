@@ -41,9 +41,11 @@ test('coast has bays while snow is confined to high inland terrain',()=>{
   const shores=Array.from({length:19},(_,i)=>g.coastZ(i*50-450));
   assert.ok(Math.max(...shores)-Math.min(...shores)>60);
   assert.equal(g.snowCoverage(0,0,10),0);
-  assert.ok(g.snowCoverage(116,548,210)>.95);
-  assert.equal(g.snowCoverage(116,548,210,2.5),0);
-  assert.ok(w.rawHeight(-185,532)>160);
+  assert.ok(g.snowCoverage(116,548,380)>.95);
+  assert.equal(g.snowCoverage(116,548,380,2.5),0);
+  // The island's own range: broad massifs of 120 to 175 m (coastal-geography.ts MASSIFS).
+  let top=0;for(let x=-450;x<=450;x+=25)for(let z=350;z<=640;z+=10)top=Math.max(top,w.rawHeight(x,z));
+  assert.ok(top>120&&top<230,`island range crest ${top}`);
   assert.ok(w.rawHeight(0,-550)<g.SEA_LEVEL,'no southern mountain ring');
 });
 

@@ -819,7 +819,7 @@ const CLUSTERS: [string, Item[]][] = [
   ['pumphouse', [['drum', -2.6, 1.2, .3], ['drum', -3.3, .7, 1.4], ['pallet', -2.9, 2.6, .5, 'tilt'], ['wheelbarrow', 3.4, 3.4, 2.2, 'tilt']]],
   ['well', [['bucket', 1.3, 1.4, .6, 'tilt']]],
   ['ruin', [['shovel', 5.6, 2.2, 1.1, 'tilt'], ['bucket', -4.6, 3.2, .3, 'tilt'], ['wheelbarrow', 6.2, -1.4, .8, 'tilt']]],
-  ['graves', [['shovel', 2.6, 5.9, .4, 'tilt']]],
+  ['graves', [['shovel', 2.48, 5.42, .4, 'tilt']]],
   ['watertower', [['drum', 3.6, -2.4, .2], ['crate', -3.4, 2.6, .7, 'tilt']]],
   ['mine', [['toolbox', 2.4, 1.6, .4, 'tilt'], ['bucket', -2, 3.1, 1.4, 'tilt'], ['wheelbarrow', -5.8, 4.6, 2, 'tilt'], ['shovel', 2.6, 6.2, .8, 'tilt'], ['drum', 5.2, 6.4, .3]]],
 ];
@@ -915,6 +915,8 @@ function scatter(): PoiPlacement[] {
       if (j.lines.every(l => TRAIL_META[l].kind === 'loop') && j.on !== 'road') return;
       const spots: [number, number][] = [];
       for (const along of [2.2, 4, 6, -2.2]) for (const side of [1, -1]) spots.push([j.x + j.dx * along - j.dz * 2.3 * side, j.z + j.dz * along + j.dx * 2.3 * side]);
+      // Then further off the path and behind the junction: one close by a place (the chapel's) found no room in the first eight.
+      for (const along of [3, 5, -3.5, -5]) for (const side of [1, -1]) for (const off of [3.4, 4.6]) spots.push([j.x + j.dx * along - j.dz * off * side, j.z + j.dz * along + j.dx * off * side]);
       // Where the path leaves the road, the post also stands on the verge beside it.
       if (j.on === 'road') { const f = roadFoot(j.x, j.z, footScratch); for (const o of [3, -3, 6, -6]) for (const side of [1, -1]) { const b = roadBeside(roadXAtArc(roadArc(f.x) + o), side * 5.3); spots.push([b.x, b.z]); } }
       for (const [x, z] of spots) {

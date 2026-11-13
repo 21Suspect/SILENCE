@@ -1,0 +1,150 @@
+{
+ "license": "CC0-1.0",
+ "license_url": "https://polyhaven.com/license",
+ "packing": "<layer>-color.webp (2048 px): RGB = diffuse x ambient occlusion^0.6, A = displacement (height). <layer>-surface.jpg (1024 px, 4:4:4): R,G = OpenGL normal x,y, B = roughness. Packed from the 2K maps below the same way as public/textures/ground.",
+ "assets": [
+  {
+   "layer": "alpine",
+   "asset": "aerial_rocks_04",
+   "name": "Aerial Rocks 04",
+   "provider": "Poly Haven",
+   "source": "https://polyhaven.com/a/aerial_rocks_04",
+   "license": "CC0-1.0",
+   "license_url": "https://polyhaven.com/license",
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "physical_width_m": 80.0,
+   "maps": {
+    "Diffuse": {
+     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/aerial_rocks_04/aerial_rocks_04_diff_2k.jpg",
+     "md5": "9569319be1713474efad4ec1d7c0abe0"
+    },
+    "nor_gl": {
+     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/aerial_rocks_04/aerial_rocks_04_nor_gl_2k.jpg",
+     "md5": "156e7a0993a1ab5a0a755d16b5f8f23b"
+    },
+    "Rough": {
+     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/aerial_rocks_04/aerial_rocks_04_rough_2k.jpg",
+     "md5": "899c09b1ca7f7885644e8298ae214053"
+    },
+    "Displacement": {
+     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/aerial_rocks_04/aerial_rocks_04_disp_2k.jpg",
+     "md5": "37df4da7d7fdea83d101b3d42de2fc4f"
+    },
+    "AO": {
+     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/aerial_rocks_04/aerial_rocks_04_ao_2k.jpg",
+     "md5": "40bb3abb888efe3fb686409ad42e7b24"
+    }
+   }
+  },
+  {
+   "layer": "face",
+   "asset": "rock_face_03",
+   "name": "Rock Face 03",
+   "provider": "Poly Haven",
+   "source": "https://polyhaven.com/a/rock_face_03",
+   "license": "CC0-1.0",
+   "license_url": "https://polyhaven.com/license",
+   "authors": [
+    "Dario Barresi",
+    "Rico Cilliers"
+   ],
+   "physical_width_m": 2.7,
+   "maps": {
+    "Diffuse": {
+     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/rock_face_03/rock_face_03_diff_2k.jpg",
+     "md5": "657add9e8a8dffaeed19bdfc58078b59"
+    },
+    "nor_gl": {
+     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/rock_face_03/rock_face_03_nor_gl_2k.jpg",
+     "md5": "279b33e71ae6275cafa24e6597024c98"
+    },
+    "Rough": {
+     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/rock_face_03/rock_face_03_rough_2k.jpg",
+     "md5": "8895a8b199487fd6cfeed2fed1fb39b4"
+    },
+    "Displacement": {
+     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/rock_face_03/rock_face_03_disp_2k.jpg",
+     "md5": "e7629af66fe9420fe3e73b937f3eba40"
+    },
+    "AO": {
+     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/rock_face_03/rock_face_03_ao_2k.jpg",
+     "md5": "810c436dedec3e19b9a30e5d1db721f7"
+    }
+   }
+  },
+  {
+   "layer": "snow",
+   "asset": "snow_field_aerial",
+   "name": "Snow Field Aerial",
+   "provider": "Poly Haven",
+   "source": "https://polyhaven.com/a/snow_field_aerial",
+   "license": "CC0-1.0",
+   "license_url": "https://polyhaven.com/license",
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "physical_width_m": 80.0,
+   "maps": {
+    "Diffuse": {
+     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/snow_field_aerial/snow_field_aerial_col_2k.jpg",
+     "md5": "04a96090ba01fc40f2c5009436d52035"
+    },
+    "nor_gl": {
+     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/snow_field_aerial/snow_field_aerial_nor_gl_2k.jpg",
+     "md5": "cceff12293c5228ea439f54bc7148893"
+    },
+    "Rough": {
+     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/snow_field_aerial/snow_field_aerial_rough_2k.jpg",
+     "md5": "a4edd30e40a798a46ad4c8fafea65e95"
+    },
+    "Displacement": {
+     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/snow_field_aerial/snow_field_aerial_height_2k.jpg",
+     "md5": "7c6410953bc523a58ff6fd87626ef822"
+    },
+    "AO": {
+     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/snow_field_aerial/snow_field_aerial_ao_2k.jpg",
+     "md5": "68224e44b973057d5016c05d0ed4ba03"
+    }
+   }
+  },
+  {
+   "layer": "cliff",
+   "asset": "cliff_side",
+   "name": "Cliff Side",
+   "provider": "Poly Haven",
+   "source": "https://polyhaven.com/a/cliff_side",
+   "license": "CC0-1.0",
+   "license_url": "https://polyhaven.com/license",
+   "authors": [
+    "James Ray Cock",
+    "Jenelle van Heerden",
+    "Dario Barresi"
+   ],
+   "physical_width_m": 1.83,
+   "maps": {
+    "Diffuse": {
+     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/cliff_side/cliff_side_diff_2k.jpg",
+     "md5": "6d129836144e271b30071281241e237d"
+    },
+    "nor_gl": {
+     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/cliff_side/cliff_side_nor_gl_2k.jpg",
+     "md5": "8209033c3ad15185977d91c92cf5866f"
+    },
+    "Rough": {
+     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/cliff_side/cliff_side_rough_2k.jpg",
+     "md5": "44abb195b6c4c7b6da902e97e5bbbef2"
+    },
+    "Displacement": {
+     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/cliff_side/cliff_side_disp_2k.jpg",
+     "md5": "0cff18e450837d68f545e011aa8a84fa"
+    },
+    "AO": {
+     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/cliff_side/cliff_side_ao_2k.jpg",
+     "md5": "2872dca209647f5723418eddbf63e059"
+    }
+   }
+  }
+ ]
+}
