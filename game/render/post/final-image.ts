@@ -178,10 +178,10 @@ export function createFinalImage(renderer: THREE.WebGLRenderer) {
         color*=1.-vignette*smoothstep(.35,1.25,dot(v,v)*1.6);
         color*=whiteBalance;
         float lum=dot(color,vec3(.2126,.7152,.0722));
-        // Night vision: below a few hundredths of mid grey colour drains away, to a grey with a touch of warmth (a blue-grey rod
-        // shift read as a blue night).
+        // Night vision: below a few hundredths of mid grey colour drains away, to a cool grey (the rods' shift). A warm grey read
+        // as no night at all, 1.3 times bluer than red as not blue enough; the user wants a clear blue night, about 1.8.
         float rods=scotopic*(1.-smoothstep(.006,.12,lum));
-        color=mix(color,lum*vec3(1.02,1.,.96),rods);
+        color=mix(color,lum*vec3(.84,.97,1.24),rods);
         // Split toning by luminance, then contrast round mid grey in log space, then saturation.
         float tone=smoothstep(.02,.6,lum);
         color*=mix(shadowTint,highlightTint,tone);

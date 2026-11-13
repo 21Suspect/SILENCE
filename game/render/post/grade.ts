@@ -27,10 +27,10 @@ export const NIGHT: Key = {
   // At night the meter wants far more than the cap (a moonlit wood meters about 2^-13), so the eye rests at the cap. A lamp seen
   // from the road no longer moves it at all (it closed by nearly two stops under one); only the torch's own spot filling the view
   // at arm's length closes it, by at most a stop and a quarter, so the ground under it does not burn white.
-  // Neutral to a touch warm, as the noon key: the cool white balance, blue shadows and blue rod shift made every night frame
-  // 2.2 times bluer than red, and the user wants the night's air neutral and warm, not blue.
-  key: .09, minExposure: .4, maxExposure: 90, anchor: 90, response: .35, bright: .35, close: 1.25, open: .5, bias: 0, temperature: .05, tint: 0, saturation: .9, contrast: 1.06,
-  shadows: [1.01, 1, .97], highlights: [1.02, 1, .97], scotopic: 1, vignette: .18, grain: 0, bloom: .08,
+  // Blue, short of the first night key (white balance -.3, blue shadows, blue rod shift: a night frame 2.7 times bluer than red).
+  // Neutral-warm (.86) read plain grey and 1.3 not blue enough; this key with the rod shift gives about 1.8.
+  key: .09, minExposure: .4, maxExposure: 90, anchor: 90, response: .35, bright: .35, close: 1.25, open: .5, bias: 0, temperature: -.12, tint: 0, saturation: .9, contrast: 1.06,
+  shadows: [.97, .99, 1.06], highlights: [1.02, 1, .97], scotopic: 1, vignette: .18, grain: 0, bloom: .08,
 };
 
 function blend(a: Key, b: Key, t: number): Key {
