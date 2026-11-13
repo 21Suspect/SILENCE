@@ -63,8 +63,8 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
   // The path's look. 1: the leafy red-brown earth chosen with the user (2026-11-13) over three others, with a soft, frayed
   // edge; 0 the old hard-edged blend. A uniform while its tuning settles (__SILENCE__.perf.scene().userData).
   const pathStyle={value:1};scene.userData.pathStyle=pathStyle;
-  // The leafy mud's tuning, live while it is chosen: x least cover in the middle, y how far its green leaves turn brown, z how much moss may creep in (1 none), w the soft edge's reach (times the width).
-  const pathTune={value:new THREE.Vector4(.95,.9,.97,1.35)},pathTint={value:new THREE.Color(2.15,1.55,1.12)};
+  // The leafy mud's tuning, live while it is chosen: x least cover in the middle, y how far its green leaves take the floor's own green, z how much moss may creep in (1 none), w the soft edge's reach (times the width).
+  const pathTune={value:new THREE.Vector4(.95,1,.97,1.35)},pathTint={value:new THREE.Color(2.15,1.55,1.12)};
   scene.userData.pathTune=pathTune;scene.userData.pathTint=pathTint;
   // The relief march's numbers, live (relief-math.ts has the maths and the reasons). a: the fewest and most steps, the bisections of
   // the last step, the pixels one step may shift the lookup. b: the sun's relief shadow (strength), the height blend's band for the
@@ -226,7 +226,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
       // Moss is never a whole carpet with an outline: a broken mask over several scales, held below full cover, so the height
       // blend lets it fill the hollows between the needle mats first and the floor shows through its edges.
       float mossField=damp*.55+surfaceNoise(p*.31+77.)*.2+surfaceNoise(p*1.3+11.)*.15+surfaceNoise(p*4.7)*.1;
-      float wMoss=.66*smoothstep(.18,.86,mossField)*level*(1.-vBiome.w)*ground*(1.-dirtCoverage*mix(1.,uPathTune.z,pathSoft))*(1.-leafBlend*.45);
+      float wMoss=.72*smoothstep(.22,.78,mossField)*level*(1.-vBiome.w)*ground*(1.-dirtCoverage*mix(1.,uPathTune.z,pathSoft))*(1.-leafBlend*.45);
       float wFloor=max(.08,1.-max(max(max(wRock,wRocky),max(wPath,wRoots)),max(wLitter,wMoss)));
       ${RELIEF?`      // ---- Parallax occlusion on the near ground. The view ray is marched down into the leading layer's relief (the colour's
       // alpha), and every layer is then read where the ray meets that relief: needle mats, roots and stones stand above the
@@ -362,19 +362,21 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
       if(wLitter>.02||road>.001)cLitter=samplePatchLayer(uGroundColor,litterP,1.);
       // The roots scan is pale, dry dirt; on this floor the soil round a trunk is dark and damp.
       if(wRoots>.02){cRoots=samplePatchLayer(uGroundColor,rootsP,2.);cRoots.rgb*=vec3(.74,.72,.68);}
-      // The moss scan is a deep, pure green (linear mean .028/.055/.010: half the floor's brightness, hue 96, 82 % saturated) and
-      // read as dark green blots on the brown floor. Brought to a damp forest moss: 40 % of its colour drained, then an olive tint
-      // to a mean of .072/.083/.034 (hue 73, 59 %), near the floor's own brightness, so it reads as part of the floor.
-      if(wMoss>.02){cMoss=samplePatchLayer(uGroundColor,mossP,3.);cMoss.rgb=mix(vec3(dot(cMoss.rgb,vec3(.2126,.7152,.0722))),cMoss.rgb,.6)*vec3(2.06,1.62,1.41);}
+      if(wMoss>.02)cMoss=samplePatchLayer(uGroundColor,mossP,3.);
       if(wPath>.02||road>.001){
         cPath=samplePatchLayer(uGroundColor,pathP,pathLayer);
         // Each candidate brought to this floor: the leafy mud a little warmer, the forest mud out of near black, the pale earth brown.
-        // The leafy mud is half covered in small bright leaves. By uPathTune.y they give way to the mud's own red-brown (linear
-        // .11, .065, .04, keeping a little of their brightness as texture), so the path reads as earth beside the green moss.
-        if(uPathStyle>.5&&uPathStyle<1.5){float leafGreen=smoothstep(0.,.04,cPath.g-max(cPath.r,cPath.b)*.92);
-          float leafLight=dot(cPath.rgb,vec3(.2126,.7152,.0722));
-          cPath.rgb=mix(cPath.rgb,vec3(.11,.065,.04)*(.7+2.5*leafLight),leafGreen*uPathTune.y);}
+        // The leafy mud is half covered in small green leaves (13 % of the scan: hue past 45 degrees and saturated). Through the
+        // earth's tint they came out a yellow khaki, and as the moss scan a dark emerald: neither is the green beside the path,
+        // which is the floor scan's own moss mats. By uPathTune.y the leaves take the floor's colour at that very spot (the floor
+        // is read at every pixel anyway), so the green on the path is the green round it by construction.
+        vec3 pathScan=cPath.rgb;
         cPath.rgb*=uPathStyle<.5?vec3(1.):uPathStyle<1.5?uPathTint:uPathStyle<2.5?vec3(1.95,1.72,1.5):vec3(.92,.82,.68);
+        if(uPathStyle>.5&&uPathStyle<1.5){
+          float hi=max(max(pathScan.r,pathScan.g),pathScan.b),lo=min(min(pathScan.r,pathScan.g),pathScan.b);
+          float leaf=smoothstep(.72,.92,(pathScan.g-pathScan.b)/max(pathScan.r-pathScan.b,1e-4))*smoothstep(.3,.45,(hi-lo)/max(hi,1e-4));
+          cPath.rgb=mix(cPath.rgb,cFloor.rgb,leaf*uPathTune.y);
+        }
       }
       if(wRocky>.02){cRocky=samplePatchLayer(uGroundColor,rockyP,5.);cRocky.rgb*=vec3(.66,.66,.64);}
       if(wRock>.02){

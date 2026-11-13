@@ -139,7 +139,7 @@ export function createSky(renderer:THREE.WebGLRenderer,scene:THREE.Scene,sun:THR
     // same warm white as the sky light, at each pixel's own brightness; the dome itself is drawn from the sky model and stays blue.
     const data=texture.image.data as Uint16Array|Float32Array,half=texture.type===THREE.HalfFloatType;
     const read=(i:number)=>half?THREE.DataUtils.fromHalfFloat(data[i]):data[i],write=(i:number,v:number)=>{data[i]=half?THREE.DataUtils.toHalfFloat(v):v;};
-    for(let i=0;i<data.length;i+=4){
+    if(ENV_NEUTRAL>0)for(let i=0;i<data.length;i+=4){
       const r=read(i),g=read(i+1),b=read(i+2),l=r*.2126+g*.7152+b*.0722;
       write(i,r+(l*WARM_WHITE.r-r)*ENV_NEUTRAL);write(i+1,g+(l*WARM_WHITE.g-g)*ENV_NEUTRAL);write(i+2,b+(l*WARM_WHITE.b-b)*ENV_NEUTRAL);
     }
@@ -173,7 +173,8 @@ export function createSky(renderer:THREE.WebGLRenderer,scene:THREE.Scene,sun:THR
   // white and a touch warm, not the blue of the open sky that a single scattering of sky light gives. MIST_NEUTRAL of its colour
   // takes WARM_WHITE at the sky light's own brightness, by night too.
   const MIST_NEUTRAL=.85,WARM_WHITE=new THREE.Color(1.04,1,.9),warmMist=new THREE.Color(),warmSky=new THREE.Color();
-  const SKY_NEUTRAL_DAY=.5,SKY_NEUTRAL_NIGHT=.85,ENV_NEUTRAL=.65;
+  // By day both are 0: the user chose the cooler day of before (2026-11-13, the w0 stills) over the warmed one (.5 and .65).
+  const SKY_NEUTRAL_DAY=0,SKY_NEUTRAL_NIGHT=.85,ENV_NEUTRAL=0;
   const mist=new THREE.Color(),groundBounce=new THREE.Color(),sunColor=new THREE.Color(),skyE=new THREE.Color(),moonSkyE=new THREE.Color(),horizon=new THREE.Color(),moonHorizon=new THREE.Color(),fog=new THREE.Color();
   const groundTint=new THREE.Color(.82,.9,.62),grade:Grade=gradeFor(1),side=new THREE.Vector3(),moonDir=new THREE.Vector3();
   const noonSky=skyIrradiance(new THREE.Vector3(0,.8,.6).normalize(),SUN_ILLUMINANCE),noonLuminance=noonSky.r*.2126+noonSky.g*.7152+noonSky.b*.0722;

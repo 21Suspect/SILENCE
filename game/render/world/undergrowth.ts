@@ -415,9 +415,8 @@ export function createUndergrowth(
     // shade it is the same kind of leaf, a little paler than ivy.
     // Both scans were shot fresh under studio light: ivy at linear .15/.23/.10, the rosette leaves dandelion-bright at
     // .37/.45/.11, both far greener than the ferns and moss round them. Taken down to a weathered forest-floor green: darker,
-    // with green cut most so the leaves lose their neon cast. Ivy goes to about .09/.11/.036, an olive: at .09/.11/.05 the patches
-    // turned teal in the shade, where only the sky lights them, and read as dark blue-green spots on the brown and olive floor.
-    ivyMaterial.color.multiply(new THREE.Color(.62, .5, .36));
+    // with green cut most so the leaves lose their neon cast (ivy to about .09/.11/.05).
+    ivyMaterial.color.multiply(new THREE.Color(.6, .48, .5));
     rosetteMaterial.color.multiply(new THREE.Color(.42, .34, .38));
     // Tussocks are the deep green Grass Medium 01: the paler Medium 02 read as dry straw on the damp, mossy floor.
     const grassMaterial = prepareMaterial(lushGrass.meshes[0].material, lushGrass.alpha, TUSSOCK_RANGE, .6, 'near', TUSSOCK_LOD);
