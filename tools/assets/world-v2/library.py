@@ -42,6 +42,9 @@ LIBRARY = {
     # Grey lichened granite: single stones (hearth, lintel, chimney cap), not walls.
     "rock": dict(scan="lichen_rock", width=2.0, metres=1.2, color=2048, normal=2048, orm=1024, saturation=.5),
     # Woven cotton: a mattress, sacking, a tarp. Its colour comes from the material's tint.
+    # Weathered outdoor concrete, board-marked and stained: the bridge's piers, abutments and wing walls.
+    "concrete": dict(scan="concrete", width=4.0, metres=3.2, color=2048, normal=2048, orm=1024, saturation=.7),
+    # A second, dirtier pour for the deck's slab and edge beams, so no two big faces of a bridge show one repeat.
     "canvas": dict(scan="book_pattern", width=.3, metres=.45, color=1024, normal=1024, orm=1024, diffuse="col1", saturation=.08),
 }
 

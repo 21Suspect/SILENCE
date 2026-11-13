@@ -543,7 +543,7 @@ def _rail_post(m, x, top, z=0.0):
 
 def guardrail():
     """7.8 m of W-beam, two lapped panels on four posts. Lengths butt end to end along the road."""
-    m = Model("guardrail", tex=1024, seed=215)
+    m = Model("guardrail", tex=1024, seed=215, tiled=True)
     L = 3.9
     for x in (-2.925, -.975, .975, 2.925):
         _rail_post(m, x, .74)
@@ -561,7 +561,7 @@ def guardrail():
 
 def _guard_end(name, mirror):
     """The last length: the rail swings away from the road and is carried down into the ground, so it has no end to hit."""
-    m = Model(name, tex=1024, seed=216 + int(mirror))
+    m = Model(name, tex=1024, seed=216 + int(mirror), tiled=True)
     L, sgn = 3.9, -1 if mirror else 1
     def bend(u):
         t = min(1.0, max(0.0, (u - .55) / .45))

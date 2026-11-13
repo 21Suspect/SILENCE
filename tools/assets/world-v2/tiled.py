@@ -51,6 +51,20 @@ TILED = {
     "bark": dict(lib="bark", tint=(1.0, 1.0, 1.0), moss=.6, grime=.4, vary=.2, normal=1.2),
     "endgrain": dict(lib="endgrain", tint=(.86, .76, .64), moss=.15, grime=.5, vary=.2, normal=1.0),
     "canvas": dict(lib="canvas", tint=(3.0, 2.85, 2.35), moss=0, grime=.5, vary=.1, normal=1.0),
+    # Weathered grey concrete, linear about .16 and neutral (at .30 it read near-white in the noon sun, beside rock of the same
+    # light): the 'concrete' scan, a dark brown wall (mean .17/.15/.12); a pale beige wall scan tried for the deck had dark stains
+    # of its own that read as black blotches from below. Moss stays off the deck, whose underside never sees the sky.
+    "concrete_cast": dict(lib="concrete", tint=(.96, 1.04, 1.24), moss=.35, grime=.9, vary=.14, normal=1.0),
+    "concrete_deck": dict(lib="concrete", tint=(.92, 1.0, 1.2), moss=.08, grime=.55, vary=.1, normal=1.0),
+    # Steel from the 'sheet' scan (grey steel with a bloom of rust), taken part way to grey (`grey`, see prop-materials.ts) so
+    # tinting it does not turn its grey-blue patches blue. Both stay mostly dielectric: at metalness .45-.7 they mirrored the dark
+    # ground and read black, and the 'iron' scan's white paint flakes read as bright blotches.
+    "girder": dict(lib="sheet", tint=(.48, .5, .62), grey=.35, metal=.15, rough=.8, moss=0, grime=.6, vary=.1, normal=1.0),
+    # Every guard rail, the bridge's and the road's, is this one material: dull weathered galvanised steel, rust blooming through
+    # (linear about .26; at .36 with the rust taken to grey it read as clean white steel in the sun).
+    # No tone of its own per part (`vary` 0): lengths that came out lighter or darker beside each other read as different steel.
+    # `shift` starts each part, and each placed copy (prop-materials.ts), somewhere else in the scan, so the bloom never repeats.
+    "galv": dict(lib="sheet", tint=(1.45, 1.48, 1.58), grey=.15, metal=.2, rough=.65, moss=0, grime=.5, vary=0, normal=.9, shift=True),
 }
 # A lamp's lit globe: no library maps, its glow set by the game from the lamp's brightness (prop-materials.ts).
 TILED["lamp_glow"] = dict(lib=None, glow=True, tint=(1.0, .86, .62), moss=0, grime=0, vary=0)
@@ -82,6 +96,8 @@ def tile_uvs(obj, model):
                 part[:] = c * .5 * .97 + .25 + np.array((q % 2, q // 2)) * .5
             else:
                 part[:] = part * k / library.LIBRARY[r["lib"]]["metres"]
+                if r.get("shift"):
+                    part += (rng.random() * 7, rng.random() * 7)
         uvs.append(uv)
     uv = np.concatenate(uvs)
     tile = obj.data.uv_layers["tile"]
@@ -211,6 +227,10 @@ def export_material(model, name):
     mat["lib"] = r["lib"]
     mat["normal"] = r.get("normal", 1.0)
     mat["vary"] = r.get("vary", .15)
+    if r.get("grey"):
+        mat["grey"] = r["grey"]
+    if r.get("shift"):
+        mat["shift"] = 1
     return mat
 
 

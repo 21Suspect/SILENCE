@@ -18,6 +18,7 @@ import { WORLD_EXTENT, WORLD_RADIUS, TERRAIN_CHUNK, TERRAIN_STEP, hash, noise, p
 import type { SolidCollider } from '../../sim/world/collision';
 import { createMeshSurface } from './surface-support';
 import { naturalLayout, groundedOrigin, type LayoutScatter } from '../../sim/world/placement';
+import { ROAD_CROSSING, BRIDGE_HALF_SPAN, BRIDGE_RAIL } from '../../sim/world/world-layout';
 import { WORLD_V2, WORLD_SEED } from '../../sim/world/world-flags';
 import { groundGeometry, buildTerrainTile, unpackTerrainTile, type TerrainTile, type PreparedTerrainTile } from './terrain-geometry';
 export { hash, noise, pathX, riverX, roadZ, roadDistance, heightAt } from '../../sim/world/world';
@@ -584,6 +585,32 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
   horizon.name='Coastal headlands and alpine skyline';horizon.renderOrder=2;horizon.layers.set(2);
   // Layer 3: the water's far reflection pass (river.ts) draws it, with the far range and the sky, out to the far plane.
   horizon.layers.enable(3);scene.add(horizon);
+  // The road across the bridge is the road: a strip over the deck drawn with this same ground material, so its asphalt,
+  // aggregate, cracks, patches, paint and worn edges are the very ones of the approaches (they are worked out from the world
+  // position), and nothing marks where the bridge begins. The deck model under it carries the road only from afar. It stands
+  // 1.5 cm over the deck and runs 0.4 m onto each approach, over the joint; the ground's riverbed gravel only reaches 1.35 m above
+  // the water, and the road shader's cut-out under the deck only below the deck's level, so neither touches it.
+  if(WORLD_V2){
+    const L=BRIDGE_HALF_SPAN+.4,W=BRIDGE_RAIL-.1,nx=96,nz=18,c=Math.cos(ROAD_CROSSING.yaw),sn=Math.sin(ROAD_CROSSING.yaw);
+    const count=(nx+1)*(nz+1),pos=new Float32Array(count*3),uv=new Float32Array(count*2),index:number[]=[];
+    for(let j=0;j<=nz;j++)for(let i=0;i<=nx;i++){
+      const lx=-L+2*L*i/nx,lz=-W+2*W*j/nz,k=j*(nx+1)+i;
+      // The deck's local +x turns to (cos yaw, -sin yaw) in the world, as the bridge's own placement does.
+      const x=ROAD_CROSSING.x+lx*c+lz*sn,z=ROAD_CROSSING.z-lx*sn+lz*c;
+      pos[k*3]=x;pos[k*3+1]=ROAD_CROSSING.level+.015;pos[k*3+2]=z;uv[k*2]=x/480;uv[k*2+1]=-z/480;
+      if(i<nx&&j<nz){const a=k,b=k+1,d=k+nx+1,e=d+1;index.push(a,d,b,b,d,e);}
+    }
+    const deck=new THREE.BufferGeometry();
+    deck.setAttribute('position',new THREE.BufferAttribute(pos,3));deck.setAttribute('uv',new THREE.BufferAttribute(uv,2));
+    deck.setAttribute('normal',new THREE.BufferAttribute(new Float32Array(count*3).map((_,i)=>i%3===1?1:0),3));
+    deck.setAttribute('treeGround',new THREE.BufferAttribute(new Float32Array(count),1));
+    deck.setAttribute('biome',new THREE.BufferAttribute(new Float32Array(count*4),4));
+    deck.setAttribute('horizonY',new THREE.BufferAttribute(new Float32Array(count).fill(ROAD_CROSSING.level+.015),1));
+    deck.setIndex(index);deck.computeBoundingSphere();
+    const roadOnDeck=new THREE.Mesh(deck,material);roadOnDeck.name='Road over the bridge deck';roadOnDeck.receiveShadow=true;
+    if(perfOn('terrainLast'))roadOnDeck.renderOrder=1;
+    scene.add(roadOnDeck);
+  }
   let worker:Worker|undefined;
   let requested:TerrainTile|undefined,prepared:PreparedTerrainTile|undefined;
   let pendingChunks=0,lastCoverageUpdate=performance.now();

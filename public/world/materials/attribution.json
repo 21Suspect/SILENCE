@@ -207,6 +207,31 @@
    }
   },
   {
+   "library": "concrete",
+   "asset": "concrete",
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "source": "https://polyhaven.com/a/concrete",
+   "license": "CC0-1.0",
+   "license_url": "https://polyhaven.com/license",
+   "width_m": 4.0,
+   "maps": {
+    "color": {
+     "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/concrete/concrete_diff_2k.jpg",
+     "md5": "8ddd1a273bbde0e4095cba8647c79b96"
+    },
+    "normal": {
+     "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/concrete/concrete_nor_gl_2k.jpg",
+     "md5": "73f9112331204512b2612792367f506a"
+    },
+    "orm": {
+     "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/concrete/concrete_arm_2k.jpg",
+     "md5": "0877280af15870f4521b094272d0008a"
+    }
+   }
+  },
+  {
    "library": "canvas",
    "asset": "book_pattern",
    "authors": [

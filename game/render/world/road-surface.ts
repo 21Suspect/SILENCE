@@ -1,6 +1,6 @@
 import { roadZ, roadSlope, ROAD_NORM } from '../../sim/world/world-noise';
 import { ROAD, roadArcTable } from '../../sim/world/road-profile';
-import { ROAD_CROSSING } from '../../sim/world/world-layout';
+import { ROAD_CROSSING, BRIDGE_HALF_SPAN } from '../../sim/world/world-layout';
 
 /**
  * The valley road as ground shading: an old two-lane asphalt carriageway, its worn paint, and a verge that crumbles away into
@@ -22,6 +22,7 @@ export function roadSurface() {
   // The bridge carries the road at a fixed level; the ground it spans (the stream bed and its banks) is metres below the deck.
   const float BRIDGE_X=${ROAD_CROSSING.x.toFixed(2)};
   const float BRIDGE_LEVEL=${ROAD_CROSSING.level.toFixed(2)};
+  const float BRIDGE_HALF=${BRIDGE_HALF_SPAN.toFixed(2)};
   const float ROAD_ARC[${ROAD.arcCount}]=float[${ROAD.arcCount}](${arc});
   // Arc length of the centre line up to x: the paint is laid out along the road, so it neither stretches nor smears on the diagonals.
   // The table is uniform in x, so on the steep stretches its nodes lie far apart along the road: a cubic through the length and
@@ -133,7 +134,7 @@ export function roadSurface() {
       TexturePatch roadGravelPatch=groundTexturePatch(groundUv/.9+vec2(5.,3.));
       float roadA,roadS;vec2 roadT;
       bool roadHere=roadFrame(p,roadA,roadS,roadT);
-      float roadAbs=abs(roadA),roadSide=roadA<0.?13.:41.,roadEdge=ROAD_HALF,roadOuter=ROAD_HALF+.9,roadAsphalt=0.,road=0.;
+      float roadAbs=abs(roadA),roadSide=roadA<0.?13.:41.,roadEdge=ROAD_HALF,roadOuter=ROAD_HALF+.9,roadAsphalt=0.,road=0.,onDeck=0.;
       float roadRoughAdd=0.;vec2 roadSlope=vec2(0.);
       if(roadHere){
         // The deck is a prop above the stream: the ground below it is not road, so no asphalt, paint or verge is drawn there.
@@ -142,6 +143,9 @@ export function roadSurface() {
         roadAsphalt=roadAsphaltEdge(p,roadAbs,roadS,roadSide,fp,roadEdge,roadOuter)*presence;
         float verge=1.-smoothstep(roadOuter-.5,roadOuter+.35,roadAbs+(surfaceNoise(p*1.6)-.5)*.5);
         road=max(verge*presence,roadAsphalt);
+        // The strip drawn over the bridge deck (terrain.ts) is concrete under grit to its kerbs: no forest floor, no grass.
+        onDeck=(1.-smoothstep(BRIDGE_HALF-.4,BRIDGE_HALF+.6,abs(p.x-BRIDGE_X)))*smoothstep(BRIDGE_LEVEL-.4,BRIDGE_LEVEL-.1,vGroundPosition.y);
+        road=max(road,onDeck);
       }
       float bank=bedWeight(vGroundPosition);`;
 
@@ -159,6 +163,8 @@ export function roadSurface() {
         vec3 verge=mix(groundColor,leafColor*vec3(.68,.63,.52),.28);
         float creep=smoothstep(roadEdge+.05,roadOuter+.25,roadAbs+(surfaceNoise(p*1.9)-.5)*1.1)*(.35+.65*smoothstep(.25,.75,surfaceNoise(p*.8+23.)));
         creep=max(creep,smoothstep(.55,.72,surfaceNoise(p*2.6+31.))*smoothstep(roadEdge-.1,roadEdge+.5,roadAbs)*.8);
+        // On the deck the shoulder is the road's grit and dust gathered against the kerb, a few dead leaves in it.
+        creep*=1.-onDeck;verge=mix(verge,mix(gravel*.85,leafColor*vec3(.62,.57,.46),.25),onDeck);
         vec3 roadSurface=mix(gravel,verge,clamp(creep*.9+.06,0.,1.));
         if(roadAsphalt>.001){
           // Old asphalt: dark, the scanned aggregate showing as pale stones and shadowed binder.

@@ -86,6 +86,29 @@ const ROOM_VERTEX = `
     propWorld = instanceMatrix * propWorld;
   #endif
   vPropWorld = ( modelMatrix * propWorld ).xyz;`;
+// A part that repeats along the world (every length of guard rail is the same model) starts somewhere else in its scan at each
+// placed copy, by a hash of where the copy stands: the rust bloom on one length never repeats on the next.
+const SHIFT_VERTEX = `
+  if ( uPropShift > 0. ) {
+    vec4 propOrigin = vec4( 0., 0., 0., 1. );
+    #ifdef USE_INSTANCING
+      propOrigin = instanceMatrix * propOrigin;
+    #endif
+    vec2 propCell = floor( ( modelMatrix * propOrigin ).xz * 2. );
+    vec2 propShift = fract( sin( vec2( dot( propCell, vec2( 127.1, 311.7 ) ), dot( propCell, vec2( 269.5, 183.3 ) ) ) ) * 43758.5453 ) * 7.;
+    #ifdef USE_MAP
+      vMapUv += propShift;
+    #endif
+    #ifdef USE_NORMALMAP
+      vNormalMapUv += propShift;
+    #endif
+    #ifdef USE_ROUGHNESSMAP
+      vRoughnessMapUv += propShift;
+    #endif
+    #ifdef USE_METALNESSMAP
+      vMetalnessMapUv += propShift;
+    #endif
+  }`;
 const ROOM_FRAGMENT = `
   {
     // Inside the room's box (soft over its last 15 cm), the sky is mostly shut out and the lamp lights it.
@@ -137,21 +160,28 @@ ${shader.fragmentShader.includes('uLampCandela;') ? '' : 'uniform float uLampCan
     .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>${ROOM_FRAGMENT}`);
 }
 
-function patch(material: THREE.MeshStandardMaterial, vary: number, lampMax: number) {
+function patch(material: THREE.MeshStandardMaterial, vary: number, lampMax: number, grey = 0, shift = 0) {
   material.onBeforeCompile = shader => {
     shader.uniforms.uPropVary = { value: vary };
+    shader.uniforms.uPropGrey = { value: grey };
+    shader.uniforms.uPropShift = { value: shift };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform float uPropShift;')
+      .replace('#include <uv_vertex>', `#include <uv_vertex>${SHIFT_VERTEX}`);
     shader.uniforms.uPropMoss = { value: MOSS };
     shader.uniforms.uLampMax = { value: lampMax };
     shader.uniforms.uLampCandela = PROP_LAMP.candela;
     shader.uniforms.uLampColour = PROP_LAMP.colour;
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform float uPropVary,uLampMax,uLampCandela;\nuniform vec3 uPropMoss,uLampColour;')
+      .replace('#include <common>', '#include <common>\nuniform float uPropVary,uPropGrey,uLampMax,uLampCandela;\nuniform vec3 uPropMoss,uLampColour;')
       // The emissive slot carries the baked lamp light (sRGB-encoded irradiance per candela over uLampMax), not a glow.
       .replace('#include <emissivemap_fragment>', `
   #ifdef USE_EMISSIVEMAP
     totalEmissiveRadiance += texture2D( emissiveMap, vEmissiveMapUv ).r * uLampMax * uLampCandela * uLampColour * diffuseColor.rgb * RECIPROCAL_PI;
   #endif`)
-      .replace('#include <map_fragment>', `#include <map_fragment>
+      // `grey` takes the scan towards its own luminance before the tint, so a strong tint recolours it without amplifying its hues.
+      .replace('#include <map_fragment>', `${THREE.ShaderChunk.map_fragment.replace('diffuseColor *= sampledDiffuseColor;',
+        'sampledDiffuseColor.rgb = mix( sampledDiffuseColor.rgb, vec3( dot( sampledDiffuseColor.rgb, vec3( .2126, .7152, .0722 ) ) ), uPropGrey );\n\tdiffuseColor *= sampledDiffuseColor;')}
   #ifdef USE_AOMAP
     vec4 propMacro = texture2D( aoMap, vAoMapUv );
   #else
@@ -204,7 +234,7 @@ export function doorLeafMaterial(material: THREE.Material, side: number, lamp: b
     copy = material.clone();
     copy.userData.leaf = { side, lamp: lamp ? 1 : 0 };
     // A clone keeps the maps but not the shader patches: dress it again.
-    if (typeof copy.userData.lib === 'string') patch(copy, Number(copy.userData.vary ?? .15), Number(copy.userData.lampMax ?? 0));
+    if (typeof copy.userData.lib === 'string') patch(copy, Number(copy.userData.vary ?? .15), Number(copy.userData.lampMax ?? 0), Number(copy.userData.grey ?? 0), Number(copy.userData.shift ?? 0));
     else patchInterior(copy);
     leafCopies.set(key, copy);
   }
@@ -241,7 +271,7 @@ export async function dressProp(root: THREE.Object3D): Promise<void> {
     m.map = e.map; m.normalMap = e.normalMap; m.roughnessMap = e.orm; m.metalnessMap = e.orm;
     // glTF normal maps on derivative tangents: GLTFLoader flips y the same way.
     m.normalScale.set(strength, -strength);
-    patch(m, Number(m.userData.vary ?? .15), Number(m.userData.lampMax ?? 0));
+    patch(m, Number(m.userData.vary ?? .15), Number(m.userData.lampMax ?? 0), Number(m.userData.grey ?? 0), Number(m.userData.shift ?? 0));
     m.needsUpdate = true;
     waits.push(e.ready);
   }
