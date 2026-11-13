@@ -806,36 +806,42 @@ def door_steel():
 
 
 def door_plank():
-    """A ledged and braced board door: hinge edge on the origin, leaf along +x. Outside face is +z."""
-    m = Model("door_plank", tex=1024, seed=306)
+    """The cabin's ledged and braced board door, in the shared library materials (tiled.py): hinge edge on the origin,
+    leaf along +x, outside face +z. Sized to the cabin's 2.2 m doorway."""
+    m = Model("door_plank", tex=512, seed=306, tiled=True)
     rng = m.rng
-    W, H, T = .86, 2.06, .03
-    n = 5
+    W, H, T = .88, 2.18, .035
+    n = 6
     bw = W / n
     for i in range(n):
         x = (i + .5) * bw
-        m.beam((x, .0 + rng.uniform(0, .012), 0), (x, H - rng.uniform(0, .012), 0), bw - .004, T, "wood_dark" if i == 3 else "wood", up=(0, 0, 1), chamfer=.004)
-    # Ledges and a brace on the inside face, clenched nails through each board.
-    zi = -T / 2 - .014
-    for y in (.3, 1.05, 1.78):
-        m.beam((.03, y, zi), (W - .03, y, zi), .11, .028, "wood_dark", up=(0, 0, 1), chamfer=.004)
+        m.beam((x, rng.uniform(0, .014), 0), (x, H - rng.uniform(0, .01), 0), bw - .005, T, "wood", up=(0, 0, 1), chamfer=.005)
+    # Ledges and two braces on the inside face, nails clenched through each board.
+    zi = -T / 2 - .015
+    for y in (.28, 1.1, 1.92):
+        m.beam((.025, y, zi), (W - .025, y, zi), .12, .03, "wood_dark", up=(0, 0, 1), chamfer=.005)
         for i in range(n):
-            m.nail(((i + .5) * bw, y, T / 2 + .001), (0, 0, 1))
-    m.beam((.07, .37, zi), (W - .07, .98, zi), .09, .026, "wood_dark", up=(0, 0, 1), chamfer=.004)
-    m.beam((.07, 1.12, zi), (W - .07, 1.71, zi), .09, .026, "wood_dark", up=(0, 0, 1), chamfer=.004)
-    # Strap hinges on the outside, knuckles on the hinge edge.
-    zo = T / 2 + .005
-    for y in (.3, 1.78):
-        m.beam((.0, y, zo), (.56, y, zo), .045, .008, "soot_iron", up=(0, 0, 1), chamfer=.002)
-        m.lathe([(.016, 0), (.016, 1)], (.0, y - .05, zo + .008), (.0, y + .05, zo + .008), "soot_iron", 8)
-        for dx in (.1, .3, .5):
-            m.bolt((dx, y, zo + .004), (0, 0, 1), .007, "soot_iron")
-    # Thumb latch and a pull, both faces.
-    for z, s_ in ((zo, 1), (-T / 2 - .004, -1)):
-        hx = W - .09
-        m.tube([(hx, 1.0, z), (hx, 1.0, z + s_ * .05), (hx, 1.15, z + s_ * .05), (hx, 1.15, z)], .009, "soot_iron", 6)
-        m.box((hx, 1.075, z + s_ * .002), (.05, .22, .008), "soot_iron", chamfer=.002)
-    m.radius = 1.2
+            for dy in (-.03, .03):
+                m.nail(((i + .5) * bw + rng.uniform(-.01, .01), y + dy, T / 2 + .001), (0, 0, 1), r=.005, mat="iron")
+    m.beam((.08, .36, zi), (W - .08, 1.02, zi), .1, .028, "wood_dark", up=(0, 0, 1), chamfer=.005)
+    m.beam((.08, 1.18, zi), (W - .08, 1.84, zi), .1, .028, "wood_dark", up=(0, 0, 1), chamfer=.005)
+    # Strap hinges on the outside, tapering from the knuckle, three bolts each.
+    zo = T / 2 + .004
+    for y in (.28, 1.92):
+        for k in range(6):
+            x0, x1 = k * .1, (k + 1) * .1
+            w0, w1 = .05 - k * .006, .05 - (k + 1) * .006
+            m.beam((x0, y, zo), (x1, y, zo), (w0 + w1) / 2, .007, "iron_black", up=(0, 0, 1), chamfer=.0015)
+        m.lathe([(.017, 0), (.017, 1)], (.0, y - .055, zo + .006), (.0, y + .055, zo + .006), "iron_black", 10)
+        for dx in (.12, .32, .52):
+            m.bolt((dx, y, zo + .003), (0, 0, 1), .007, "iron_black")
+    # Thumb latch outside, a pull inside.
+    hx = W - .1
+    m.tube([(hx, 1.0, zo), (hx, 1.0, zo + .05), (hx, 1.16, zo + .05), (hx, 1.16, zo)], .009, "iron_black", 8)
+    m.box((hx, 1.08, zo + .002), (.05, .24, .007), "iron_black", chamfer=.0015)
+    zb = -T / 2 - .03
+    m.tube([(hx, 1.0, zb), (hx, 1.0, zb - .05), (hx, 1.16, zb - .05), (hx, 1.16, zb)], .009, "iron_black", 8)
+    m.radius = 1.3
     return m
 
 

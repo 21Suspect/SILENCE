@@ -10,6 +10,7 @@ import type { Ladder } from '../../sim/player/ladders';
 import type { DoorSpec } from './doors';
 import type { GpuWarmup } from '../gpu/gpu-warmup';
 import { perfOn } from '../../core/perf-flags';
+import { dressProp } from './prop-materials';
 
 /** Model-local footprint (Y up, metres, Y=0 is the ground), as written by the Blender export. */
 export type ModelCollider = ({ kind: 'box'; x: number; z: number; halfX: number; halfZ: number; yaw?: number } |
@@ -329,7 +330,8 @@ export function createPois(scene: THREE.Scene, heightAt: (x: number, z: number) 
     let request: Promise<{ scene: THREE.Object3D }>;
     try { request = options.load ? options.load(model.def.url) : (loader ??= new GLTFLoader()).loadAsync(model.def.url); } catch (error) { request = Promise.reject(error); }
     // `done` settles when the model can be shown: loaded, and (when the GPU warm-up is on) its textures built.
-    model.done = request.then(async gltf => { finish(model, gltf); await model.ready; return model.scene; }).catch(error => { fail(error); return undefined; });
+    // Library-textured props (tiled.py) get their shared maps before anything is shown or warmed.
+    model.done = request.then(async gltf => { await dressProp(gltf.scene); finish(model, gltf); await model.ready; return model.scene; }).catch(error => { fail(error); return undefined; });
   }
 
   const tmp = new THREE.Matrix4();

@@ -24,7 +24,13 @@ table = json.load(open(path)) if os.path.exists(path) else {}
 for name in chosen:
     fn, shots = ASSETS[name]
     made = fn()
-    table[name] = made if isinstance(made, dict) else kit.build(made, shots)
+    if isinstance(made, dict):
+        table[name] = made
+    elif getattr(made, "tiled", False):
+        import tiled
+        table[name] = tiled.build(made, shots)
+    else:
+        table[name] = kit.build(made, shots)
     with open(path, "w") as f:
         json.dump(table, f, indent=1)
 kit.log("WORLD_V2_DONE", chosen)

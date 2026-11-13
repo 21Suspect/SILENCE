@@ -61,8 +61,9 @@ def _sheet_wear(rng):
 
 
 class Model:
-    def __init__(self, name, tex=2048, seed=1):
-        self.name, self.tex = name, tex
+    def __init__(self, name, tex=2048, seed=1, tiled=False):
+        # tiled: built by tiled.py (shared library scans plus a small unique macro map at `tex`), not baked into one atlas.
+        self.name, self.tex, self.tiled = name, tex, tiled
         self.rng = random.Random(seed)
         self.parts = {}
         self.colliders, self.hooks, self.ladders = [], {}, []
@@ -1039,7 +1040,8 @@ def clear_scene():
     _images.clear()
 
 
-def assemble(model):
+def assemble(model, make=None):
+    """One mesh, one material slot per recipe. `make(name)` builds each slot's material (default: the baked recipes)."""
     names = sorted(model.parts)
     V, N, UV, S, W, F, MI = [], [], [], [], [], [], []
     base = 0
@@ -1081,7 +1083,7 @@ def assemble(model):
     bpy.context.collection.objects.link(obj)
     metals = {}
     for name in names:
-        mat, metal = build_material(name)
+        mat, metal = (make or build_material)(name)
         mesh.materials.append(mat)
         metals[mat.name] = metal
     log(model.name, "triangles", sum(len(p.vertices) - 2 for p in mesh.polygons), "materials", len(names))
@@ -1321,8 +1323,9 @@ def glass_object(name, bucket):
     mat.use_nodes = True
     mat.use_backface_culling = False
     bsdf = mat.node_tree.nodes["Principled BSDF"]
-    bsdf.inputs["Base Color"].default_value = (.36, .42, .39, 1)
-    bsdf.inputs["Alpha"].default_value = .3
+    # Dark: what glass shows from outside is the dim room behind it and the sky in its reflection, not a colour of its own.
+    bsdf.inputs["Base Color"].default_value = (.025, .03, .028, 1)
+    bsdf.inputs["Alpha"].default_value = .5
     bsdf.inputs["Roughness"].default_value = .12
     bsdf.inputs["Metallic"].default_value = 0
     for attr, value in (("surface_render_method", "BLENDED"), ("blend_method", "BLEND")):
@@ -1452,6 +1455,9 @@ def build(model, shots=None, samples=20):
     setup_cycles()
     # Window glass is not baked into the atlas: it leaves as a second, see-through mesh in the same file.
     panes = model.parts.pop("glass", None)
+    # Nothing may float: every part grounded, resting on another or set into it (support.py).
+    import support
+    support.report(support.audit(model), log)
     obj, metals = assemble(model)
     atlas_uv(obj, model)
     albedo, normal, orm = bake_model(obj, metals, model.tex, samples)

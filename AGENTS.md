@@ -23,6 +23,13 @@ or fewer), `tools/playtest/nav-probe.mjs`, `tools/playtest/creature-run.mjs`, `t
 Blender 5.1: `blender --background --factory-startup --python tools/assets/world-v2/build.py -- cabin` (writes
 public/world/cabin.glb and game/data/world-assets.json; commit both together).
 
+Buildings rebuilt for detail use the tiled pipeline (`Model(..., tiled=True)`, tools/assets/world-v2/tiled.py): shared CC0
+scans in public/world/materials (`python3 tools/assets/world-v2/library.py fetch` then `pack`) at 900 to 2000 texels per
+metre, plus a small baked macro map per prop (occlusion with sky openness, moss, grime, tone); the game hangs the shared maps
+on them in game/render/props/prop-materials.ts. Detailed parts (round logs, displaced masonry, corrugated iron, settled
+firewood) are in parts_hq.py. Every build prints a support audit (support.py: `SUPPORT ... N FLOATING`, details in
+work/gfx/audit): nothing may float, so get it to 0 before showing a prop.
+
 Ground ghosting, in numbers: tools/ghosting (page.js runs fixed poses x switches in the dev server's tab and posts stills and
 JSON to receiver.mjs; measure.mjs writes the table; metrics.mjs is the maths, tested in tests/tools/ghosting). The relief
 march's maths is mirrored in game/render/world/relief-math.ts. `perfOn('groundRelief')` off builds the first version of the
