@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { Reflector } from 'three/addons/objects/Reflector.js';
 import { RIVER_EXTENT, waterHeightAt, waterGradeAt, riverProfileGLSL, riverCourseGLSL, channelOffset } from '../../sim/world/world';
-import { BRANCHES, branchX } from '../../sim/world/world-noise';
+import { BRANCHES, BRANCH_NARROW, branchX } from '../../sim/world/world-noise';
+import { SUN_ILLUMINANCE } from './sky-model';
+import { LIGHT_TUNING } from '../../core/light-tuning';
 import { WORLD_V2 } from '../../sim/world/world-flags';
 import { LAKE_CENTER, LAKE_RADII, LAKE_LEVEL, SEA_LEVEL, lakeDistance, coastDistance, coastalGLSL, lakeOutlineGLSL } from '../../sim/world/coastal-geography';
 
@@ -48,6 +50,18 @@ const WATER_GLSL=`
     vec2 a=vec2(ch.x,ch.y+speed*pA*period)+waterJump(floor(c)+seed),b=vec2(ch.x,ch.y+speed*pB*period)+waterJump(floor(c+.5)+seed+.37);
     a.y*=stretch;b.y*=stretch;
     return texture2D(tWaterFoam,a*scale).rgb*wA+texture2D(tWaterFoam,b*scale).rgb*wB;
+  }
+  // The same two crossfaded copies in world space, each carried along a velocity (a flow map): a feature at q is at q + vel*t.
+  vec2 flowSlopeW(vec2 p,vec2 vel,float scale,float period,float seed,mat2 rot){
+    float c=uTime/period+seed*.318,pA=fract(c),pB=fract(c+.5),wA=smoothstep(.1,.9,1.-abs(1.-2.*pA)),wB=1.-wA;
+    vec2 a=p-vel*(pA*period)+waterJump(floor(c)+seed),b=p-vel*(pB*period)+waterJump(floor(c+.5)+seed+.37);
+    vec2 sA=texture2D(tWaterNormal,rot*a*scale).xy*2.-1.,sB=texture2D(tWaterNormal,rot*b*scale).xy*2.-1.;
+    return ((sA*wA+sB*wB)*inversesqrt(wA*wA+wB*wB))*rot;
+  }
+  vec3 flowFoamW(vec2 p,vec2 vel,float scale,float period,float seed){
+    float c=uTime/period+seed*.318,pA=fract(c),pB=fract(c+.5),wA=smoothstep(.1,.9,1.-abs(1.-2.*pA)),wB=1.-wA;
+    vec2 a=p-vel*(pA*period)+waterJump(floor(c)+seed),b=p-vel*(pB*period)+waterJump(floor(c+.5)+seed+.37);
+    return texture2D(tWaterFoam,a*scale).rgb*wA+texture2D(tWaterFoam,b*scale).rgb*wB;
   }`;
 
 // Which way the channel runs on the ground at this pixel, from how the channel coordinates and world position change on screen.
@@ -63,61 +77,239 @@ const WATER_FRAME_GLSL=`
           }
         }`;
 
-const WATER_FLOW_GLSL=`
-        // Channel space: across in metres from mid-stream, along the bed. The water runs towards decreasing along,
-        // fastest down the middle. Every layer is advected in these coordinates, so the current follows any bend.
-        float broad=max(step(1.5,vRibbon),mouth),ocean=step(2.5,vRibbon);
-        float across=vChannel.x,along=vChannel.y,mid=(1.-smoothstep(.3,5.2,abs(across)))*(1.-broad),speed=mix(mix(.26,.92,mid),mix(.10,.34,ocean),broad);
-        vec2 ch=vec2(across,along);
-        // Riffles stand where the bed lifts: fixed in place while the water runs through them.
-        float riffle=smoothstep(.5,.84,texture2D(tWaterFoam,vec2(across*.085+.37,along*.047)).b)*(.4+.6*mid)*(1.-broad);
-        riffle=max(riffle,smoothstep(.08,.65,abs(vSlope.y))*(1.-broad));
-        float rough=(.55+.8*riffle+.2*mid+.30*ocean)*mix(.4,1.,smoothstep(0.,.3,thickness));
+// The ripple layers, turned into world-space slopes (bulk in .xy, the finest wrinkles in .zw), in either of two frames:
+// channel space (ch: metres across, metres along; the pattern stretched along the current and carried down it), or world space
+// with a velocity (a flow map: the pattern carried along vel, unstretched), which is what a lake, the sea and every junction use.
+// The periods are short because the current is fast: the pattern slides at most a period's worth before it is crossfaded, and
+// across a 1.5 m/s stream whose banks run at half that speed, 1.8 s of drift shears a 4 m wide band by 1.4 m (37%), not more.
+const WATER_LAYERS_GLSL=`
+  vec4 flowLayers(vec2 ch,float speed,vec2 acrossDir,vec2 alongDir,float farFade,float midFade,float nearFade){
+    vec2 bulk=flowSlope(ch,speed,.17,.6,1.8,0.,mat2(1.,0.,0.,1.))*(.3*farFade),fine=vec2(0.);
+    if(uDetail>.5)bulk+=flowSlope(ch,speed*.96,.52,.6,1.4,1.,mat2(.857,.515,-.515,.857))*(.24*midFade);
+    if(uDetail>1.5)fine=flowSlope(ch,speed*1.05,1.6,.6,1.05,2.,mat2(.921,-.391,.391,.921))*(.17*nearFade);
+    return vec4(-(acrossDir*bulk.x+alongDir*bulk.y),-(acrossDir*fine.x+alongDir*fine.y));
+  }
+  vec4 flowLayersW(vec2 p,vec2 vel,float farFade,float midFade,float nearFade){
+    vec2 bulk=flowSlopeW(p,vel,.17,1.8,0.,mat2(1.,0.,0.,1.))*(.3*farFade),fine=vec2(0.);
+    if(uDetail>.5)bulk+=flowSlopeW(p,vel*.96,.52,1.4,1.,mat2(.857,.515,-.515,.857))*(.24*midFade);
+    if(uDetail>1.5)fine=flowSlopeW(p,vel*1.05,1.6,1.05,2.,mat2(.921,-.391,.391,.921))*(.17*nearFade);
+    return vec4(-bulk,-fine);
+  }`;
+
+/**
+ * The rebuilt world's water, one shader for the river, its side channels, the lake and the sea. Every quantity that differs
+ * between them (speed and direction of the current, roughness, colour, foam, swell) is a continuous function of position, so
+ * where two surfaces meet (a river mouth, a side channel rejoining the stream) both draw the same thing on the line between
+ * them and nothing marks it.
+ */
+const waterV2Main=(branchCount:number)=>`
+      void main(){
+        ${WATER_FRAME_GLSL}
+        vec2 screen=gl_FragCoord.xy/uResolution,p=vWater.xz;
+        float lakeEdge=lakeOutline(p),coastEdge=coastDistance(p);
+        // Which way is inland, from how the coast's distance changes between neighbouring pixels (it is smooth, so a 2x2 quad's
+        // difference is its gradient; two more evaluations of the coast cost the sea 1 ms a frame). Taken before any discard.
+        vec2 dpx=dFdx(p),dpy=dFdy(p);float dcx=dFdx(coastEdge),dcy=dFdy(coastEdge),dpd=dpx.x*dpy.y-dpx.y*dpy.x;
+        vec2 inland=abs(dpd)>1e-9?vec2(dcx*dpy.y-dpx.y*dcy,dpx.x*dcy-dcx*dpy.x)/dpd:vec2(0.,1.);
+        float thickness=max(0.,viewDepth(screen)-vViewDepth);
+        // Metres of water under the surface to the ground seen through this pixel (across the surface, which tilts down a
+        // stream's steps: measured straight down, water above the eye on a cascade had no depth and vanished), and along the
+        // view ray. Points on one ray scale with view depth, so the ground lies thickness/vViewDepth of vEye further on.
+        float through=thickness/max(vViewDepth,.001),below=max(dot(vEye,normalize(vec3(-vSlope.x,1.,-vSlope.y))),0.)*through,path=length(vEye)*through;
+        // Metres across the bed to the waterline: the depth over how fast it grows from pixel to pixel. A flat sandy shallow
+        // and a steep bank then get the same narrow fringe of froth, where a band of depth alone covered the whole flat.
+        float bedSlope=max((abs(dFdx(below))+abs(dFdy(below)))/max(length(dpx)+length(dpy),1e-4),.04),shoreDist=below/bedSlope;
+        // Surface intersection is determined by the real depth-buffer shoreline.
+        if(thickness<.001)discard;
+        float river=step(vRibbon,1.5),isLake=step(1.5,vRibbon)*(1.-step(2.5,vRibbon)),isSea=step(2.5,vRibbon);
+        // Who draws which pixel. The river owns its channel (the mouth-rounded channel mask) down to the shoreline; the lake and
+        // the sea own everything past it, and a little beyond their outlines outside the channel, so a bank that dips under
+        // their level is still covered. A pixel goes to exactly one surface: they never double-draw or z-fight.
+        float inChannel=0.;
+        if(river>.5||isLake>.5&&lakeEdge>0.||isSea>.5&&coastEdge>3.)inChannel=step(mouthRound(streamOffset(p),p),3.5)*step(abs(p.y),${(RIVER_EXTENT-52).toFixed(1)});
+        // Where two surfaces meet each reaches 0.6 m past the line and the depth test settles the band between them: on the line
+        // both draw the same colour, so whichever is nearer by a hair shows the same thing, and no pixel is left to neither.
+        if(river>.5&&(lakeEdge<-.6||coastEdge<2.4||inChannel<.5))discard;
+        if(isLake>.5&&(coastEdge<0.||lakeEdge>0.&&(inChannel>.5||lakeEdge>4.)))discard;
+        if(isSea>.5&&coastEdge>3.&&(inChannel>.5||coastEdge>12.))discard;
+        // Near its mouth the river becomes the water it runs into: 1 at the shoreline, fading out 50 m upstream.
+        float mouthSea=river*(1.-smoothstep(3.,50.,coastEdge)),mouthLake=river*(1.-smoothstep(0.,50.,lakeEdge)),mouth=max(mouthSea,mouthLake);
+        float broad=max(1.-river,mouth),ocean=max(isSea,mouthSea),seaShare=ocean/max(broad,.001);
+        // The current. Speed follows the bed's grade (Manning: v grows as the square root of the slope), from 0.45 m/s in the
+        // level reaches by the lake to 1.4 m/s at a 1% grade, 2.1 m/s at 3% and 3 m/s down the cascades, fastest mid-stream and
+        // at about half that by the banks. It runs down the channel's own line, worked out here from the course itself, so a side
+        // channel and the stream it rejoins agree on it where they meet.
+        float vMid=0.,prof=0.,side=0.,cascade=0.;vec2 vel=vec2(0.);
+        if(river>.5){
+          float sM=(streamCentre(p.y+.6)-streamCentre(p.y-.6))/1.2,dM=abs(p.x-streamCentre(p.y))/sqrt(1.+sM*sM);
+          float dB=1e4,rawB=1e4,sB=0.;
+          ${branchCount?'branchDistance(p,dB,rawB,sB);':''}
+          // A side channel and the stream share their level; the pixel goes to whichever line is nearer (the side channel's
+          // distance counted as the ground counts it, BRANCH_NARROW times longer).
+          if(vRibbon<.5&&dB<dM-.3)discard;
+          if(vRibbon>.5&&dB>dM+.3)discard;
+          float grade=abs(streamGrade(p.y));
+          vMid=clamp(.45+9.*sqrt(grade),.45,3.);
+          // Down the steps of the cascades (grades of 0.15 and more) the stream is white water from bank to bank.
+          cascade=smoothstep(.12,.4,grade);
+          prof=1.-smoothstep(.4,4.6,dM);
+          vel=-normalize(vec2(sM,1.))*vMid*mix(.5,1.,prof);
+          if(dB<1e3){
+            float wB=smoothstep(-2.,2.,dM-dB),profB=1.-smoothstep(.3,3.,rawB);
+            vel=mix(vel,-normalize(vec2(sB,1.))*vMid*.85*mix(.5,1.,profB),wB);prof=mix(prof,profB,wB);
+            side=1.-smoothstep(.4,2.4,abs(dM-dB));
+          }
+        }
+        // The lake drifts slowly in the wind; the sea's surface is carried onshore, up the slope of the coast's distance field.
+        vec2 onshore=length(inland)>1e-4?normalize(inland):vec2(0.,1.);
+        vec2 broadVel=mix(vec2(.07,-.1),onshore*.38,seaShare);
+        // A low wave runs in to the beach and on up a river's mouth, dying away inland (it tilts the normal only: see the vertices).
+        float shoreWave=-coastEdge;
+        vec2 shoreSlope=ocean>.001?-.042*cos(shoreWave*.65+uTime*1.15)*exp(-abs(shoreWave)*.08)*onshore*ocean:vec2(0.);
+        // The open sea's swell, also as a slope per pixel: the sea's mesh is 26 m a cell along the coast, too coarse for a 40 m
+        // swell, which displaced there stood as facets and stood off the river's surface where the two met.
+        if(ocean>.001){
+          float swell=p.x*.13+p.y*.085+uTime*.72,secondary=p.x*.047-p.y*.11+uTime*.48,swellFade=smoothstep(-4.,28.,shoreWave)*ocean;
+          shoreSlope+=vec2(.13*cos(swell)*.22+.047*cos(secondary)*.10,.085*cos(swell)*.22-.11*cos(secondary)*.10)*swellFade;
+        }
+        float chSpeed=length(vel);
+        vel=mix(vel,broadVel,broad);
+        // The river's interior keeps its streaks stretched along the current (channel space); mouths and junctions are drawn
+        // in world space, the same on both sides of the line, and blended into the channel's pattern away from it.
+        float worldShare=river>.5?max(mouth,side):1.;
+        float mid=prof*(1.-broad);
         float nearFade=1.-smoothstep(9.,34.,vViewDepth),midFade=1.-smoothstep(26.,80.,vViewDepth),farFade=1.-smoothstep(50.,150.,vViewDepth);
-        // Broad swell and mid ripples bend the bed and the reflection; the finest wrinkles only catch the light, since bending
-        // the bed at that scale shatters the pebbles' outlines.
-        vec2 bulk=flowSlope(ch,speed,.17,.6,3.6,0.,mat2(1.,0.,0.,1.))*(.3*farFade),fine=vec2(0.);
-        if(uDetail>.5)bulk+=flowSlope(ch,speed*.96,.52,.6,2.7,1.,mat2(.857,.515,-.515,.857))*(.24*midFade);
-        if(uDetail>1.5)fine=flowSlope(ch,speed*1.05,1.6,.6,2.1,2.,mat2(.921,-.391,.391,.921))*(.17*nearFade);
-        bulk*=rough;fine*=rough;
-        vec2 slopeCh=bulk+fine;
-        vec2 detail=-(acrossDir*slopeCh.x+alongDir*slopeCh.y),soft=-(acrossDir*(bulk.x+fine.x*.3)+alongDir*(bulk.y+fine.y*.3));
-        // Foam is carried by the current too, slower than the middle of the stream.
-        vec3 fm=flowFoam(ch,speed*.75,.5,.3,4.,3.);
+        vec4 layers=vec4(0.);vec3 fm=vec3(0.);float riff=0.;
+        if(worldShare<.999){
+          layers=flowLayers(vChannel,chSpeed,acrossDir,alongDir,farFade,midFade,nearFade);
+          // Foam is carried by the current too, a little slower than the middle of the stream.
+          fm=flowFoam(vChannel,chSpeed*.8,.5,.3,2.4,3.);
+          // Riffles stand where the bed lifts: fixed in place while the water runs through them.
+          riff=texture2D(tWaterFoam,vec2(vChannel.x*.085+.37,vChannel.y*.047)).b;
+        }
+        if(worldShare>.001){
+          // Two independent patterns summed lose amplitude where they cross; dividing by the weights' length keeps it.
+          vec4 w=flowLayersW(p,vel,farFade,midFade,nearFade);float k=worldShare;
+          layers=(layers*(1.-k)+w*k)*inversesqrt((1.-k)*(1.-k)+k*k);
+          fm=mix(fm,flowFoamW(p,vel*.8,.5,2.4,3.),k);
+          riff=mix(riff,texture2D(tWaterFoam,p*vec2(.085,.047)+.37).b,k);
+        }
+        // White water: riffles where the bed lifts in a running stream, and over the steep steps of the cascades.
+        float running=smoothstep(.5,1.3,vMid);
+        float riffle=smoothstep(.5,.84,riff)*(.4+.6*mid)*(1.-broad)*running;
+        riffle=max(riffle,smoothstep(.06,.5,abs(vSlope.y))*(1.-broad));
+        // A fast stream's surface is broken all over, not only in its riffles: half as rough again down a running middle.
+        float rough=(.55+.8*riffle+.55*mid*running+.30*ocean)*mix(.4,1.,smoothstep(0.,.08,below));
+        vec2 bulk=layers.xy*rough,fine=layers.zw*rough;
+        vec2 detail=bulk+fine,soft=bulk+fine*.3;
         float clumpF=smoothstep(.2,.75,fm.b),pat=max(smoothstep(.2,.9,fm.r)*(.5+.5*clumpF)*.85,fm.g*.9);
         // Rings spread from where the water was broken and are carried downstream.
-        float ringFoam=0.,chop=clamp(length(slopeCh)*6.,0.,1.);
+        float ringFoam=0.,chop=clamp(length(detail)*6.,0.,1.);
         for(int i=0;i<${RIPPLES};i++){
           vec4 r=uRipple[i];if(r.w<=0.)continue;
           // A footfall is a full ring; the few drops that land after it ring a few centimetres wide, and fade with distance.
           float sc=mix(.18,1.,smoothstep(.1,.7,r.w)),age=r.z;
-          vec2 d=vWater.xz-(r.xy-alongDir*speed*age);
+          vec2 d=p-(r.xy+vel*age);
           float l=length(d)+.001,front=(.05+.46*pow(age,.6))*sc,reach=(.03+.045*age)*sc,k=6.283/(.045*sc);
           float env=exp(-pow((l-front)/reach,2.))*exp(-age*(1.5+2.*(1.-sc)))*r.w*(1.-(1.-sc)*smoothstep(5.,18.,vViewDepth));
           vec2 ringSlope=d/l*cos((l-front)*k)*env*.55;detail+=ringSlope;soft+=ringSlope*.7;
           ringFoam+=(exp(-age*4.)*(1.-smoothstep(0.,.1+.22*age,l/sc))*.9+env*.3)*sc;
         }
-        `;
-
-const WATER_FOAM_GLSL=`
+        detail-=shoreSlope;
+        vec3 N=normalize(vec3(-vSlope.x+detail.x,1.,-vSlope.y+detail.y));
+        float viewAngle=max(dot(normalize(vEye),N),0.);
+        float fresnel=.02+.98*pow(1.-viewAngle,5.);
+        // The bed's image is bent less where the water is only a film over it.
+        vec2 distortion=(vSlope*.5+soft)*.042*(1.+.8*mid*running)*(5./(vViewDepth+5.))*smoothstep(0.,.12,below);
+        // Ripples tilt the reflected ray twice as far as the surface, so they smear a reflection into streaks, mostly
+        // up and down the screen. The smear grows with distance, where a pixel spans many ripples.
+        // A lake lies calmer than a stream or the sea: its reflections are smeared half as far, so the shore stands crisp in it.
+        vec2 reflectShift=(vSlope*.4+soft)*vec2(.07,.19)*(.6+.9*smoothstep(4.,36.,vViewDepth))*smoothstep(0.,.03,below)*mix(1.,.5,broad*(1.-ocean));
+        vec2 refractUv=clamp(screen+distortion,vec2(.001),vec2(.999));
+        if(viewDepth(refractUv)<vViewDepth)refractUv=screen;
+        vec3 transmitted=texture2D(tOpaque,refractUv).rgb;
+        // Light from the bed: clear mountain water takes red first and keeps green and blue almost alike, so the bed shows through
+        // a cool, clean teal (a metre keeps .76/.92/.91 of it in the stream, .74/.91/.90 in the lake) that deepens to the water's
+        // own dark blue-green past several metres. Taking blue faster than green (.26/.48 a metre, tried first) turned it olive
+        // and murky; the old .78/.44/.32 kept blue longest, and over pale sand that is a tropical lagoon. Absorbed along the view
+        // ray and on the light's way down to the bed.
+        vec3 absorb=mix(vec3(.28,.085,.095),mix(vec3(.3,.09,.1),vec3(.34,.08,.08),seaShare),broad);
+        vec3 absorption=exp(-absorb*min(path+below,24.));
+        // Is the sun on the water here? The water knows nothing of the trees' shadows, but the bed under it does: taken as ground
+        // of albedo 0.3, the light the bed shows, less the sky's, over the sun's, is how much of the sun gets through. Over deep
+        // water, where the bed is lost, a stream is taken as mostly shaded and open water as sunlit. It lights the water's own
+        // colour, its foam and its glints, which by the sun's full light glowed in the shade of the wood.
+        const vec3 LUM=vec3(.2126,.7152,.0722);
+        vec3 sunAt=uSunLight*(max(uSunDirection.y,0.)/3.14159);
+        float absL=dot(absorption,LUM),sunVis=clamp((dot(transmitted,LUM)/max(absL,.05)/.3-dot(uSky,LUM))/max(dot(sunAt,LUM),1e-5),0.,1.);
+        sunVis=mix(mix(.4,1.,broad),smoothstep(.2,.8,sunVis),smoothstep(.15,.4,absL));
+        vec3 light=uSky+sunAt*sunVis;
+        vec3 albedo=mix(RIVER_ALBEDO,mix(LAKE_ALBEDO,SEA_ALBEDO,seaShare),broad);
+        vec3 underwater=transmitted*absorption+albedo*light*(1.-absorption);
+        vec2 reflectUv=clamp(vReflection.xy/vReflection.w+reflectShift,vec2(.001),vec2(.999));
+        // Where there is no reflected image (far water) the sky stands in: the haze's colour low down, and a cooler, deeper sky
+        // the higher the reflected ray climbs, so ripples still show as they tilt it.
+        float rise=reflect(-normalize(vEye),N).y;
+        vec3 skyBack=mix(uSky,uSky*vec3(.6,.74,.95),smoothstep(.06,.6,rise));
+        vec3 reflection=skyBack;
+        float localReflection=uReflectionDetail*(1.-smoothstep(.25,1.2,abs(dot(vec4(vWater,1.),uReflectionPlane))));
+        if(localReflection>.001){
+          vec3 reflected=texture2D(tDiffuse,reflectUv).rgb;
+          reflection=mix(skyBack,reflectedAtmosphere(reflected,reflectUv,N),localReflection);
+        }
+        // A broken, moving surface scatters the sky; only near grazing does it approach a reflection.
+        // A lake at a grazing angle is mostly its reflection (Fresnel), the sky and the far shore in it; chop takes some of it.
+        vec3 result=mix(underwater,reflection,min(fresnel*mix(.75,1.,broad),.96)*(1.-.22*chop));
+        float glint=pow(max(dot(reflect(-uSunDirection,N),normalize(vEye)),0.),180.);
+        result+=uSunLight*glint*.04*sunVis;
+        // Where the water thins to nothing over the ground it fades into the ground itself, over the last few centimetres of
+        // depth (on a 1:3 bank about 15 cm, on the beach about a metre), so the shoreline is never the pixel staircase where a
+        // flat plane cuts the terrain's triangles.
+        result=mix(texture2D(tOpaque,screen).rgb,result,smoothstep(0.,.045,below));
         // Foam gathers where the water is thinnest (banks, stones), in the riffles, and where something has just broken the surface.
-        float shore=1.-smoothstep(.012,.22,thickness);
+        float shore=(1.-smoothstep(.1,.7,shoreDist))*(1.-smoothstep(.01,.06,below));
         // Scum in pockets along the bank, broken by long gaps: never a drawn line.
-        float edgeFoam=shore*smoothstep(.34,.82,pat*(.12+1.2*clumpF))*(.3+.4*smoothstep(0.,.05,thickness));
-        // Thin broken swash bands advance and retreat across the sloping beach.
-        float shoreMetres=-coastDistance(vWater.xz);
-        float wavePhase=shoreMetres*.72+uTime*1.15+.5*sin(vWater.x*.047+vWater.z*.033);
-        float breaker=pow(.5+.5*sin(wavePhase),9.)*(1.-smoothstep(5.,22.,shoreMetres));
-        float swash=((1.-smoothstep(0.,3.5,abs(shoreMetres-2.4-1.8*sin(uTime*.55+vWater.x*.035))))+breaker)*ocean;
+        float edgeFoam=shore*smoothstep(.34,.82,pat*(.12+1.2*clumpF))*(.3+.4*smoothstep(0.,.02,below));
+        // The water's edge laps: a faint, broken rim of froth that creeps up the bank and back, strongest where the sea's swash
+        // runs up a beach. Thin and bright it read as a dashed line drawn along every shore; soft and faint it is only wet froth.
+        float lapAt=.15+.35*(.5+.5*sin(uTime*(.9+.6*ocean)+dot(p,vec2(.23,.17))));
+        float lap=(1.-smoothstep(lapAt*.15,lapAt,shoreDist))*smoothstep(.002,.012,below)*smoothstep(.45,.9,noise(p*.6+vec2(uTime*.06,uTime*-.04))*.6+pat*.5)*mix(.35,1.,ocean);
+        // Thin broken swash bands advance and retreat across the sloping beach; breakers run in, and on into a river's mouth.
+        float shoreMetres=-coastEdge,surf=smoothstep(-18.,-3.,shoreMetres);
+        float wavePhase=shoreMetres*.72+uTime*1.15+.5*sin(p.x*.047+p.y*.033);
+        float breaker=pow(.5+.5*sin(wavePhase),9.)*(1.-smoothstep(5.,22.,shoreMetres))*surf;
+        float swash=((1.-smoothstep(0.,3.5,abs(shoreMetres-2.4-1.8*sin(uTime*.55+p.x*.035))))+breaker)*ocean;
         // The swell's foam lines run along the shore as long, soft, uneven streaks: a slow noise along them breaks them up, and the
         // foam texture only roughens them, so they never read as rows of dashes.
-        float swashBreak=.15+.85*smoothstep(.3,.7,noise(vec2(shoreMetres*.04,dot(vWater.xz,vec2(.8,.6))*.045)+uTime*.012));
+        float swashBreak=.15+.85*smoothstep(.3,.7,noise(vec2(shoreMetres*.04,dot(p,vec2(.8,.6))*.045)+uTime*.012));
         edgeFoam+=swash*swashBreak*(.7+.3*smoothstep(.15,.7,pat))*.8;
-        float riffleFoam=riffle*smoothstep(.45,.95,pat*(.3+.9*clumpF))*.48*smoothstep(.03,.14,thickness);
-        float white=clamp((edgeFoam*.55+riffleFoam+ringFoam*(.4+.6*pat))*uFoamGain,0.,1.)*(1.-.5*smoothstep(15.,60.,vViewDepth));
-        vec3 foamCol=mix(vec3(.17,.2,.19),vec3(.46,.5,.48),.3+.7*pat)*(1.-uDarkness*.96);
-        result=mix(result,foamCol,white*.62);
-        `;
+        float riffleFoam=riffle*smoothstep(.45,.95,pat*(.3+.9*clumpF))*.6*smoothstep(.02,.1,below);
+        // Flecks and threads of froth ride down the fast middle of a running stream, carried at its speed.
+        riffleFoam+=mid*smoothstep(.9,2.,vMid)*smoothstep(.62,.95,pat)*.32*smoothstep(.05,.2,below);
+        // Aerated water tumbling down a step: a sheet of froth, streaked and torn by the current, thinning only at its edges.
+        // A smooth sheet of it read as snow: torn into streaks and clots by the foam's own pattern, with clear water between.
+        riffleFoam=max(riffleFoam,cascade*smoothstep(.22,.7,pat*(.6+.6*clumpF))*(.6+.4*prof)*smoothstep(.02,.1,below));
+        float white=clamp((edgeFoam*.55+lap*.22+riffleFoam+ringFoam*(.4+.6*pat))*uFoamGain,0.,1.)*(1.-.5*smoothstep(15.,60.,vViewDepth));
+        // Foam is a white, rough surface lit like the ground: by the sky, and by the sun where it is open.
+        vec3 foamCol=vec3(.62,.66,.65)*(.55+.45*pat)*light;
+        result=mix(result,foamCol,white*.7);
+        gl_FragColor=vec4(result,1.);
+      }`;
+
+// Distance from the nearest side channel in reach at this z (d counted as the ground counts it, raw in metres) and its slope dx/dz.
+const branchDistanceGLSL=`
+  void branchDistance(vec2 p,inout float d,inout float raw,inout float s){
+    float z=p.y;
+    ${BRANCHES.map((b,i)=>`if(z>${b.z0.toFixed(3)}&&z<${b.z1.toFixed(3)}){float c=streamBranch${i}(z),q=(streamBranch${i}(z+.6)-streamBranch${i}(z-.6))/1.2,r=abs(p.x-c)/sqrt(1.+q*q),e=r*${BRANCH_NARROW.toFixed(2)}+${b.kind==='tributary'?`smoothstep(.84,1.,(z-(${b.z0.toFixed(3)}))/(${(b.z1-b.z0).toFixed(3)}))*34.`:'0.'};if(e<d){d=e;raw=r;s=q;}}`).join('\n    ')}
+  }`;
+
+// Albedo of the water body itself (light scattered back up out of the water column), per kind: a deep, clean blue-green, a
+// little bluer at sea. Clear deep water sends back only a few per cent. The fixed tints these replace
+// (.035/.105/.095 for the lake) were not lit at all and were as bright as the noon sky's own radiance (fog colour .1): the lake
+// read as a tiled pool by day and, when the eye opened up at golden hour (exposure 4.7 to 8.4), glowed mint under a sky three
+// times dimmer than it.
+const WATER_ALBEDO=`
+      const vec3 RIVER_ALBEDO=vec3(.009,.022,.026),LAKE_ALBEDO=vec3(.007,.022,.03),SEA_ALBEDO=vec3(.007,.021,.034);`;
 
 /** A shallow, moving surface with a true opaque-scene refraction pass. */
 export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, heightAt:(x:number,z:number)=>number) {
@@ -163,14 +355,14 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
       tOpaque:{value:null},tOpaqueDepth:{value:null},uResolution:{value:new THREE.Vector2()},uInverseProjection:{value:new THREE.Matrix4()},uWorldToSurface:{value:new THREE.Matrix4()},uReflectionPlane:{value:new THREE.Vector4(0,1,0,-waterHeightAt(0))},
       tReflectionDepth:{value:null},uReflectionInverseProjection:{value:new THREE.Matrix4()},uReflectionCameraWorld:{value:new THREE.Matrix4()},uSunScatterColor:{value:new THREE.Color(1,.81,.52)},
       uTime:{value:0},uDarkness:{value:0},uReflectionDetail:{value:0},uReflectionSteps:{value:6},uSky:{value:new THREE.Color(0x879b98)},uSunDirection:{value:new THREE.Vector3(.3,.55,-.7).normalize()},uRipple:{value:Array.from({length:RIPPLES},()=>new THREE.Vector4(0,0,99,0))},
-      ...(WORLD_V2?{tWaterNormal:{value:waterNormal},tWaterFoam:{value:waterFoam},uDetail:{value:2},uFoamGain:{value:0}}:{}),
+      ...(WORLD_V2?{tWaterNormal:{value:waterNormal},tWaterFoam:{value:waterFoam},uDetail:{value:2},uFoamGain:{value:0},uSunLight:{value:new THREE.Color(1.5,1.35,1.15)}}:{}),
     },
     vertexShader:`
       uniform mat4 textureMatrix,uWorldToSurface;uniform float uTime;
       varying vec4 vReflection;varying vec3 vWater,vEye;varying float vViewDepth;varying vec2 vSlope;
       ${WORLD_V2?'attribute float aRibbon;varying vec2 vChannel;varying float vRibbon;':''}
       ${riverProfileGLSL}
-      ${WORLD_V2?coastalGLSL:''}
+
       void main(){
         vec3 p=position;
         float x=p.x,z=-p.y;
@@ -178,17 +370,13 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
         float a=z*2.1-x*.65+uTime*1.15;
         float b=z*4.7+x*2.3+uTime*1.9;
         float c=z*8.1-x*3.4+uTime*2.6;
-        p.z=sin(a)*.012+sin(b)*.006+sin(c)*.002;
+        // The small ripples only tilt the normal in the rebuilt world. Displaced, they were sampled on each surface's own grid
+        // (half a metre on the river, six on the lake, twenty on the sea), so where two surfaces met they stood at different
+        // heights and the line between them showed as a row of gaps.
+        p.z=${WORLD_V2?'0.':'sin(a)*.012+sin(b)*.006+sin(c)*.002'};
         float grade=streamGrade(z),level=streamHeight(z);
         ${WORLD_V2?`if(aRibbon>1.5){grade=0.;level=aRibbon>2.5?${SEA_LEVEL.toFixed(4)}:${LAKE_LEVEL.toFixed(4)};}`:''}
         vSlope=vec2(-.65*cos(a)*.012+2.3*cos(b)*.006-3.4*cos(c)*.002,grade+2.1*cos(a)*.012+4.7*cos(b)*.006+8.1*cos(c)*.002);
-        ${WORLD_V2?`if(aRibbon>2.5){
-          float swell=x*.13+z*.085+uTime*.72,secondary=x*.047-z*.11+uTime*.48;
-          float shore=-coastDistance(vec2(x,z));float swellFade=smoothstep(-4.,28.,shore);
-          p.z+=.065*sin(shore*.65+uTime*1.15)*exp(-abs(shore)*.08);
-          p.z+=(sin(swell)*.22+sin(secondary)*.10)*swellFade;
-          vSlope+=vec2(.13*cos(swell)*.22+.047*cos(secondary)*.10,.085*cos(swell)*.22-.11*cos(secondary)*.10)*swellFade;
-        }`:''}
         // World-space height follows the channel. The reflector itself tracks
         // its local tangent plane without bending or moving the visible stream.
         vec4 world=vec4(x,level+p.z,z,1.);
@@ -204,9 +392,10 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
       float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
       float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);}
       ${WORLD_V2?`${riverCourseGLSL}
+      ${riverProfileGLSL}
       ${coastalGLSL}
       ${lakeOutlineGLSL}
-      uniform vec4 uRipple[${RIPPLES}];uniform sampler2D tWaterNormal,tWaterFoam;uniform float uDetail,uFoamGain;
+      uniform vec4 uRipple[${RIPPLES}];uniform sampler2D tWaterNormal,tWaterFoam;uniform float uDetail,uFoamGain;uniform vec3 uSunLight;
       ${WATER_GLSL}`:''}
       float viewDepth(vec2 uv){float d=texture2D(tOpaqueDepth,uv).x;vec4 p=uInverseProjection*vec4(uv*2.-1.,d*2.-1.,1.);return -p.z/p.w;}
       float fogHash(vec3 p){p=fract(p*.3183099+vec3(.1,.2,.3));p*=17.;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}
@@ -240,69 +429,42 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
         scattering+=uSunScatterColor*forwardScatter*.20*day*day;
         return color*transmission+scattering*(1.-transmission);
       }
+      ${WORLD_V2?`${WATER_ALBEDO}${WATER_LAYERS_GLSL}${branchDistanceGLSL}${waterV2Main(BRANCHES.length)}`:`
       void main(){
-        ${WORLD_V2?WATER_FRAME_GLSL:''}
         vec2 screen=gl_FragCoord.xy/uResolution;
         float thickness=max(0.,viewDepth(screen)-vViewDepth);
         // Surface intersection is determined by the real depth-buffer shoreline.
         if(thickness<.001)discard;
-        ${WORLD_V2?`
-        // Broad surfaces own their shoreline pixels, so river junctions never
-        // double-draw or z-fight against the lake or estuary.
-        float lakeEdge=lakeOutline(vWater.xz),coastEdge=coastDistance(vWater.xz);
-        // Near its mouth the river takes on the colour, speed and sheen of the water it runs into, so the two surfaces meet
-        // without a seam: mouthSea and mouthLake are 1 at the edge and fade out over 60 m upstream.
-        float mouthSea=vRibbon<1.5?1.-smoothstep(3.,60.,coastEdge):0.,mouthLake=vRibbon<1.5?1.-smoothstep(0.,60.,lakeEdge):0.,mouth=max(mouthSea,mouthLake);
-        if(vRibbon<1.5 && (lakeEdge<0. || coastEdge<3.))discard;
-        // The terrain closes tributary heads and tapers the main source. The
-        // water must obey the SAME channel mask, even if forest behind it is
-        // lower than the water plane (depth testing alone cannot detect that).
-        if(vRibbon<1.5 && (mouthRound(streamOffset(vWater.xz),vWater.xz)>3.5 || abs(vWater.z)>${(RIVER_EXTENT-52).toFixed(1)}))discard;
-        if(vRibbon>1.5 && vRibbon<2.5 && (lakeEdge>0. || coastEdge<0.))discard;
-        if(vRibbon>2.5 && coastEdge>3.)discard;
-        // Where a side channel meets the stream the two surfaces share a level. Each pixel goes to exactly one of them.
-        float offMain=abs(vWater.x-streamCentre(vWater.z))/sqrt(1.+pow((streamCentre(vWater.z+.6)-streamCentre(vWater.z-.6))/1.2,2.));
-        float toSide=smoothstep(4.2,6.2,offMain),stipple=hash(floor(gl_FragCoord.xy));
-        if(vRibbon<1.5 && (vRibbon>.5?stipple>toSide:(stipple<toSide&&offMain<8.2&&offMain>4.2&&${BRANCHES.length?BRANCHES.map(b=>`vWater.z>${b.z0.toFixed(1)}&&vWater.z<${b.z1.toFixed(1)}`).join('||').replace(/^(.*)$/,'($1)'):'false'})))discard;`:''}
-        ${WORLD_V2?WATER_FLOW_GLSL:`
         vec2 flow=vWater.xz*vec2(1.3,2.8)+vec2(uTime*.04,uTime*.35);
         float n1=noise(flow),n2=noise(flow*2.7+vec2(8.5,uTime*.4));
         vec2 detail=vec2(n1-.5,n2-.5)*.055;
-        `}
         vec3 N=normalize(vec3(-vSlope.x+detail.x,1.,-vSlope.y+detail.y));
         float viewAngle=max(dot(normalize(vEye),N),0.);
         float fresnel=.022+.978*pow(1.-viewAngle,5.);
-        vec2 distortion=${WORLD_V2?'(vSlope*.5+soft)*.042*(5./(vViewDepth+5.))':'(vSlope+detail)*.018'}*smoothstep(0.,.28,thickness);
-        ${WORLD_V2?`
-        // Ripples tilt the reflected ray twice as far as the surface, so they smear a reflection into streaks, mostly
-        // up and down the screen. The smear grows with distance, where a pixel spans many ripples.
-        vec2 reflectShift=(vSlope*.4+soft)*vec2(.07,.19)*(.6+.9*smoothstep(4.,36.,vViewDepth))*smoothstep(0.,.08,thickness);`:''}
+        vec2 distortion=(vSlope+detail)*.018*smoothstep(0.,.28,thickness);
         vec2 refractUv=clamp(screen+distortion,vec2(.001),vec2(.999));
         if(viewDepth(refractUv)<vViewDepth)refractUv=screen;
         float depth=min(thickness,4.);
         vec3 transmitted=texture2D(tOpaque,refractUv).rgb;
-        vec3 absorption=exp(-${WORLD_V2?'vec3(.78,.44,.32)':'vec3(.54,.31,.22)'}*depth);
-        vec3 waterTint=${WORLD_V2?'mix(mix(mix(vec3(.03,.047,.04),mix(vec3(.035,.105,.095),vec3(.029,.075,.095),mouthSea/max(mouthSea+mouthLake,.001)),mouth),vec3(.035,.105,.095),step(1.5,vRibbon)),vec3(.029,.075,.095),ocean)':'vec3(.021,.036,.032)'}*(1.-uDarkness*.97);
+        vec3 absorption=exp(-vec3(.54,.31,.22)*depth);
+        vec3 waterTint=vec3(.021,.036,.032)*(1.-uDarkness*.97);
         vec3 underwater=transmitted*absorption+waterTint*(1.-absorption);
-        vec2 reflectUv=clamp(vReflection.xy/vReflection.w+${WORLD_V2?'reflectShift':'distortion*.72'},vec2(.001),vec2(.999));
+        vec2 reflectUv=clamp(vReflection.xy/vReflection.w+distortion*.72,vec2(.001),vec2(.999));
         vec3 reflection=uSky;
         float localReflection=uReflectionDetail*(1.-smoothstep(.25,1.2,abs(dot(vec4(vWater,1.),uReflectionPlane))));
         if(localReflection>.001){
           vec3 reflected=texture2D(tDiffuse,reflectUv).rgb;
           reflection=mix(uSky,reflectedAtmosphere(reflected,reflectUv,N),localReflection);
         }
-        // A broken, moving surface scatters the sky; only near grazing does it approach a reflection.
-        vec3 result=mix(underwater,reflection,${WORLD_V2?'min(fresnel*mix(.68,.88,broad),.85)*(1.-.3*chop)':'fresnel'});
+        vec3 result=mix(underwater,reflection,fresnel);
         float glint=pow(max(dot(reflect(-uSunDirection,N),normalize(vEye)),0.),180.);
         result+=vec3(.55,.64,.60)*glint*.11*(1.-uDarkness);
-        ${WORLD_V2?WATER_FOAM_GLSL:`
         // Tiny foam pockets occur only in the thin band touching submerged gravel.
         float edge=(1.-smoothstep(.02,.15,thickness))*smoothstep(.0,.02,thickness);
         float foam=step(.72,noise(vWater.xz*17.+vec2(0.,uTime*.4)))*edge*.10;
         result=mix(result,vec3(.18,.21,.19)*(1.-uDarkness*.96),foam);
-        `}
         gl_FragColor=vec4(result,1.);
-      }`
+      }`}`
     }
   });
   stream.rotation.x=-Math.PI/2;stream.position.y=waterHeightAt(0);stream.layers.set(1);stream.name='River surface';stream.frustumCulled=false;
@@ -433,6 +595,8 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
       if(scene.userData.fogColor)material.uniforms.uSky.value.copy(scene.userData.fogColor);
       if(scene.userData.sunScatterColor)material.uniforms.uSunScatterColor.value.copy(scene.userData.sunScatterColor);
       if(scene.userData.sunDirection)material.uniforms.uSunDirection.value.copy(scene.userData.sunDirection);
+      // The sun's light at the ground, which lights the water's own colour and its foam (the sky's is uSky).
+      if(WORLD_V2&&scene.userData.sunScatterColor)(material.uniforms.uSunLight.value as THREE.Color).copy(scene.userData.sunScatterColor).multiplyScalar(SUN_ILLUMINANCE*LIGHT_TUNING.sun);
       const distance=WORLD_V2?channelOffset(player.x,player.z):Math.abs(player.x-riverX(player.z));
       nearby=distance<110&&Math.abs(player.z)<RIVER_EXTENT+110;lakeNearby=lakeNear<450;seaNearby=seaNear<1000;material.uniforms.uReflectionDetail.value=1-THREE.MathUtils.smoothstep(Math.min(distance,lakeNear,seaNear),23,55);
       // Keep a long continuous stream without submitting its entire kilometre
