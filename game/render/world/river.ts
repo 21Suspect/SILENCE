@@ -35,33 +35,40 @@ function configureWaterTexture(t:THREE.Texture,anisotropy:number){
 
 const WATER_GLSL=`
   vec2 waterJump(float n){return fract(sin(vec2(n*12.9898,n*78.233))*43758.5453)*23.;}
+  mat2 waterSpin(float n){float a=fract(sin(n*91.7+.3)*4375.85)*6.2832,c=cos(a),s=sin(a);return mat2(c,s,-s,c);}
   // Two copies of a tile, each carried down the channel by the current and faded in and out half a period apart,
   // so that a copy is invisible at the moment it restarts. Normals blend so the amplitude holds at the cross-over.
-  vec2 flowSlope(vec2 ch,float speed,float scale,float stretch,float period,float seed,mat2 rot){
-    float c=uTime/period+seed*.318,pA=fract(c),pB=fract(c+.5),wA=smoothstep(.1,.9,1.-abs(1.-2.*pA)),wB=1.-wA;
+  // Anti-tiling: each restart puts its copy at a new random offset (and, in world space, a new random turn), and ph shifts
+  // the moment of restart from place to place (a smooth noise, metres to tens of metres across). The line where the restart
+  // count changes is drawn only by the copy whose weight is zero there, so no seam shows, and at any moment every patch of
+  // water shows the tile at its own offset and angle: no repeat lines up across a lake.
+  vec2 flowSlope(vec2 ch,float speed,float scale,float stretch,float period,float seed,mat2 rot,float ph){
+    float c=uTime/period+seed*.318+ph,pA=fract(c),pB=fract(c+.5),wA=smoothstep(.1,.9,1.-abs(1.-2.*pA)),wB=1.-wA;
     vec2 a=vec2(ch.x,ch.y+speed*pA*period)+waterJump(floor(c)+seed),b=vec2(ch.x,ch.y+speed*pB*period)+waterJump(floor(c+.5)+seed+.37);
     a.y*=stretch;b.y*=stretch;
     vec2 sA=texture2D(tWaterNormal,rot*a*scale).xy*2.-1.,sB=texture2D(tWaterNormal,rot*b*scale).xy*2.-1.;
     vec2 s=(sA*wA+sB*wB)*inversesqrt(wA*wA+wB*wB);
     s=s*rot;s.y*=stretch;return s;
   }
-  vec3 flowFoam(vec2 ch,float speed,float scale,float stretch,float period,float seed){
-    float c=uTime/period+seed*.318,pA=fract(c),pB=fract(c+.5),wA=smoothstep(.1,.9,1.-abs(1.-2.*pA)),wB=1.-wA;
+  vec3 flowFoam(vec2 ch,float speed,float scale,float stretch,float period,float seed,float ph){
+    float c=uTime/period+seed*.318+ph,pA=fract(c),pB=fract(c+.5),wA=smoothstep(.1,.9,1.-abs(1.-2.*pA)),wB=1.-wA;
     vec2 a=vec2(ch.x,ch.y+speed*pA*period)+waterJump(floor(c)+seed),b=vec2(ch.x,ch.y+speed*pB*period)+waterJump(floor(c+.5)+seed+.37);
     a.y*=stretch;b.y*=stretch;
     return texture2D(tWaterFoam,a*scale).rgb*wA+texture2D(tWaterFoam,b*scale).rgb*wB;
   }
   // The same two crossfaded copies in world space, each carried along a velocity (a flow map): a feature at q is at q + vel*t.
-  vec2 flowSlopeW(vec2 p,vec2 vel,float scale,float period,float seed,mat2 rot){
-    float c=uTime/period+seed*.318,pA=fract(c),pB=fract(c+.5),wA=smoothstep(.1,.9,1.-abs(1.-2.*pA)),wB=1.-wA;
-    vec2 a=p-vel*(pA*period)+waterJump(floor(c)+seed),b=p-vel*(pB*period)+waterJump(floor(c+.5)+seed+.37);
-    vec2 sA=texture2D(tWaterNormal,rot*a*scale).xy*2.-1.,sB=texture2D(tWaterNormal,rot*b*scale).xy*2.-1.;
-    return ((sA*wA+sB*wB)*inversesqrt(wA*wA+wB*wB))*rot;
+  vec2 flowSlopeW(vec2 p,vec2 vel,float scale,float period,float seed,mat2 rot,float ph){
+    float c=uTime/period+seed*.318+ph,pA=fract(c),pB=fract(c+.5),wA=smoothstep(.1,.9,1.-abs(1.-2.*pA)),wB=1.-wA;
+    float nA=floor(c)+seed,nB=floor(c+.5)+seed+.37;mat2 rA=rot*waterSpin(nA),rB=rot*waterSpin(nB);
+    vec2 a=p-vel*(pA*period)+waterJump(nA),b=p-vel*(pB*period)+waterJump(nB);
+    vec2 sA=(texture2D(tWaterNormal,rA*a*scale).xy*2.-1.)*rA,sB=(texture2D(tWaterNormal,rB*b*scale).xy*2.-1.)*rB;
+    return (sA*wA+sB*wB)*inversesqrt(wA*wA+wB*wB);
   }
-  vec3 flowFoamW(vec2 p,vec2 vel,float scale,float period,float seed){
-    float c=uTime/period+seed*.318,pA=fract(c),pB=fract(c+.5),wA=smoothstep(.1,.9,1.-abs(1.-2.*pA)),wB=1.-wA;
-    vec2 a=p-vel*(pA*period)+waterJump(floor(c)+seed),b=p-vel*(pB*period)+waterJump(floor(c+.5)+seed+.37);
-    return texture2D(tWaterFoam,a*scale).rgb*wA+texture2D(tWaterFoam,b*scale).rgb*wB;
+  vec3 flowFoamW(vec2 p,vec2 vel,float scale,float period,float seed,float ph){
+    float c=uTime/period+seed*.318+ph,pA=fract(c),pB=fract(c+.5),wA=smoothstep(.1,.9,1.-abs(1.-2.*pA)),wB=1.-wA;
+    float nA=floor(c)+seed,nB=floor(c+.5)+seed+.37;
+    vec2 a=p-vel*(pA*period)+waterJump(nA),b=p-vel*(pB*period)+waterJump(nB);
+    return texture2D(tWaterFoam,waterSpin(nA)*a*scale).rgb*wA+texture2D(tWaterFoam,waterSpin(nB)*b*scale).rgb*wB;
   }`;
 
 // Which way the channel runs on the ground at this pixel, from how the channel coordinates and world position change on screen.
@@ -83,16 +90,19 @@ const WATER_FRAME_GLSL=`
 // The periods are short because the current is fast: the pattern slides at most a period's worth before it is crossfaded, and
 // across a 1.5 m/s stream whose banks run at half that speed, 1.8 s of drift shears a 4 m wide band by 1.4 m (37%), not more.
 const WATER_LAYERS_GLSL=`
-  vec4 flowLayers(vec2 ch,float speed,vec2 acrossDir,vec2 alongDir,float farFade,float midFade,float nearFade){
-    vec2 bulk=flowSlope(ch,speed,.17,.6,1.8,0.,mat2(1.,0.,0.,1.))*(.3*farFade),fine=vec2(0.);
-    if(uDetail>.5)bulk+=flowSlope(ch,speed*.96,.52,.6,1.4,1.,mat2(.857,.515,-.515,.857))*(.24*midFade);
-    if(uDetail>1.5)fine=flowSlope(ch,speed*1.05,1.6,.6,1.05,2.,mat2(.921,-.391,.391,.921))*(.17*nearFade);
+  vec4 flowLayers(vec2 ch,float speed,vec2 acrossDir,vec2 alongDir,float farFade,float midFade,float nearFade,float ph){
+    vec2 bulk=flowSlope(ch,speed,.17,.6,1.8,0.,mat2(1.,0.,0.,1.),ph)*(.3*farFade),fine=vec2(0.);
+    if(uDetail>.5)bulk+=flowSlope(ch,speed*.96,.52,.6,1.4,1.,mat2(.857,.515,-.515,.857),ph*1.37)*(.24*midFade);
+    if(uDetail>1.5)fine=flowSlope(ch,speed*1.05,1.6,.6,1.05,2.,mat2(.921,-.391,.391,.921),ph*.71)*(.17*nearFade);
     return vec4(-(acrossDir*bulk.x+alongDir*bulk.y),-(acrossDir*fine.x+alongDir*fine.y));
   }
-  vec4 flowLayersW(vec2 p,vec2 vel,float farFade,float midFade,float nearFade){
-    vec2 bulk=flowSlopeW(p,vel,.17,1.8,0.,mat2(1.,0.,0.,1.))*(.3*farFade),fine=vec2(0.);
-    if(uDetail>.5)bulk+=flowSlopeW(p,vel*.96,.52,1.4,1.,mat2(.857,.515,-.515,.857))*(.24*midFade);
-    if(uDetail>1.5)fine=flowSlopeW(p,vel*1.05,1.6,1.05,2.,mat2(.921,-.391,.391,.921))*(.17*nearFade);
+  // Open water adds a long layer (an 18 m tile, between the others in no whole ratio), which carries the reflection's broad
+  // undulation across a lake; the three short ones alone repeated every 5.9 m in a grid that showed at grazing angles.
+  vec4 flowLayersW(vec2 p,vec2 vel,float farFade,float midFade,float nearFade,float ph,float large){
+    vec2 bulk=flowSlopeW(p,vel,.17,1.8,0.,mat2(1.,0.,0.,1.),ph)*(.3*farFade),fine=vec2(0.);
+    if(large>.001)bulk+=flowSlopeW(p,vel*.9,.055,2.7,4.,mat2(.6,.8,-.8,.6),ph*.53)*(.3*large);
+    if(uDetail>.5)bulk+=flowSlopeW(p,vel*.96,.52,1.4,1.,mat2(.857,.515,-.515,.857),ph*1.37)*(.24*midFade);
+    if(uDetail>1.5)fine=flowSlopeW(p,vel*1.05,1.6,1.05,2.,mat2(.921,-.391,.391,.921),ph*.71)*(.17*nearFade);
     return vec4(-bulk,-fine);
   }`;
 
@@ -181,17 +191,21 @@ const waterV2Main=(branchCount:number)=>`
         float nearFade=1.-smoothstep(9.,34.,vViewDepth),midFade=1.-smoothstep(26.,80.,vViewDepth),farFade=1.-smoothstep(50.,150.,vViewDepth);
         vec4 layers=vec4(0.);vec3 fm=vec3(0.);float riff=0.;
         if(worldShare<.999){
-          layers=flowLayers(vChannel,chSpeed,acrossDir,alongDir,farFade,midFade,nearFade);
+          // Restart moments vary along the stream and across it, slowly enough that the current's drift does not shear the pattern.
+          float phC=noise(vChannel*vec2(.09,.021)+7.)*1.1;
+          layers=flowLayers(vChannel,chSpeed,acrossDir,alongDir,farFade,midFade,nearFade,phC);
           // Foam is carried by the current too, a little slower than the middle of the stream.
-          fm=flowFoam(vChannel,chSpeed*.8,.5,.3,2.4,3.);
+          fm=flowFoam(vChannel,chSpeed*.8,.5,.3,2.4,3.,phC);
           // Riffles stand where the bed lifts: fixed in place while the water runs through them.
           riff=texture2D(tWaterFoam,vec2(vChannel.x*.085+.37,vChannel.y*.047)).b;
         }
         if(worldShare>.001){
           // Two independent patterns summed lose amplitude where they cross; dividing by the weights' length keeps it.
-          vec4 w=flowLayersW(p,vel,farFade,midFade,nearFade);float k=worldShare;
+          // Restart moments vary over patches 10 to 80 m across.
+          float phW=noise(p*.07)*1.6+noise(p*.0131+19.)*1.2;
+          vec4 w=flowLayersW(p,vel,farFade,midFade,nearFade,phW,broad*(1.-smoothstep(120.,320.,vViewDepth)));float k=worldShare;
           layers=(layers*(1.-k)+w*k)*inversesqrt((1.-k)*(1.-k)+k*k);
-          fm=mix(fm,flowFoamW(p,vel*.8,.5,2.4,3.),k);
+          fm=mix(fm,flowFoamW(p,vel*.8,.5,2.4,3.,phW),k);
           riff=mix(riff,texture2D(tWaterFoam,p*vec2(.085,.047)+.37).b,k);
         }
         // White water: riffles where the bed lifts in a running stream, and over the steep steps of the cascades.
@@ -199,7 +213,11 @@ const waterV2Main=(branchCount:number)=>`
         float riffle=smoothstep(.5,.84,riff)*(.4+.6*mid)*(1.-broad)*running;
         riffle=max(riffle,smoothstep(.06,.5,abs(vSlope.y))*(1.-broad));
         // A fast stream's surface is broken all over, not only in its riffles: half as rough again down a running middle.
-        float rough=(.55+.8*riffle+.55*mid*running+.30*ocean)*mix(.4,1.,smoothstep(0.,.08,below));
+        // Wind lies on open water in patches: glassy calms where the shore reflects whole, and darker rough cat's-paws, drifting
+        // with the gusts, tens of metres across. They break up whatever pattern remains and give a wide lake its scale.
+        float wind=1.;
+        if(broad>.001){float gust=noise(p*.017+uTime*vec2(.021,.009))*.62+noise(p*.047-uTime*vec2(.012,.03))*.38;wind=mix(1.,mix(.28,1.45,smoothstep(.28,.72,gust)),broad);}
+        float rough=(.55+.8*riffle+.55*mid*running+.30*ocean)*wind*mix(.4,1.,smoothstep(0.,.08,below));
         vec2 bulk=layers.xy*rough,fine=layers.zw*rough;
         vec2 detail=bulk+fine,soft=bulk+fine*.3;
         float clumpF=smoothstep(.2,.75,fm.b),pat=max(smoothstep(.2,.9,fm.r)*(.5+.5*clumpF)*.85,fm.g*.9);
