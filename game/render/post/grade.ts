@@ -12,16 +12,20 @@ export const NOON: Key = {
   // Sun flecks on the forest floor are the brightest thing a forest view meters on; at .15 a sunlit floor (albedo about .12)
   // came out near white and the tone curve bleached its colour away. At .11 the moss and needles keep their colour.
   // Neutral to a touch warm: the cool shadow tint and the near-zero white balance read as a cold blue forest.
-  key: .11, minExposure: .4, maxExposure: 9, bias: 0, temperature: .1, tint: 0, saturation: .98, contrast: 1.1,
+  // The eye rests at 5.8, where it settles looking level into the wood at noon (5.2 at the sky, 7.1 at the floor before).
+  key: .11, minExposure: .4, maxExposure: 9, anchor: 5.8, response: .4, close: .75, open: 1.25, bias: 0, temperature: .1, tint: 0, saturation: .98, contrast: 1.1,
   shadows: [.99, 1, 1], highlights: [1.03, 1, .96], scotopic: 0, vignette: .1, grain: 0, bloom: .04,
 };
 export const GOLDEN: Key = {
-  key: .19, minExposure: .4, maxExposure: 14, bias: 0, temperature: .35, tint: -.12, saturation: 1, contrast: 1.08,
+  key: .19, minExposure: .4, maxExposure: 14, anchor: 10, response: .4, close: .75, open: 1.25, bias: 0, temperature: .35, tint: -.12, saturation: 1, contrast: 1.08,
   shadows: [.93, .97, 1.08], highlights: [1.06, .99, .92], scotopic: 0, vignette: .12, grain: 0, bloom: .06,
 };
 export const NIGHT: Key = {
   // The cap on exposure is how much the eye may open in the dark: it decides how readable a moonlit wood is without the torch.
-  key: .09, minExposure: .4, maxExposure: 90, bias: 0, temperature: -.3, tint: -.06, saturation: .9, contrast: 1.06,
+  // At night the meter wants far more than the cap (a moonlit wood meters about 2^-13), so the eye rests at the cap. A lamp seen
+  // from the road no longer moves it at all (it closed by nearly two stops under one); only the torch's own spot filling the view
+  // at arm's length closes it, by at most a stop and a quarter, so the ground under it does not burn white.
+  key: .09, minExposure: .4, maxExposure: 90, anchor: 90, response: .35, close: 1.25, open: .5, bias: 0, temperature: -.3, tint: -.06, saturation: .9, contrast: 1.06,
   shadows: [.9, .97, 1.12], highlights: [1.02, 1, .97], scotopic: 1, vignette: .18, grain: 0, bloom: .08,
 };
 
@@ -31,6 +35,7 @@ function blend(a: Key, b: Key, t: number): Key {
   const logMix = (x: number, y: number) => Math.exp(Math.log(x) + (Math.log(y) - Math.log(x)) * t);
   return {
     key: mix(a.key, b.key), minExposure: logMix(a.minExposure, b.minExposure), maxExposure: logMix(a.maxExposure, b.maxExposure), bias: mix(a.bias, b.bias),
+    anchor: logMix(a.anchor, b.anchor), response: mix(a.response, b.response), close: mix(a.close, b.close), open: mix(a.open, b.open),
     temperature: mix(a.temperature, b.temperature), tint: mix(a.tint, b.tint), saturation: mix(a.saturation, b.saturation), contrast: mix(a.contrast, b.contrast),
     shadows: mix3(a.shadows, b.shadows), highlights: mix3(a.highlights, b.highlights), scotopic: mix(a.scotopic, b.scotopic),
     vignette: mix(a.vignette, b.vignette), grain: mix(a.grain, b.grain), bloom: mix(a.bloom, b.bloom),

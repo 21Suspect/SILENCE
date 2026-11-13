@@ -221,7 +221,7 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
         fog/=max(weights,.00001);
         float forwardScatter=.17+1.12*pow(max(dot(ray,sunDirection),0.),5.);
         color=color*fog.r+mistColor*(1.-fog.r);
-        color+=vec3(1.,.88,.70)*fog.z;
+        color+=vec3(1.,.94,.86)*fog.z;
         color+=sunScatterColor*fog.g*forwardScatter*.50*pow(1.-darkness,2.);
 `;
   const resolveTail=`      }
@@ -353,7 +353,8 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
           float falloff=cut*cut/max(pow(lampDistance,flashDecay),.01);
           // Fog throws light mostly onwards. Whoever holds the torch sees its beam by what comes back: fainter than from in front.
           float cosine=dot(lampRay,-ray),phase=(1.-.16)/pow(1.16-.8*cosine,1.5);
-          beamFog+=scatter*cone*visible*cookie*flashPower*falloff*mix(1.,phase,.6)*.16;
+          // .05: at .16 (with a brighter torch) the lit mist in the cone laid a beige veil over everything the torch pointed at.
+          beamFog+=scatter*cone*visible*cookie*flashPower*falloff*mix(1.,phase,.6)*.05;
         }
         // A torch beam shows in the dark and is lost in daylight.
         beamFog*=mix(.12,1.,smoothstep(.2,.85,darkness));
@@ -406,7 +407,7 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
         fog/=max(weights,1e-6);
         float forwardScatter=.17+1.12*pow(max(dot(ray,sunDirection),0.),5.);
         color=color*fog.r+mistColor*(1.-fog.r);
-        color+=vec3(1.,.88,.70)*fog.z;
+        color+=vec3(1.,.94,.86)*fog.z;
         // As strong as the sun's direct light is: nothing once it is down, still full at a low golden sun.
         color+=sunScatterColor*fog.g*forwardScatter*.60*pow(sunLevel,.6);
 `;
@@ -561,6 +562,8 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
     },
     /** The eye starts adapting afresh (teleports, loading). */
     resetExposure(){finalImage.resetExposure();},
+    /** Dev: the eye's adapted state target (log2 of the metered luminance in .r), for reading back. */
+    adaptedTarget(){return finalImage.debugTargets().adapted;},
     dispose(){ao.dispose();canopy.dispose();resolvedTarget.dispose();hdrTarget.dispose();finalImage.dispose();aaMaterial.dispose();target.dispose();waterTarget.dispose();fogTarget.dispose();fogBlurTarget.dispose();terrainSun?.dispose();fogMaterial.dispose();fogMaterial2.dispose();fogBlurMaterial.dispose();resolveMaterial.dispose();resolveMaterial2.dispose();quad.geometry.dispose();}
   };
 }

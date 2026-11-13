@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { perfOn } from '../../core/perf-flags';
 
 /**
  * The last stage of the picture: from the lit, fogged scene in linear HDR to the 8-bit image on screen.
@@ -19,6 +20,9 @@ import * as THREE from 'three';
 export type Grade = {
   /** Mid grey the exposure aims for, and the exposure range it may use (scene units). */
   key: number; minExposure: number; maxExposure: number;
+  /** Where the eye rests in this light (an exposure), how much of what it meters it follows (0..1), and how far it may close
+   *  down and open up from there (stops). See eyeExposure. */
+  anchor: number; response: number; close: number; open: number;
   /** Extra exposure, in stops. */
   bias: number;
   /** White balance: -1 cool .. +1 warm, and green-magenta tint. */
@@ -29,6 +33,18 @@ export type Grade = {
   scotopic: number;
   vignette: number; grain: number; bloom: number;
 };
+
+/**
+ * The eye's exposure. It used to be the key over what it metered, free across 4.5 stops by day and 8 at night: a lamp pool or
+ * the torch's spot raised the meter and the eye closed so far that the moonlit wood round it went black, and the floor and
+ * the sky swung the whole picture as the view tilted. Now it rests at the hour's anchor (where it settles in a typical view
+ * of the wood in that light) and only leans towards the meter: by `response` of the way in stops, and never more than
+ * `close` stops down or `open` stops up. A lamp you stand under still reads bright; the wood beyond it stays as it was.
+ */
+export function eyeExposure(metered: number, g: Pick<Grade, 'anchor' | 'response' | 'close' | 'open' | 'minExposure' | 'maxExposure'>) {
+  const e = g.anchor * Math.pow(metered / g.anchor, g.response);
+  return Math.min(g.maxExposure, Math.max(g.minExposure, Math.min(g.anchor * 2 ** g.open, Math.max(g.anchor * 2 ** -g.close, e))));
+}
 
 export const TONE_MAPPERS = { aces: 0, agx: 1, neutral: 2 } as const;
 export type ToneMapper = keyof typeof TONE_MAPPERS;
@@ -98,6 +114,7 @@ export function createFinalImage(renderer: THREE.WebGLRenderer) {
   const finalUniforms = {
     tHdr: { value: null as THREE.Texture | null }, tBloom: { value: null as THREE.Texture | null }, tAdapted: { value: null as THREE.Texture | null },
     toneMapper: { value: TONE_MAPPERS.aces as number }, key: { value: .16 }, exposureRange: { value: new THREE.Vector2(.25, 40) }, bias: { value: 0 },
+    anchor: { value: 1 }, response: { value: 1 }, latitude: { value: new THREE.Vector2(20, 20) },
     whiteBalance: { value: new THREE.Vector3(1, 1, 1) }, saturation: { value: 1 }, contrast: { value: 1 },
     shadowTint: { value: new THREE.Color(1, 1, 1) }, highlightTint: { value: new THREE.Color(1, 1, 1) }, scotopic: { value: 0 },
     vignette: { value: .2 }, grain: { value: .02 }, bloom: { value: .04 }, frame: { value: 0 }, resolution: { value: new THREE.Vector2(1, 1) },
@@ -106,7 +123,7 @@ export function createFinalImage(renderer: THREE.WebGLRenderer) {
     uniforms: finalUniforms, vertexShader, depthTest: false, depthWrite: false,
     fragmentShader: `precision highp float;varying vec2 vUv;
       uniform sampler2D tHdr,tBloom,tAdapted;uniform int toneMapper;
-      uniform float key,bias,saturation,contrast,scotopic,vignette,grain,bloom,frame;uniform vec2 exposureRange,resolution;
+      uniform float key,bias,saturation,contrast,scotopic,vignette,grain,bloom,frame,anchor,response;uniform vec2 exposureRange,resolution,latitude;
       uniform vec3 whiteBalance,shadowTint,highlightTint;
       vec3 RRTAndODTFit(vec3 v){vec3 a=v*(v+.0245786)-.000090537;vec3 b=v*(.983729*v+.4329510)+.238081;return a/b;}
       vec3 aces(vec3 color){
@@ -141,7 +158,9 @@ export function createFinalImage(renderer: THREE.WebGLRenderer) {
         vec3 color=texture2D(tHdr,vUv).rgb;
         color=mix(color,texture2D(tBloom,vUv).rgb,bloom);
         float adaptedLum=exp2(texture2D(tAdapted,vec2(.5)).r);
-        float exposure=clamp(key/max(adaptedLum,1e-6),exposureRange.x,exposureRange.y)*exp2(bias);
+        // The eye rests where the light of the hour puts it and only leans towards what it meters (see eyeExposure in this file).
+        float metered=key/max(adaptedLum,1e-6),exposure=anchor*pow(metered/anchor,response);
+        exposure=clamp(clamp(exposure,anchor*exp2(-latitude.x),anchor*exp2(latitude.y)),exposureRange.x,exposureRange.y)*exp2(bias);
         color*=exposure;
         // Lens falloff, in light (before the curve), so it darkens like an aperture does.
         vec2 v=(vUv-.5)*vec2(resolution.x/resolution.y,1.);
@@ -210,6 +229,8 @@ export function createFinalImage(renderer: THREE.WebGLRenderer) {
       const u = finalUniforms;
       u.tHdr.value = hdr; u.tBloom.value = chain[0].texture; u.tAdapted.value = adapted[current].texture;
       u.toneMapper.value = TONE_MAPPERS[toneMapper]; u.key.value = grade.key; u.exposureRange.value.set(grade.minExposure, grade.maxExposure); u.bias.value = grade.bias;
+      const anchored = perfOn('eyeAnchor');
+      u.anchor.value = grade.anchor; u.response.value = anchored ? grade.response : 1; u.latitude.value.set(anchored ? grade.close : 20, anchored ? grade.open : 20);
       // White balance as a cheap Kelvin-like shift: warm lifts red and lowers blue, the tint trades green for magenta.
       white.set(1 + .09 * grade.temperature, 1 - .04 * grade.tint, 1 - .13 * grade.temperature);
       u.whiteBalance.value.copy(white); u.saturation.value = grade.saturation; u.contrast.value = grade.contrast;

@@ -21,8 +21,10 @@ export const LAMP = {
   rise: 4.5, fall: 1.6, stagger: 3,
   /** Real lights: how many, how far a light reaches, how far from the player a lamp may be to be given one, and the lead a held light keeps. */
   maxLights: 3, reach: 16, range: 110, hold: 5,
-  /** Candela at full, and the cone's half angle. */
-  candela: 170, angle: 1.18,
+  /** Candela at full, and the cone's half angle. 170 cd is a real sodium lamp (8 lux on the road), seven stops over the moonlit
+   *  wood the night exposure is set for: the eye had to close round it and the wood went black. The eye now stays near the night's
+   *  rest (final-image.ts eyeExposure), so the lamp is set to read as a bright, failing old lamp at that exposure instead. */
+  candela: 16, angle: 1.18,
 } as const;
 
 /** FNV-1a with a finaliser: a repeatable 0..1 from an id and a salt, so lamps of one kind never match. */

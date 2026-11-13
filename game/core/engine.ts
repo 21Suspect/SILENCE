@@ -36,6 +36,7 @@ import { createShadowProgramWarmer } from '../render/gpu/shadow-programs';
 import { createStamina, gaitSpeed, sprintFov } from '../sim/player/stamina';
 import { createStaminaHud } from '../ui/stamina-hud';
 import { waterDepthAt, wadeSpeedFactor, limitWading } from '../sim/world/water-depth';
+import { eyeExposure, type Grade } from '../render/post/final-image';
 
 // Deep lakes and open sea support a swimming body, rather than a player
 // walking across the bottom with the camera below the water surface.
@@ -343,10 +344,11 @@ export function createGame(container:HTMLElement) {
       return slicer.upload(t,urgent);
     },
     compile:(object,state)=>{
-      const light=flashlight.light,was=light.visible;light.visible=state%2===1;
+      // The torch's bounce light comes and goes with it, so each state's programs carry both.
+      const light=flashlight.light,bounce=flashlight.bounce,was=light.visible,wasBounce=bounce.visible;light.visible=bounce.visible=state%2===1;
       const unlit=state>=2?world2?.debug.streetLights.warm():undefined;
       try{renderer.compile(object,camera,scene);if(perfOn('shadowWarmup'))shadowPrograms.compile(object,camera,scene);}finally{
-        unlit?.();light.visible=was;
+        unlit?.();light.visible=was;bounce.visible=wasBounce;
         // compile() leaves the scene's light setup as it was for this light state, and three.js (r180) draws the next frame's shadow
         // maps before that frame sets its lights up again: without this the shadow pass would build depth programs for street lamps
         // and a torch that are off, the very stall this warm-up is for. An empty object only gathers the lights.
@@ -475,6 +477,9 @@ export function createGame(container:HTMLElement) {
       scene(){return scene;},
       /** The forest's crown band (metres, near crown to light crown), live: set x and y to measure another band. */
       crownBand(){return forest.crownBand;},
+      /** The eye's state: the metered scene luminance (log2) it has adapted to and the exposure the final image applies (dev). */
+      exposure(){const t=atmosphere.adaptedTarget(),h=new Uint16Array(4);renderer.readRenderTargetPixels(t,0,0,1,1,h);const b=Array.from(h,THREE.DataUtils.fromHalfFloat);const g=scene.userData.grade as Grade|undefined;
+        const metered=g?g.key/Math.max(2**b[0],1e-6):0;return{log2:+b[0].toFixed(3),metered:+metered.toFixed(3),exposure:g?+(perfOn('eyeAnchor')?eyeExposure(metered,g):Math.min(g.maxExposure,Math.max(g.minExposure,metered))).toFixed(3):null,anchor:g?.anchor};},
       /** What the sun's shadow pass would draw right now: casters inside the shadow camera's frustum. */
       shadowList(){sun.shadow.updateMatrices(sun);return drawList(scene,camera,sun.shadow.camera);},
       /** Of the instances the sun's shadow pass submits, how many reach the shadow frustum. */
