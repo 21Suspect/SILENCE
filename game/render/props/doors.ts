@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { solidContact, type SolidCollider } from '../../sim/world/collision';
 import type { Interactable } from './interaction';
 import type { Pois, PoiSeat } from './pois';
+import { doorLeafMaterial } from './prop-materials';
 
 /**
  * A hinged door leaf, as an asset's `doors` entry in world-assets.json (written by the Blender pipeline).
@@ -198,6 +199,15 @@ export function createDoors(o: DoorsOptions) {
     o.pois.spawn(d.spec.asset, `Door ${d.id}`).then(object => {
       if (disposed) { object?.removeFromParent(); return; }
       if (!object) { warnOnce(`load:${d.spec.asset}`, `the door ${d.spec.asset} could not load; ${d.placement} keeps an open doorway.`); drop(d); return; }
+      // In a building with a baked room (the cabin: its walls are dim inside and lit by its lamp), the leaf's inner face takes
+      // that room's light too (prop-materials.ts doorLeafMaterial). The leaf's local z is its normal; the inner face is the one
+      // whose shut normal points toward the building's middle (the parent's origin). Buildings without one keep plain light on
+      // both faces, as their walls do: dimmed alone, the hut's and chapel's doors went black against their bright inner walls.
+      if (d.seat.def.rooms?.length) {
+        const s = d.spec, midX = s.hinge[0] + Math.cos(s.yaw) * s.width / 2, midZ = s.hinge[2] - Math.sin(s.yaw) * s.width / 2;
+        const side = Math.sin(s.yaw) * -midX + Math.cos(s.yaw) * -midZ >= 0 ? 1 : -1, lamp = d.seat.def.rooms.some(r => r.lamp);
+        object.traverse(x => { if (x instanceof THREE.Mesh) x.material = Array.isArray(x.material) ? x.material.map(m => doorLeafMaterial(m, side, lamp)) : doorLeafMaterial(x.material, side, lamp); });
+      }
       d.object = object; d.status = 'ready'; place(d); dirty = true;
     }, () => { if (!disposed) drop(d); });
   }

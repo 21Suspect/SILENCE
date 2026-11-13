@@ -80,6 +80,7 @@ export function setPropRoom(toLocal: THREE.Matrix4, min: readonly number[], max:
   PROP_ROOM.on.value = 1;
 }
 const ROOM_VERTEX = `
+  vLeafSide = objectNormal.z;
   vec4 propWorld = vec4( transformed, 1. );
   #ifdef USE_INSTANCING
     propWorld = instanceMatrix * propWorld;
@@ -91,38 +92,49 @@ const ROOM_FRAGMENT = `
     vec3 local = ( uRoomToLocal * vec4( vPropWorld, 1. ) ).xyz;
     vec3 box = smoothstep( uRoomMin, uRoomMin + .15, local ) * ( 1. - smoothstep( uRoomMax - .15, uRoomMax, local ) );
     float inside = box.x * box.y * box.z * uRoomOn;
+    // A door leaf's face that looks into its building (see doorLeafMaterial): indoors wherever the leaf stands, shut in the
+    // doorway (outside the room's box) or swung in. Its edges and the outer face keep the open sky.
+    float leafIn = smoothstep( .3, .7, vLeafSide * uLeafSide );
+    float lampLit = max( inside, leafIn * uLeafLamp );
+    inside = max( inside, leafIn );
     reflectedLight.indirectDiffuse *= mix( 1., ${INDOOR_AMBIENT.toFixed(2)}, inside );
     reflectedLight.indirectSpecular *= mix( 1., ${INDOOR_AMBIENT.toFixed(2)}, inside );
     vec3 toLamp = uRoomLamp - vPropWorld;
     float lampDistance = max( dot( toLamp, toLamp ), .04 );
     vec3 lampDirection = normalize( ( viewMatrix * vec4( toLamp, 0. ) ).xyz );
-    reflectedLight.directDiffuse += inside * saturate( dot( normal, lampDirection ) ) * uLampCandela / lampDistance * uLampColour * BRDF_Lambert( material.diffuseColor );
+    reflectedLight.directDiffuse += lampLit * saturate( dot( normal, lampDirection ) ) * uLampCandela / lampDistance * uLampColour * BRDF_Lambert( material.diffuseColor );
   }`;
 /** Give a standard material the room's light (see PROP_ROOM); chains any patch it already has. */
 export function patchInterior(material: THREE.MeshStandardMaterial) {
   const before = material.onBeforeCompile, key = material.customProgramCacheKey;
   material.onBeforeCompile = (shader, renderer) => {
     before?.call(material, shader, renderer);
-    interior(shader);
+    interior(shader, material);
   };
-  material.customProgramCacheKey = () => `${key.call(material)}|silence-room-v1`;
+  material.customProgramCacheKey = () => `${key.call(material)}|silence-room-v3`;
   material.needsUpdate = true;
 }
-function interior(shader: THREE.WebGLProgramParametersWithUniforms) {
+function interior(shader: THREE.WebGLProgramParametersWithUniforms, material: THREE.Material) {
+  const leaf = material.userData.leaf as { side: number; lamp: number } | undefined;
+  shader.uniforms.uLeafSide = { value: leaf?.side ?? 0 }; shader.uniforms.uLeafLamp = { value: leaf?.lamp ?? 0 };
   shader.uniforms.uRoomToLocal = PROP_ROOM.toLocal; shader.uniforms.uRoomMin = PROP_ROOM.min; shader.uniforms.uRoomMax = PROP_ROOM.max;
   shader.uniforms.uRoomLamp = PROP_ROOM.lamp; shader.uniforms.uRoomOn = PROP_ROOM.on;
   shader.uniforms.uLampCandela ??= PROP_LAMP.candela; shader.uniforms.uLampColour ??= PROP_LAMP.colour;
   shader.vertexShader = shader.vertexShader
-    .replace('#include <common>', '#include <common>\nvarying vec3 vPropWorld;')
+    .replace('#include <common>', '#include <common>\nvarying vec3 vPropWorld;\nvarying float vLeafSide;')
     .replace('#include <project_vertex>', `#include <project_vertex>${ROOM_VERTEX}`);
   shader.fragmentShader = shader.fragmentShader
     .replace('#include <common>', `#include <common>
 varying vec3 vPropWorld;
+varying float vLeafSide;
+uniform float uLeafSide,uLeafLamp;
 uniform mat4 uRoomToLocal;
 uniform vec3 uRoomMin,uRoomMax,uRoomLamp;
 uniform float uRoomOn;
 ${shader.fragmentShader.includes('uLampCandela;') ? '' : 'uniform float uLampCandela;\nuniform vec3 uLampColour;'}`)
-    .replace('#include <aomap_fragment>', `#include <aomap_fragment>${ROOM_FRAGMENT}`);
+    // After the lights, not at the occlusion chunk: a library material's own patch expands that chunk first, and the room's
+    // light then never reached a library-textured leaf (the cabin's door kept the open sky and ignored the lantern).
+    .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>${ROOM_FRAGMENT}`);
 }
 
 function patch(material: THREE.MeshStandardMaterial, vary: number, lampMax: number) {
@@ -171,9 +183,32 @@ function patch(material: THREE.MeshStandardMaterial, vary: number, lampMax: numb
   // Loose library-textured things (a door leaf) take the room's light; a prop with its own baked lamp (the cabin) already has it.
   if (!lampMax) {
     const own = material.onBeforeCompile;
-    material.onBeforeCompile = (shader, renderer) => { own.call(material, shader, renderer); interior(shader); };
+    material.onBeforeCompile = (shader, renderer) => { own.call(material, shader, renderer); interior(shader, material); };
   }
-  material.customProgramCacheKey = () => `silence-prop-library-v3-${lampMax ? 'lit' : 'room'}`;
+  material.customProgramCacheKey = () => `silence-prop-library-v5-${lampMax ? 'lit' : 'room'}`;
+}
+
+/**
+ * A door leaf swings, so it cannot carry its building's baked light: shut, it stands in the doorway, outside the room's box,
+ * and its inner face took the full open sky (the cabin's door read pale blue-grey beside the lantern-lit brown walls; the
+ * other buildings' doors had no indoor light at all). Its copy of each material knows which face looks into the building,
+ * `side` (+1 or -1, the leaf's local z), and whether that building has the lamp (`lamp`): that face takes the room's dim sky
+ * and the lamp, as the walls round it do. One copy per material, side and lamp, shared by every leaf that matches.
+ */
+const leafCopies = new Map<string, THREE.Material>();
+export function doorLeafMaterial(material: THREE.Material, side: number, lamp: boolean): THREE.Material {
+  if (!(material instanceof THREE.MeshStandardMaterial)) return material;
+  const key = `${material.uuid}|${side}|${lamp ? 1 : 0}`;
+  let copy = leafCopies.get(key) as THREE.MeshStandardMaterial | undefined;
+  if (!copy) {
+    copy = material.clone();
+    copy.userData.leaf = { side, lamp: lamp ? 1 : 0 };
+    // A clone keeps the maps but not the shader patches: dress it again.
+    if (typeof copy.userData.lib === 'string') patch(copy, Number(copy.userData.vary ?? .15), Number(copy.userData.lampMax ?? 0));
+    else patchInterior(copy);
+    leafCopies.set(key, copy);
+  }
+  return copy;
 }
 
 /**
