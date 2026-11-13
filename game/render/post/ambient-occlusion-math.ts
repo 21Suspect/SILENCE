@@ -3,11 +3,20 @@
  * ambient-occlusion.ts and the resolve shader in atmosphere.ts repeat these formulas; the tests pin the CPU twins.
  */
 
-/** What each setting level (0 off, 1 medium, 2 high) costs and buys. Slices are the directions per pixel, steps the samples per side of a slice. */
-export const aoQuality = (level: number) => level >= 2 ? { on: true, slices: 3, steps: 8, scale: .5 } : level === 1 ? { on: true, slices: 2, steps: 5, scale: .5 } : { on: false, slices: 0, steps: 0, scale: .5 };
+/** What each setting level (0 off, 1 medium, 2 high) costs and buys. Slices are the directions per pixel, steps the samples per side of a slice.
+ * The directions turn every frame and the result accumulates over about eight frames (ambient-occlusion.ts), so two slices a frame
+ * gather what three did in one; high spends what that saves on steps, medium on nothing. */
+export const aoQuality = (level: number) => level >= 2 ? { on: true, slices: 2, steps: 8, scale: .5 } : level === 1 ? { on: true, slices: 2, steps: 5, scale: .5 } : { on: false, slices: 0, steps: 0, scale: .5 };
 
-/** World radius of the occlusion in metres. Under a metre only the tightest creases show; over two it greys whole trunks. */
-export const AO_RADIUS = .8;
+/** World radius of the occlusion in metres. Under a metre only the tightest creases show; over two it greys whole trunks. At .8 a
+ * grass sward threw a dark halo onto the floor round it; at .6 with strong thin-occluder compensation the grass lost the contact
+ * shade that grounds it (judged with the user, 2026-11-13). .7 with a light compensation keeps both. */
+export const AO_RADIUS = .7;
+/** Thin-occluder compensation (Intel XeGTAO, 2021): a sample's distance along the view axis counts this much more towards the
+ * falloff, so a blade or frond standing in front of the floor fades out of the horizon instead of acting as a wall. Grass is the
+ * thinnest thing in the depth buffer, and as a full wall it threw a broad dark halo round every sward. Kept light: the shade it
+ * gives grass at its base is what makes a clump sit in the floor. */
+export const AO_THIN = .4;
 /** Largest darkening AO may apply. Under 1 because bounce light fills creases. Grass cards are thin but count as solid in the depth, so
  * at 1 whole clumps went black at noon (view -52,47 yaw 2.4); .7 keeps ferns and clumps grounded without losing the sun-shadow pattern. */
 export const AO_STRENGTH = .7;

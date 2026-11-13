@@ -434,7 +434,9 @@ export function createUndergrowth(
       fine.push(batch(grassPatch(variant), fineMaterial, 900, 2, 'Fine grass LOD'));
       // Fewer, larger leaves further out: the carpet keeps its cover as each leaf shrinks on screen.
       for (const [level, blades, segments, widen, capacity] of [[0, 36, 3, 1, 1400], [1, 20, 2, 1.4, 2600], [2, 11, 1, 2, 4200]] as const)
-        meadow[level].push(batch(meadowPatch(variant, blades, segments, widen), meadowMaterial, capacity, 2, 'Meadow grass'));
+        // The swards cast sun shadows out to 18 m (their two nearer levels): the grass's own shade on the moss is what sets it in the
+        // floor in sunlight, and AO alone darkens only at the blades' feet. Past 18 m the shadow is under a texel of the 72 m map.
+        meadow[level].push(batch(meadowPatch(variant, blades, segments, widen), meadowMaterial, capacity, 2, 'Meadow grass', level < 2 && perfOn('grassShadows')));
       for (const [level, leaves, grow, capacity] of [[0, 22, 1, 900], [1, 13, 1.25, 1800], [2, 7, 1.6, 2400]] as const) {
         ivy[level].push(batch(leafPatch(variant, false, leaves, grow), ivyMaterial, capacity, 2, 'Ivy carpet'));
         rosettes[level].push(batch(leafPatch(variant, true, Math.max(3, Math.round(leaves * .55)), grow), rosetteMaterial, Math.round(capacity * .5), 2, 'Leaf rosettes'));
