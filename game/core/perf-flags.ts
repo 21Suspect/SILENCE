@@ -6,6 +6,8 @@
  * a constant `true`: the switches cost nothing and cannot be reached.
  */
 const dev = typeof import.meta !== 'undefined' && !!(import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV;
+/** True in the dev server and false in a production build (the same test the switches use). */
+export const devBuild = dev;
 const baseline = dev && typeof location !== 'undefined' && new URLSearchParams(location.search).has('perf-baseline');
 const off = new Set<string>();
 

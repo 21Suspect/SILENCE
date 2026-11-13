@@ -61,17 +61,46 @@ export const textureVariationGLSL = `
     c.xy=patchRotate(c.xy,vec2(p.rc.x,-p.rc.y));
     return normalize(a*p.w.x+b*p.w.y+c*p.w.z);
   }
+  // The ground layers read their patches through a height blend. The plain blend (cubed weights) lays two or three random crops
+  // of the scan over one another wherever two or three weights are alive: a quarter to a third of the near ground shows over
+  // 1.5 copies of the scan at once, 1.4 on average (measured by tools/ghosting). Here the taps' own heights (the colour's alpha)
+  // decide: each tap stands at its height plus how much it is wanted, and within patchBand of the highest the taps share, so one
+  // crop shows and the edge between two follows the relief (a stone in one crop stands over the soil of the next): 1.1 copies on
+  // average. The weights are written back into the patch, so the surface read after it uses the same ones and skips the taps that
+  // have none. patchBand 0 is the plain blend. relief-math.ts has the same maths in TypeScript.
+  float patchBand=0.;
+  void patchHeightBlend(inout TexturePatch p,vec3 heights){
+    vec3 score=heights*.7+p.w;
+    vec3 b=max(score-(max(score.x,max(score.y,score.z))-patchBand),0.);
+    p.w=b/max(b.x+b.y+b.z,1e-5);
+  }
+  /** Move a patch's reads by d in its own (unrotated) texture units: the cells, taps and weights stay, and so do its gradients. */
+  void shiftPatch(inout TexturePatch p,vec2 d){p.a+=patchRotate(d,p.ra);p.b+=patchRotate(d,p.rb);p.c+=patchRotate(d,p.rc);}
   // The same for one layer of a texture array (game/render/world/ground-layers.ts).
-  vec4 samplePatchLayer(sampler2DArray source,TexturePatch p,float layer){
+  vec4 samplePatchLayer(sampler2DArray source,inout TexturePatch p,float layer){
+    if(patchBand>0.){
+      // Most of a patch is one tap. A weight over .93 cannot lose to the others (they would need a height over a whole unit
+      // above its own, with the band at .16), so only that tap is read.
+      if(p.w.x>.93){p.w=vec3(1,0,0);return textureGrad(source,vec3(p.a,layer),patchRotate(p.dx,p.ra),patchRotate(p.dy,p.ra));}
+      if(p.w.y>.93){p.w=vec3(0,1,0);return textureGrad(source,vec3(p.b,layer),patchRotate(p.dx,p.rb),patchRotate(p.dy,p.rb));}
+      if(p.w.z>.93){p.w=vec3(0,0,1);return textureGrad(source,vec3(p.c,layer),patchRotate(p.dx,p.rc),patchRotate(p.dy,p.rc));}
+      vec4 a=textureGrad(source,vec3(p.a,layer),patchRotate(p.dx,p.ra),patchRotate(p.dy,p.ra));
+      vec4 b=textureGrad(source,vec3(p.b,layer),patchRotate(p.dx,p.rb),patchRotate(p.dy,p.rb));
+      vec4 c=textureGrad(source,vec3(p.c,layer),patchRotate(p.dx,p.rc),patchRotate(p.dy,p.rc));
+      patchHeightBlend(p,vec3(a.w,b.w,c.w));
+      return a*p.w.x+b*p.w.y+c*p.w.z;
+    }
     return textureGrad(source,vec3(p.a,layer),patchRotate(p.dx,p.ra),patchRotate(p.dy,p.ra))*p.w.x
       +textureGrad(source,vec3(p.b,layer),patchRotate(p.dx,p.rb),patchRotate(p.dy,p.rb))*p.w.y
       +textureGrad(source,vec3(p.c,layer),patchRotate(p.dx,p.rc),patchRotate(p.dy,p.rc))*p.w.z;
   }
   /** A surface layer packed as normal x, normal y, roughness: the normal (xyz, z rebuilt) and the roughness (w). */
   vec4 samplePatchLayerSurface(sampler2DArray source,TexturePatch p,float layer){
-    vec3 a=textureGrad(source,vec3(p.a,layer),patchRotate(p.dx,p.ra),patchRotate(p.dy,p.ra)).xyz;
-    vec3 b=textureGrad(source,vec3(p.b,layer),patchRotate(p.dx,p.rb),patchRotate(p.dy,p.rb)).xyz;
-    vec3 c=textureGrad(source,vec3(p.c,layer),patchRotate(p.dx,p.rc),patchRotate(p.dy,p.rc)).xyz;
+    vec3 a=vec3(.5,.5,0.),b=a,c=a;
+    // A tap with no weight is not read (always the case in the interior of a height-blended patch).
+    if(p.w.x>0.)a=textureGrad(source,vec3(p.a,layer),patchRotate(p.dx,p.ra),patchRotate(p.dy,p.ra)).xyz;
+    if(p.w.y>0.)b=textureGrad(source,vec3(p.b,layer),patchRotate(p.dx,p.rb),patchRotate(p.dy,p.rb)).xyz;
+    if(p.w.z>0.)c=textureGrad(source,vec3(p.c,layer),patchRotate(p.dx,p.rc),patchRotate(p.dy,p.rc)).xyz;
     vec2 na=patchRotate(a.xy*2.-1.,vec2(p.ra.x,-p.ra.y)),nb=patchRotate(b.xy*2.-1.,vec2(p.rb.x,-p.rb.y)),nc=patchRotate(c.xy*2.-1.,vec2(p.rc.x,-p.rc.y));
     vec2 n=na*p.w.x+nb*p.w.y+nc*p.w.z;
     return vec4(normalize(vec3(n,sqrt(max(1.-dot(n,n),.02)))),a.z*p.w.x+b.z*p.w.y+c.z*p.w.z);
