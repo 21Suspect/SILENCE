@@ -13,7 +13,7 @@ export const GROUND_LAYERS = [
   { name: 'litter', size: 3 },     // forest_leaves_02: leaves, sticks and moss under broadleaf trees
   { name: 'roots', size: 1.67 },   // roots: root mats round trunk bases
   { name: 'moss', size: 1.5 },     // Moss003 (ambientCG): moss carpet on damp, level ground
-  { name: 'path', size: 2.17 },    // stony_dirt_path: worn trails and trodden pads
+  { name: 'path', size: 2.5 },     // brown_mud_leaves_01: worn trails and trodden pads, red-brown earth
   { name: 'rocky', size: 2 },      // rocky_trail: stony ground on slopes, gravel at path edges
   { name: 'rock', size: 2 },       // lichen_rock: rock faces (projected three ways)
 ] as const;

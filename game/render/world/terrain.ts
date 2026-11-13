@@ -60,6 +60,12 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
   const nearCenter=new THREE.Vector2(),nearCoverage={value:DETAIL_RADIUS};
   // Parallax occlusion on the near ground (1 on, 0 off): a uniform, so it can be switched and measured without a recompile.
   const parallax={value:1};
+  // The path's look. 1: the leafy red-brown earth chosen with the user (2026-11-13) over three others, with a soft, frayed
+  // edge; 0 the old hard-edged blend. A uniform while its tuning settles (__SILENCE__.perf.scene().userData).
+  const pathStyle={value:1};scene.userData.pathStyle=pathStyle;
+  // The leafy mud's tuning, live while it is chosen: x least cover in the middle, y how far its green leaves turn brown, z how much moss may creep in (1 none), w the soft edge's reach (times the width).
+  const pathTune={value:new THREE.Vector4(.95,.9,.97,1.35)},pathTint={value:new THREE.Color(2.15,1.55,1.12)};
+  scene.userData.pathTune=pathTune;scene.userData.pathTint=pathTint;
   const zenith=new THREE.Vector3(0,1,0),sunDirection={get value(){return (scene.userData.sunDirection as THREE.Vector3|undefined)??zenith;}};
   const distantTint=new THREE.Color(horizonColor);
   // The forest floor: seven scanned layers in two texture arrays (colour + height, normal + roughness); see ground-layers.ts.
@@ -82,7 +88,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
     shader.uniforms.uRoadMap={value:roadMap};shader.uniforms.uRoadNormal={value:roadNormal};
     shader.uniforms.uStoneMap={value:stoneMap};
     shader.uniforms.uGroundColor={value:groundLayers.color};shader.uniforms.uGroundSurface={value:groundLayers.surface};
-    shader.uniforms.uParallax=parallax;shader.uniforms.uSunDirection=sunDirection;
+    shader.uniforms.uParallax=parallax;shader.uniforms.uPathStyle=pathStyle;shader.uniforms.uPathTune=pathTune;shader.uniforms.uPathTint=pathTint;shader.uniforms.uSunDirection=sunDirection;
     shader.uniforms.uCoastalMap={value:coastalMap};shader.uniforms.uCoastalNormal={value:coastalNormal};
     shader.uniforms.uBedMap={value:riverbedMap};shader.uniforms.uBedNormal={value:riverbedNormal};
     shader.vertexShader = `uniform vec2 uNearCenter;uniform float uNearCoverage;attribute float horizonY;attribute float treeGround;attribute vec4 biome;varying float vTreeGround;varying vec4 vBiome;varying vec3 vGroundPosition;\n${shader.vertexShader}`.replace('#include <begin_vertex>', `
@@ -93,7 +99,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
     shader.fragmentShader = `varying vec3 vGroundPosition;varying vec4 vBiome;varying float vTreeGround;
       uniform sampler2D uBedMap,uBedNormal,uRoadMap,uRoadNormal,uStoneMap;
       uniform sampler2DArray uGroundColor,uGroundSurface;
-      uniform vec2 uNearCenter;uniform float uNearCoverage;uniform vec3 uDistantTint;uniform float uParallax;uniform vec3 uSunDirection;
+      uniform vec2 uNearCenter;uniform float uNearCoverage;uniform vec3 uDistantTint;uniform float uParallax;uniform float uPathStyle;uniform vec4 uPathTune;uniform vec3 uPathTint;uniform vec3 uSunDirection;
       ${textureVariationGLSL}
       // Where each ground layer's patches sit (offset in xy) and how large its scan is (1/size in z), as the layer reads
       // below, and how deep its relief is in metres (w): the depth its height map spans.
@@ -103,7 +109,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
         if(layer==1)return vec4(57.,9.,1./3.,.14);
         if(layer==2)return vec4(13.,71.,1./1.67,.13);
         if(layer==3)return vec4(91.,37.,1./1.5,.1);
-        if(layer==4)return vec4(29.,5.,1./2.17,.2);
+        if(layer==4)return uPathStyle<.5?vec4(29.,5.,1./2.17,.2):vec4(29.,5.,1./2.5,.16);
         if(layer==5)return vec4(63.,44.,1./2.,.22);
         return vec4(0.,0.,1./2.5,.16);
       }
@@ -147,8 +153,12 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
       TexturePatch roadPatch=groundTexturePatch(groundUv/2.+vec2(47.,13.));
       TexturePatch gravelPatch=groundTexturePatch(groundUv/2.2+vec2(9.,31.));
       ${road?road.mask:'float road=roadWeight(vGroundPosition),bank=bedWeight(vGroundPosition);'}
-      float worn=(1.-smoothstep(trailWidth(p.y)*.42,trailWidth(p.y)+surfaceNoise(p*2.1)*.26,trailDistance(p)))*trailPresence(p);
-      float dirtCoverage=worn*.82*(1.-road)*(1.-bank),trod=0.;
+      // The softer paths (styles 1 to 3) fray out over a wider band, their edge pushed in and out by noise at two scales, and
+      // never cover their middle completely, so the floor and its moss show through the trodden earth.
+      float pathSoft=step(.5,uPathStyle),pathLayer=4.;
+      float wornAt=trailDistance(p)+((surfaceNoise(p*.9+7.)-.5)*.7+(surfaceNoise(p*3.3)-.5)*.3)*pathSoft;
+      float worn=(1.-smoothstep(trailWidth(p.y)*mix(.42,.38,pathSoft),trailWidth(p.y)*mix(1.,uPathTune.w,pathSoft)+surfaceNoise(p*2.1)*.26,wornAt))*trailPresence(p);
+      float dirtCoverage=worn*mix(.82,uPathTune.x+(.97-uPathTune.x)*surfaceNoise(p*.55+3.),pathSoft)*(1.-road)*(1.-bank),trod=0.;
       ${WORLD_V2?`
       trod=smoothstep(.34,.72,vBiome.x+(surfaceNoise(p*1.7)-.5)*.42+(surfaceNoise(p*7.)-.5)*.16);
       dirtCoverage=max(dirtCoverage,trod*(1.-road)*(1.-bank)*.92);
@@ -164,7 +174,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
       float wRock=stoneBlend*steep*ground;
       // Gravel shows at a path's edge only as a trace: on this damp floor the margin is moss and needles, and a full band of
       // the pale scan read as a dry gravel verge.
-      float wRocky=(stoneBlend*(1.-steep)*.9+worn*(1.-worn)*.45)*ground;
+      float wRocky=(stoneBlend*(1.-steep)*.9+worn*(1.-worn)*.45*(1.-pathSoft))*ground;
       float wPath=dirtCoverage;
       float wRoots=rootBlend*.7*ground*(1.-dirtCoverage);
       // The base floor is a damp conifer floor: moss mats with lanes of needles between them. Broadleaf groves drop leaves
@@ -174,7 +184,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
       // Moss is never a whole carpet with an outline: a broken mask over several scales, held below full cover, so the height
       // blend lets it fill the hollows between the needle mats first and the floor shows through its edges.
       float mossField=damp*.55+surfaceNoise(p*.31+77.)*.2+surfaceNoise(p*1.3+11.)*.15+surfaceNoise(p*4.7)*.1;
-      float wMoss=.72*smoothstep(.22,.78,mossField)*level*(1.-vBiome.w)*ground*(1.-dirtCoverage)*(1.-leafBlend*.45);
+      float wMoss=.72*smoothstep(.22,.78,mossField)*level*(1.-vBiome.w)*ground*(1.-dirtCoverage*mix(1.,uPathTune.z,pathSoft))*(1.-leafBlend*.45);
       float wFloor=max(.08,1.-max(max(max(wRock,wRocky),max(wPath,wRoots)),max(wLitter,wMoss)));
       // ---- Parallax occlusion on the near ground. The view ray is marched down into the leading layer's height (the colour's
       // alpha), and every layer is then read where the ray meets that relief: needle mats, roots and stones stand above the
@@ -200,11 +210,12 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
           vec3 view=toEye/eyeDistance;
           // Shift of the read point (in this layer's texture units) per tenth of the relief's depth, as the ray descends.
           vec2 stepUv=-view.xz/max(view.y,.3)*frame.w*reach*vec2(1.,-1.)*frame.z*.1;
-          vec2 shift=vec2(0.);float depth=0.,h=textureGrad(uGroundColor,vec3(tapUv,float(lead)),gx,gy).a,lastH=h,lastDepth=0.;
+          float leadLayer=lead==4?pathLayer:float(lead);
+          vec2 shift=vec2(0.);float depth=0.,h=textureGrad(uGroundColor,vec3(tapUv,leadLayer),gx,gy).a,lastH=h,lastDepth=0.;
           for(int i=0;i<10;i++){
             if(1.-h<=depth)break;
             lastH=h;lastDepth=depth;shift+=stepUv;depth+=.1;
-            h=textureGrad(uGroundColor,vec3(tapUv+patchRotate(shift,tapTurn),float(lead)),gx,gy).a;
+            h=textureGrad(uGroundColor,vec3(tapUv+patchRotate(shift,tapTurn),leadLayer),gx,gy).a;
           }
           // Between the last step above the relief and the first below it, where the two lines cross.
           float below=depth-(1.-h),above=(1.-lastH)-lastDepth,t=above/max(above+below,1e-4);
@@ -221,7 +232,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
             vec2 at=tapUv+patchRotate(hit,tapTurn);float blocked=0.;
             for(int i=1;i<=6;i++){
               float run=.012*float(i*i)/3.;   // 4 mm to 12 cm out, closer steps near the point
-              float hs=textureGrad(uGroundColor,vec3(at+patchRotate(toward*run*frame.z,tapTurn),float(lead)),gx,gy).a;
+              float hs=textureGrad(uGroundColor,vec3(at+patchRotate(toward*run*frame.z,tapTurn),leadLayer),gx,gy).a;
               blocked=max(blocked,(hs-hitH)*frame.w-run*rise);
             }
             reliefShade=1.-reach*smoothstep(0.,.025,blocked)*.85;
@@ -229,14 +240,23 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
         }
       }
       TexturePatch floorP=groundTexturePatch(groundUv/2.5),litterP=groundTexturePatch(groundUv/3.+vec2(57.,9.)),rootsP=groundTexturePatch(groundUv/1.67+vec2(13.,71.));
-      TexturePatch mossP=groundTexturePatch(groundUv/1.5+vec2(91.,37.)),pathP=groundTexturePatch(groundUv/2.17+vec2(29.,5.)),rockyP=groundTexturePatch(groundUv/2.+vec2(63.,44.));
+      TexturePatch mossP=groundTexturePatch(groundUv/1.5+vec2(91.,37.)),pathP=groundTexturePatch(groundUv/mix(2.17,2.5,pathSoft)+vec2(29.,5.)),rockyP=groundTexturePatch(groundUv/2.+vec2(63.,44.));
       vec4 cFloor=samplePatchLayer(uGroundColor,floorP,0.);
       vec4 cLitter=cFloor,cRoots=cFloor,cMoss=cFloor,cPath=cFloor,cRocky=cFloor,cRock=cFloor;
       if(wLitter>.02||road>.001)cLitter=samplePatchLayer(uGroundColor,litterP,1.);
       // The roots scan is pale, dry dirt; on this floor the soil round a trunk is dark and damp.
       if(wRoots>.02){cRoots=samplePatchLayer(uGroundColor,rootsP,2.);cRoots.rgb*=vec3(.74,.72,.68);}
       if(wMoss>.02)cMoss=samplePatchLayer(uGroundColor,mossP,3.);
-      if(wPath>.02||road>.001)cPath=samplePatchLayer(uGroundColor,pathP,4.);
+      if(wPath>.02||road>.001){
+        cPath=samplePatchLayer(uGroundColor,pathP,pathLayer);
+        // Each candidate brought to this floor: the leafy mud a little warmer, the forest mud out of near black, the pale earth brown.
+        // The leafy mud is half covered in small bright leaves. By uPathTune.y they give way to the mud's own red-brown (linear
+        // .11, .065, .04, keeping a little of their brightness as texture), so the path reads as earth beside the green moss.
+        if(uPathStyle>.5&&uPathStyle<1.5){float leafGreen=smoothstep(0.,.04,cPath.g-max(cPath.r,cPath.b)*.92);
+          float leafLight=dot(cPath.rgb,vec3(.2126,.7152,.0722));
+          cPath.rgb=mix(cPath.rgb,vec3(.11,.065,.04)*(.7+2.5*leafLight),leafGreen*uPathTune.y);}
+        cPath.rgb*=uPathStyle<.5?vec3(1.):uPathStyle<1.5?uPathTint:uPathStyle<2.5?vec3(1.95,1.72,1.5):vec3(.92,.82,.68);
+      }
       if(wRocky>.02){cRocky=samplePatchLayer(uGroundColor,rockyP,5.);cRocky.rgb*=vec3(.66,.66,.64);}
       if(wRock>.02){
         cRock=vec4(0.);
@@ -246,7 +266,8 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
       }
       // Height blend: each layer stands at its own height plus how much it is wanted; within a short band of the highest, layers share.
       float hFloor=cFloor.a*.7+wFloor,hLitter=wLitter>.02?cLitter.a*.7+wLitter:-9.,hRoots=wRoots>.02?cRoots.a*.7+wRoots:-9.,hMoss=wMoss>.02?cMoss.a*.7+wMoss:-9.;
-      float hPath=wPath>.02?cPath.a*.7+wPath:-9.,hRocky=wRocky>.02?cRocky.a*.7+wRocky:-9.,hRock=wRock>.02?cRock.a*.7+wRock:-9.;
+      // The forest mud's height map is nearly flat and high: at full weight it took every pixel of the path and cut a hard edge.
+      float hPath=wPath>.02?cPath.a*(uPathStyle<.5?.7:abs(uPathStyle-2.)<.5?.15:.5)+wPath:-9.,hRocky=wRocky>.02?cRocky.a*.7+wRocky:-9.,hRock=wRock>.02?cRock.a*.7+wRock:-9.;
       float top=max(max(max(hFloor,hLitter),max(hRoots,hMoss)),max(max(hPath,hRocky),hRock))-.16;
       float bFloor=max(hFloor-top,0.),bLitter=max(hLitter-top,0.),bRoots=max(hRoots-top,0.),bMoss=max(hMoss-top,0.),bPath=max(hPath-top,0.),bRocky=max(hRocky-top,0.),bRock=max(hRock-top,0.);
       float bSum=bFloor+bLitter+bRoots+bMoss+bPath+bRocky+bRock+1e-5;
@@ -312,7 +333,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
       if(bLitter>0.)groundSurface+=samplePatchLayerSurface(uGroundSurface,litterP,1.)*bLitter;
       if(bRoots>0.)groundSurface+=samplePatchLayerSurface(uGroundSurface,rootsP,2.)*bRoots;
       if(bMoss>0.)groundSurface+=samplePatchLayerSurface(uGroundSurface,mossP,3.)*bMoss;
-      if(bPath>0.)groundSurface+=samplePatchLayerSurface(uGroundSurface,pathP,4.)*bPath;
+      if(bPath>0.)groundSurface+=samplePatchLayerSurface(uGroundSurface,pathP,pathLayer)*bPath;
       if(bRocky>0.)groundSurface+=samplePatchLayerSurface(uGroundSurface,rockyP,5.)*bRocky;
       groundSurface/=max(bSum-bRock,1e-5);
       float roughnessFactor=clamp(groundSurface.w,.35,1.);
