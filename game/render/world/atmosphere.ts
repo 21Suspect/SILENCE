@@ -44,7 +44,7 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
     tAO:{value:null as THREE.Texture|null},aoSize:{value:new THREE.Vector2(1,1)},aoOn:{value:0},
     sunShadow:{value:null as THREE.Texture|null},sunMatrix:{value:sun.shadow.matrix},shadowTexel:{value:1/sun.shadow.mapSize.x},
     // The sky model's view table (game/render/world/sky-model.ts): the haze takes the sky's own colour towards the horizon.
-    skyLut:{value:null as THREE.Texture|null},fogAmbient:{value:.8},fogDensity:{value:1},aerialDensity:{value:1/2600},
+    skyLut:{value:null as THREE.Texture|null},hazeNeutral:{value:0},fogAmbient:{value:.8},fogDensity:{value:1},aerialDensity:{value:1/2600},
     // The ground mist is lit by the whole sky dome (and the ground below it), not by the bright horizon: its colour comes from the sky model.
     mistColor:{value:new THREE.Color(.1,.12,.14)},
   };
@@ -95,12 +95,14 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
     uniform vec3 cameraPositionWorld,fogColor,sunDirection,sunScatterColor;
     uniform vec2 fogSize;uniform float fogSteps;
     uniform float time,darkness,shadowTexel,sunLevel,fogDensity;
-    uniform sampler2D skyLut;uniform float fogAmbient,aerialDensity;uniform vec3 mistColor;
+    uniform sampler2D skyLut;uniform float fogAmbient,aerialDensity,hazeNeutral;uniform vec3 mistColor;
     varying vec2 vUv;
     ${SKY_LUT_GLSL}
     // The light the mist itself is lit with from the sky: the sky's colour just above the horizon in this direction (so the haze
     // in front of a ridge is the colour of the sky behind it, warmer towards a low sun).
-    vec3 hazeColor(vec3 ray){vec3 d=normalize(vec3(ray.x,max(ray.y,0.)*.35+.04,ray.z));return skyLookup(skyLut,d,sunDirection);}
+    // The far haze takes the same warm white as the mist by day (sky.ts MIST_NEUTRAL), keeping the sky's brightness.
+    vec3 hazeColor(vec3 ray){vec3 d=normalize(vec3(ray.x,max(ray.y,0.)*.35+.04,ray.z));vec3 h=skyLookup(skyLut,d,sunDirection);
+      return mix(h,vec3(1.04,1.,.9)*dot(h,vec3(.2126,.7152,.0722)),hazeNeutral);}
     float hash(vec3 p){p=fract(p*.3183099+vec3(.1,.2,.3));p*=17.;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}
     float surfaceDepth(vec2 uv){
       float opaqueDepth=texture2D(tDepth,uv).r;
@@ -515,7 +517,7 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
       uniforms.inverseProjection.value.copy(camera.projectionMatrixInverse);
       if(scene.userData.skyLut)uniforms.skyLut.value=scene.userData.skyLut as THREE.Texture;
       uniforms.fogDensity.value=(scene.userData.fogDensity as number|undefined)??1;
-      uniforms.fogAmbient.value=(scene.userData.fogAmbient as number|undefined)??.8;
+      uniforms.fogAmbient.value=(scene.userData.fogAmbient as number|undefined)??.8;uniforms.hazeNeutral.value=(scene.userData.hazeNeutral as number|undefined)??0;
       if(scene.userData.mistColor)uniforms.mistColor.value.copy(scene.userData.mistColor as THREE.Color);
       water.prepare(camera);uniforms.hasWater.value=water.visible;
       stage('opaque',()=>{renderer.setRenderTarget(target);renderer.render(scene,camera);});

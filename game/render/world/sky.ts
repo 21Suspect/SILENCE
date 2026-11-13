@@ -156,6 +156,10 @@ export function createSky(renderer:THREE.WebGLRenderer,scene:THREE.Scene,sun:THR
       }`});
   const starPoints=new THREE.Points(starGeometry,starMaterial);starPoints.name='Resolved stellar points';starPoints.frustumCulled=false;starPoints.renderOrder=-999;scene.add(starPoints);
   // Light colours from the model, refreshed when the sun has moved a little (each is a few hundred small CPU evaluations).
+  // The forest's haze by day: droplets and pollen lit by sun and sky together and scattered many times over, so it reads near
+  // white and a touch warm, not the blue of the open sky that a single scattering of sky light gives. MIST_NEUTRAL of its colour
+  // takes WARM_WHITE at the sky light's own brightness; it fades back to the sky's tint below the horizon, so moonlit mist stays cool.
+  const MIST_NEUTRAL=.85,WARM_WHITE=new THREE.Color(1.04,1,.9),warmMist=new THREE.Color();
   const mist=new THREE.Color(),groundBounce=new THREE.Color(),sunColor=new THREE.Color(),skyE=new THREE.Color(),moonSkyE=new THREE.Color(),horizon=new THREE.Color(),moonHorizon=new THREE.Color(),fog=new THREE.Color();
   const groundTint=new THREE.Color(.82,.9,.62),grade:Grade=gradeFor(1),side=new THREE.Vector3(),moonDir=new THREE.Vector3();
   const noonSky=skyIrradiance(new THREE.Vector3(0,.8,.6).normalize(),SUN_ILLUMINANCE),noonLuminance=noonSky.r*.2126+noonSky.g*.7152+noonSky.b*.0722;
@@ -186,6 +190,9 @@ export function createSky(renderer:THREE.WebGLRenderer,scene:THREE.Scene,sun:THR
         const fogAmbient=.8;
         // Mist: lit from every side by the sky above and the dim ground below (isotropic scattering sees the average).
         mist.copy(skyE).multiplyScalar(1/Math.PI).add(groundBounce.copy(skyE).multiplyScalar(.04));
+        const neutral=MIST_NEUTRAL*THREE.MathUtils.smoothstep(elevation,-.03,.12);
+        mist.lerp(warmMist.copy(WARM_WHITE).multiplyScalar(mist.r*.2126+mist.g*.7152+mist.b*.0722),neutral);
+        scene.userData.hazeNeutral=neutral;
         fog.copy(mist);
         scene.userData.fogAmbient=fogAmbient;scene.userData.fogDensity=fogDensityFor(elevation);
         gradeFor(elevation,grade);

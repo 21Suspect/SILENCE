@@ -11,8 +11,9 @@ type Key = Omit<Grade, 'shadows' | 'highlights'> & { shadows: readonly [number, 
 export const NOON: Key = {
   // Sun flecks on the forest floor are the brightest thing a forest view meters on; at .15 a sunlit floor (albedo about .12)
   // came out near white and the tone curve bleached its colour away. At .11 the moss and needles keep their colour.
-  key: .11, minExposure: .4, maxExposure: 9, bias: 0, temperature: .04, tint: 0, saturation: .98, contrast: 1.1,
-  shadows: [.96, .99, 1.04], highlights: [1.02, 1, .97], scotopic: 0, vignette: .1, grain: 0, bloom: .04,
+  // Neutral to a touch warm: the cool shadow tint and the near-zero white balance read as a cold blue forest.
+  key: .11, minExposure: .4, maxExposure: 9, bias: 0, temperature: .1, tint: 0, saturation: .98, contrast: 1.1,
+  shadows: [.99, 1, 1], highlights: [1.03, 1, .96], scotopic: 0, vignette: .1, grain: 0, bloom: .04,
 };
 export const GOLDEN: Key = {
   key: .19, minExposure: .4, maxExposure: 14, bias: 0, temperature: .35, tint: -.12, saturation: 1, contrast: 1.08,
