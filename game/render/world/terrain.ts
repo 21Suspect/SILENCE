@@ -163,7 +163,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
         return (1.-smoothstep(width-.55,width+.48,abs(p.z-roadCenter(p.x))+erosion))*roadPresence(p.xz);
       }`}
       float bedWeight(vec3 p){
-        float edge=1.-smoothstep(2.7,8.,streamOffset(p.xz));
+        float edge=1.-smoothstep(2.7,8.,${WORLD_V2?'mouthRound(streamOffset(p.xz),p.xz)':'streamOffset(p.xz)'});
         float damp=1.-smoothstep(.10,1.35,p.y-streamHeight(p.z));
         float gravel=edge*damp*streamPresence(p.z);
         ${WORLD_V2?'gravel=max(gravel,(1.-smoothstep(-1.,6.,lakeDistance(p.xz)))*(1.-smoothstep(.1,1.2,p.y-.6)));':''}
@@ -200,8 +200,10 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
       float worn=(1.-smoothstep(trailWidth(p.y)*mix(.42,.38,pathSoft),trailWidth(p.y)*mix(1.,uPathTune.w,pathSoft)+surfaceNoise(p*2.1)*.26,wornAt))*trailPresence(p);
       float dirtCoverage=worn*mix(.82,uPathTune.x+(.97-uPathTune.x)*surfaceNoise(p*.55+3.),pathSoft)*(1.-road)*(1.-bank),trod=0.;
       ${WORLD_V2?`
-      trod=smoothstep(.34,.72,vBiome.x+(surfaceNoise(p*1.7)-.5)*.42+(surfaceNoise(p*7.)-.5)*.16);
-      dirtCoverage=max(dirtCoverage,trod*(1.-road)*(1.-bank)*.92);
+      // Trodden yards and pads get the same treatment as the trail: a wide ramp, broken by noise at two scales, and never full cover,
+      // so the moss and needles stay in it and its edge cannot be followed with the eye.
+      trod=smoothstep(.12,.95,vBiome.x+(surfaceNoise(p*1.7)-.5)*.75+(surfaceNoise(p*.45+21.)-.5)*.5+(surfaceNoise(p*7.)-.5)*.2);
+      dirtCoverage=max(dirtCoverage,trod*(1.-road)*(1.-bank)*.62);
       `:''}
       // ---- The forest floor in layers (game/render/world/ground-layers.ts): scanned CC0 sets in two texture arrays, each with
       // its height in the colour's alpha. Masks say where each layer belongs; heights decide the edge between them, so moss

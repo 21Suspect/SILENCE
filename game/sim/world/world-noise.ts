@@ -91,6 +91,19 @@ export function roadFoot(px:number,pz:number,out:RoadFoot):RoadFoot{
   // steep, curving stretch, where the first-order guess along the tangent is out by tens of centimetres.
   for(let k=0;k<3;k++){p=point(x);x-=((x-px)+(p.z-pz)*p.m)/(1+p.m*p.m);}
   p=point(x);
+  // The point straight above or below on the centre line is never nearer than the foot, so a result further away than that is
+  // not the foot: far from the road, where the curve is steep, Gauss-Newton can run off to a spot whose perpendicular is
+  // nowhere near. That put a "foot" a few metres across on the beach 240 m from the road and raised spikes there. Look for the
+  // nearest point along the line at coarse steps and polish that one.
+  const found=Math.hypot(x-px,p.z-pz),up=Math.abs(pz-point(px).z);
+  if(found>up+.01){
+    let best=px,bestD=up;
+    for(let s=px-up;s<=px+up;s+=3){const d=Math.hypot(s-px,point(s).z-pz);if(d<bestD){bestD=d;best=s;}}
+    x=best;
+    for(let k=0;k<4;k++){p=point(x);x-=((x-px)+(p.z-pz)*p.m)/(1+p.m*p.m);}
+    p=point(x);
+    if(Math.hypot(x-px,p.z-pz)>bestD+.01){x=best;p=point(x);}
+  }else p=point(x);
   out.x=x;out.z=p.z;out.m=p.m;out.across=((pz-p.z)-p.m*(px-x))/Math.hypot(1,p.m);
   return out;
 }

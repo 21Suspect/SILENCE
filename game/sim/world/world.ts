@@ -11,7 +11,7 @@ import { roadGradeAt } from './road-grade';
 import { roadGap } from './road-geometry';
 import { landform } from './world-landform';
 import { WORLD_V2 } from './world-flags';
-import { broadWaterLevelAt, coastDistance, coastZ, lakeDistance, LAKE_CENTER, beachWidth, coastalGLSL } from './coastal-geography';
+import { broadWaterLevelAt, mouthRound, coastDistance, coastZ, lakeDistance, lakeOutline, LAKE_CENTER, beachWidth, coastalGLSL } from './coastal-geography';
 import { ROAD } from './road-profile';
 import { GROUND_PADS, POI_PLACEMENTS, ROAD_ENDS, SCATTER_PLACEMENTS, TRAIL_LINES, MAIN_TRAIL_BOUNDS, FORDS, placeLocal } from './world-layout';
 export { hash, smooth, noise, pathX, riverX, roadZ, channelOffset };
@@ -128,9 +128,9 @@ function exclusionV2(x:number,z:number){
 export function vegetationExclusion(x:number,z:number){
   const presence=trailPresence(x,z);
   const base=Math.max((1-smooth(pathDistance(x,z),pathWidth(z)*.6,pathWidth(z)+.7))*presence,
-    (1-smooth(WORLD_V2?channelShape(x,z):Math.abs(x-riverX(z)),4.1,6.8))*riverPresence(z),
+    (1-smooth(WORLD_V2?mouthRound(channelShape(x,z),x,z):Math.abs(x-riverX(z)),4.1,6.8))*riverPresence(z),
     WORLD_V2?(1-smooth(roadDistance(x,z),ROAD.clearFrom,ROAD.clearTo))*roadPresence(x,z):(1-smooth(Math.abs(z-roadZ(x)),1.25,2.65))*roadPresence(x,z));
-  return WORLD_V2?Math.max(base,exclusionV2(x,z),1-smooth(lakeDistance(x,z),3,13),1-smooth(coastDistance(x,z),beachWidth(x,z),beachWidth(x,z)+18),smooth(landform(x,z),90,138)):base;
+  return WORLD_V2?Math.max(base,exclusionV2(x,z),1-smooth(lakeOutline(x,z),3,13),1-smooth(coastDistance(x,z),beachWidth(x,z),beachWidth(x,z)+18),smooth(landform(x,z),90,138)):base;
 }
 /** The rendered ground: [worn earth 0..1, exposed rock 0..1]. */
 export function groundMasks(x:number,z:number):[number,number]{
@@ -254,7 +254,7 @@ export function rawHeight(x:number,z:number) {
   const mountains=escarpment+crest+folds;
   const land=WORLD_V2?shapedGround(x,z,radius,road,path,detail):Math.max(-.55,base+rolling+ridge)+detail*(1-Math.max(path,road)*.72)-path*.07;
   const ground=WORLD_V2?land:land+foothills+mountains;
-  const distance=WORLD_V2?channelShape(x,z):Math.abs(x-riverX(z)),water=waterHeightAt(z);
+  const distance=WORLD_V2?mouthRound(channelShape(x,z),x,z):Math.abs(x-riverX(z)),water=waterHeightAt(z);
   const sideChannel=WORLD_V2?channelBranch:0;
   const width=1.15+noise(z*.055,7)*.55;
   // A ford is a gravel bar across the stream: its bed is raised to a knee's depth where a path crosses.
@@ -276,7 +276,18 @@ export function rawHeight(x:number,z:number) {
   let out=mix(ground,channel,riverPresence(z)*(WORLD_V2?1-groundPadWeight:1));
   // Lake and ocean beds remain below their horizontal water plane. River
   // banks must not leave dry ridges across the shared mouth of either basin.
-  if(WORLD_V2 && broadWaterLevelAt(x,z)!==undefined)out=Math.min(out,landform(x,z));
+  // The river bed must not end in a step where it reaches the shore: inside the water the land is the basin's own floor, and over
+  // the last 20 m before it the bed eases down into that floor.
+  if(WORLD_V2){
+    const inland=Math.min(coastDistance(x,z)-3,lakeOutline(x,z));
+    // Near the shore the river's banks follow the beach or lake shore instead of standing on it: the carve lifts a bank to half a
+    // metre over the water, which on a beach that lies lower left a flat shelf ending in a straight cliff at the shoreline.
+    // Both the water's outline (mouthRound) and the ground under it now come from the same shore, so the land only ever
+    // dips into the channel and never rises above its surroundings.
+    out=mix(out,Math.min(out,ground),1-smooth(inland,12,70));
+    if(inland<=0)out=Math.min(out,landform(x,z));
+    else if(inland<20)out=mix(Math.min(out,landform(x,z)),out,smooth(inland,0,20));
+  }
   return WORLD_V2?tunnelGround(x,z,out):out;
 }
 // The road tunnels are driven into the foot of the mountain: the ground stands up behind each mouth and runs on up
@@ -361,7 +372,7 @@ export function heightAt(x:number,z:number) {
 /** Only the rendered wet channel supports the creature; water is not a player collider. */
 export function riverSurfaceAt(x:number,z:number):number|undefined {
   if(WORLD_V2){const broad=broadWaterLevelAt(x,z);if(broad!==undefined&&heightAt(x,z)<broad)return broad;}
-  if(riverPresence(z)<=0||(WORLD_V2?channelOffset(x,z):Math.abs(x-riverX(z)))>=8)return undefined;
+  if(riverPresence(z)<=0||(WORLD_V2?mouthRound(channelOffset(x,z),x,z):Math.abs(x-riverX(z)))>=8)return undefined;
   const level=waterHeightAt(z);
   return heightAt(x,z)<level?level:undefined;
 }

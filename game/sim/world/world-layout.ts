@@ -275,11 +275,16 @@ function generate() {
   return pois;
 }
 
+/** Half the length of the bridge deck, and how far from the deck's middle its crash rails stand (the beam's face, towards the road). */
+export const BRIDGE_HALF_SPAN = 16.2, BRIDGE_RAIL = 4.2;
 /** Where the road meets the stream, and the level its bridge has to carry it across at. */
 export const ROAD_CROSSING = (() => {
   let x = 39, gap = Infinity;
   for (let px = -60; px < 200; px += .25) { const d = Math.abs(px - riverX(roadZ(px))); if (d < gap) { gap = d; x = px; } }
-  const z = roadZ(x), yaw = -Math.atan2(roadZ(x + 2) - roadZ(x - 2), 4);
+  // The deck is straight and the road bends a little: lay the deck along the chord between the road's centre at the two ends of
+  // the bridge's rail, so the road, the deck and both rails meet on one line instead of the deck standing half a metre to one side.
+  const reach = BRIDGE_HALF_SPAN + 2.9, za = roadZ(x - reach), zb = roadZ(x + reach);
+  const z = (za + zb) / 2, yaw = -Math.atan2(zb - za, 2 * reach);
   const ground = (landform(x - 27, roadZ(x - 27)) + landform(x + 27, roadZ(x + 27))) / 2;
   return { x, z, yaw, level: Math.max(waterHeightAt(z) + 3.6, ground) };
 })();
@@ -971,11 +976,11 @@ function scatter(): PoiPlacement[] {
   // bridge's own rail stops, closes in to the road edge, and ends turned down into the ground.
   for (const side of [-1, 1]) for (const dir of [-1, 1]) {
     const PANEL = 7.8, LENGTHS = 2, arc0 = roadArc(ROAD_CROSSING.x);
-    // The rail stands 4.4 m off the centre line, measured across the road, and closes in no further than 4.3 m at its end.
-    const start = roadBeside(roadXAtArc(arc0 + dir * 18.9), side * 4.42);
-    let ax = start.x, az = start.z;
+    // It begins exactly where the bridge's own rail ends (the same beam line, 2.9 m past the deck), then flares a little away from the road as it runs out, as crash rails do.
+    const [sx, sz] = placeLocal(ROAD_CROSSING, dir * (BRIDGE_HALF_SPAN + 2.9), side * BRIDGE_RAIL);
+    let ax = sx, az = sz;
     for (let m = 0; m < LENGTHS; m++) {
-      const edge = 4.42 + (4.3 - 4.42) * Math.min(1, (m + 1) / 2), next = roadBeside(roadXAtArc(arc0 + dir * (18.9 + PANEL * (m + 1))), side * edge);
+      const edge = BRIDGE_RAIL + .15 * Math.min(1, (m + 1) / 2), next = roadBeside(roadXAtArc(arc0 + dir * (18.9 + PANEL * (m + 1))), side * edge);
       const wantX = next.x - ax, wantZ = next.z - az, length = Math.hypot(wantX, wantZ);
       const ux = wantX / length, uz = wantZ / length, ex = ax + ux * PANEL, ez = az + uz * PANEL;
       let yaw = Math.atan2(-uz, ux), asset = 'guardrail';

@@ -3,7 +3,7 @@ import { Reflector } from 'three/addons/objects/Reflector.js';
 import { RIVER_EXTENT, waterHeightAt, waterGradeAt, riverProfileGLSL, riverCourseGLSL, channelOffset } from '../../sim/world/world';
 import { BRANCHES, branchX } from '../../sim/world/world-noise';
 import { WORLD_V2 } from '../../sim/world/world-flags';
-import { LAKE_CENTER, LAKE_RADII, LAKE_LEVEL, SEA_LEVEL, lakeDistance, coastDistance, coastalGLSL } from '../../sim/world/coastal-geography';
+import { LAKE_CENTER, LAKE_RADII, LAKE_LEVEL, SEA_LEVEL, lakeDistance, coastDistance, coastalGLSL, lakeOutlineGLSL } from '../../sim/world/coastal-geography';
 
 /** Live ripple rings: a footfall each stride, plus the small rings of drops coming back down. */
 const RIPPLES=WORLD_V2?12:8;
@@ -66,7 +66,7 @@ const WATER_FRAME_GLSL=`
 const WATER_FLOW_GLSL=`
         // Channel space: across in metres from mid-stream, along the bed. The water runs towards decreasing along,
         // fastest down the middle. Every layer is advected in these coordinates, so the current follows any bend.
-        float broad=step(1.5,vRibbon),ocean=step(2.5,vRibbon);
+        float broad=max(step(1.5,vRibbon),mouth),ocean=step(2.5,vRibbon);
         float across=vChannel.x,along=vChannel.y,mid=(1.-smoothstep(.3,5.2,abs(across)))*(1.-broad),speed=mix(mix(.26,.92,mid),mix(.10,.34,ocean),broad);
         vec2 ch=vec2(across,along);
         // Riffles stand where the bed lifts: fixed in place while the water runs through them.
@@ -109,7 +109,10 @@ const WATER_FOAM_GLSL=`
         float wavePhase=shoreMetres*.72+uTime*1.15+.5*sin(vWater.x*.047+vWater.z*.033);
         float breaker=pow(.5+.5*sin(wavePhase),9.)*(1.-smoothstep(5.,22.,shoreMetres));
         float swash=((1.-smoothstep(0.,3.5,abs(shoreMetres-2.4-1.8*sin(uTime*.55+vWater.x*.035))))+breaker)*ocean;
-        edgeFoam+=swash*smoothstep(.22,.72,pat)*1.15;
+        // The swell's foam lines run along the shore as long, soft, uneven streaks: a slow noise along them breaks them up, and the
+        // foam texture only roughens them, so they never read as rows of dashes.
+        float swashBreak=.15+.85*smoothstep(.3,.7,noise(vec2(shoreMetres*.04,dot(vWater.xz,vec2(.8,.6))*.045)+uTime*.012));
+        edgeFoam+=swash*swashBreak*(.7+.3*smoothstep(.15,.7,pat))*.8;
         float riffleFoam=riffle*smoothstep(.45,.95,pat*(.3+.9*clumpF))*.48*smoothstep(.03,.14,thickness);
         float white=clamp((edgeFoam*.55+riffleFoam+ringFoam*(.4+.6*pat))*uFoamGain,0.,1.)*(1.-.5*smoothstep(15.,60.,vViewDepth));
         vec3 foamCol=mix(vec3(.17,.2,.19),vec3(.46,.5,.48),.3+.7*pat)*(1.-uDarkness*.96);
@@ -119,10 +122,10 @@ const WATER_FOAM_GLSL=`
 /** A shallow, moving surface with a true opaque-scene refraction pass. */
 export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, heightAt:(x:number,z:number)=>number) {
   const positions:number[]=[], indices:number[]=[], uv:number[]=[], ribbonKind:number[]=[];
-  const rowStep=.5,rows=RIVER_EXTENT*2/rowStep,columns=24;
+  const rowStep=.5,rows=RIVER_EXTENT*2/rowStep,columns=WORLD_V2?32:24;
   // Extend under BOTH banks: the terrain's depth, not a visible strip edge, trims the water.
   // uv is (metres across the channel, metres along it), so the current can follow any bend.
-  const ribbons=[{centre:riverX,half:8,from:0,to:rows,kind:0},...(WORLD_V2?BRANCHES:[]).map(b=>({centre:(z:number)=>branchX(b,z),half:6.5,from:Math.ceil((b.z0+RIVER_EXTENT)/rowStep),to:Math.floor((b.z1+RIVER_EXTENT)/rowStep),kind:1}))];
+  const ribbons=[{centre:riverX,half:WORLD_V2?12:8,from:0,to:rows,kind:0},...(WORLD_V2?BRANCHES:[]).map(b=>({centre:(z:number)=>branchX(b,z),half:6.5,from:Math.ceil((b.z0+RIVER_EXTENT)/rowStep),to:Math.floor((b.z1+RIVER_EXTENT)/rowStep),kind:1}))];
   const base:number[]=[];
   for(const r of ribbons){
     base.push(positions.length/3);
@@ -202,6 +205,7 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
       float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);}
       ${WORLD_V2?`${riverCourseGLSL}
       ${coastalGLSL}
+      ${lakeOutlineGLSL}
       uniform vec4 uRipple[${RIPPLES}];uniform sampler2D tWaterNormal,tWaterFoam;uniform float uDetail,uFoamGain;
       ${WATER_GLSL}`:''}
       float viewDepth(vec2 uv){float d=texture2D(tOpaqueDepth,uv).x;vec4 p=uInverseProjection*vec4(uv*2.-1.,d*2.-1.,1.);return -p.z/p.w;}
@@ -245,14 +249,17 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
         ${WORLD_V2?`
         // Broad surfaces own their shoreline pixels, so river junctions never
         // double-draw or z-fight against the lake or estuary.
-        float lakeEdge=lakeDistance(vWater.xz),coastEdge=coastDistance(vWater.xz);
+        float lakeEdge=lakeOutline(vWater.xz),coastEdge=coastDistance(vWater.xz);
+        // Near its mouth the river takes on the colour, speed and sheen of the water it runs into, so the two surfaces meet
+        // without a seam: mouthSea and mouthLake are 1 at the edge and fade out over 60 m upstream.
+        float mouthSea=vRibbon<1.5?1.-smoothstep(3.,60.,coastEdge):0.,mouthLake=vRibbon<1.5?1.-smoothstep(0.,60.,lakeEdge):0.,mouth=max(mouthSea,mouthLake);
         if(vRibbon<1.5 && (lakeEdge<0. || coastEdge<3.))discard;
         // The terrain closes tributary heads and tapers the main source. The
         // water must obey the SAME channel mask, even if forest behind it is
         // lower than the water plane (depth testing alone cannot detect that).
-        if(vRibbon<1.5 && (streamOffset(vWater.xz)>3.5 || abs(vWater.z)>${(RIVER_EXTENT-52).toFixed(1)}))discard;
+        if(vRibbon<1.5 && (mouthRound(streamOffset(vWater.xz),vWater.xz)>3.5 || abs(vWater.z)>${(RIVER_EXTENT-52).toFixed(1)}))discard;
         if(vRibbon>1.5 && vRibbon<2.5 && (lakeEdge>0. || coastEdge<0.))discard;
-        if(vRibbon>2.5 && coastEdge>12.)discard;
+        if(vRibbon>2.5 && coastEdge>3.)discard;
         // Where a side channel meets the stream the two surfaces share a level. Each pixel goes to exactly one of them.
         float offMain=abs(vWater.x-streamCentre(vWater.z))/sqrt(1.+pow((streamCentre(vWater.z+.6)-streamCentre(vWater.z-.6))/1.2,2.));
         float toSide=smoothstep(4.2,6.2,offMain),stipple=hash(floor(gl_FragCoord.xy));
@@ -275,7 +282,7 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
         float depth=min(thickness,4.);
         vec3 transmitted=texture2D(tOpaque,refractUv).rgb;
         vec3 absorption=exp(-${WORLD_V2?'vec3(.78,.44,.32)':'vec3(.54,.31,.22)'}*depth);
-        vec3 waterTint=${WORLD_V2?'mix(mix(vec3(.03,.047,.04),vec3(.035,.105,.095),broad),vec3(.029,.075,.095),ocean)':'vec3(.021,.036,.032)'}*(1.-uDarkness*.97);
+        vec3 waterTint=${WORLD_V2?'mix(mix(mix(vec3(.03,.047,.04),mix(vec3(.035,.105,.095),vec3(.029,.075,.095),mouthSea/max(mouthSea+mouthLake,.001)),mouth),vec3(.035,.105,.095),step(1.5,vRibbon)),vec3(.029,.075,.095),ocean)':'vec3(.021,.036,.032)'}*(1.-uDarkness*.97);
         vec3 underwater=transmitted*absorption+waterTint*(1.-absorption);
         vec2 reflectUv=clamp(vReflection.xy/vReflection.w+${WORLD_V2?'reflectShift':'distortion*.72'},vec2(.001),vec2(.999));
         vec3 reflection=uSky;

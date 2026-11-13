@@ -46,9 +46,46 @@ export function lakeDistance(x: number, z: number) {
   const basin=join(join(ellipse(0,0,70,80),ellipse(38,77,48,62)),ellipse(22,-75,36,58));
   return basin+2.2*Math.sin(x*.12+z*.045)+1.4*Math.sin(z*.135-x*.037);
 }
+/**
+ * The lake's shore where a river runs into it. Taken alone, the lake's own shore passes a few metres beside the river's mouth and
+ * leaves a bar of beach between the two, so the river and the lake read as two bodies of water with a sand strip along the
+ * seam. Joined, the shore is pulled out to meet the river's waterline wherever the two are within JOIN_REACH of each other: one
+ * outline runs around the lake and up into the river, and the ground under it (the lake's floor, the beach, the bank) all
+ * follow that single line. Deep inside the lake and far along the river it changes nothing.
+ */
+export const JOIN_REACH = 26;
+export const RIVER_WATERLINE = 3.3;
+export function riverEdgeDistance(x: number, z: number) {
+  const s = riverX(z + .5) - riverX(z - .5);
+  return Math.abs(x - riverX(z)) / Math.hypot(1, s) - RIVER_WATERLINE;
+}
+export function joinShore(shore: number, x: number, z: number) {
+  if (shore > 14 || shore < -8) return shore;
+  const h = Math.max(JOIN_REACH - Math.abs(shore - riverEdgeDistance(x, z)), 0) / JOIN_REACH;
+  if (h <= 0) return shore;
+  return shore - h * h * JOIN_REACH * .25 * (1 - smooth(shore, 2, 12)) * smooth(shore, -8, 0);
+}
+export const lakeOutline = (x: number, z: number) => joinShore(lakeDistance(x, z), x, z);
+/**
+ * Where a river runs into the sea or the lake its banks do not meet the shore at a corner: they round off into it. `distance` is
+ * the land's distance from the channel's middle; the result is that distance pulled in, smoothly, where the channel's bank and the
+ * shore are about the same distance away, which fillets the inside corner between them (a radius of MOUTH_ROUND metres). It
+ * leaves everything beyond a few metres of the channel alone, so the river itself is no wider anywhere.
+ */
+export const MOUTH_ROUND = 36;
+/** How far, at most, the fillet pulls the bank in. The river's water ribbon is wider than this plus its bank (see river.ts), so the
+ * rounded water is never cut off by the ribbon's own straight edge. */
+export const MOUTH_PULL = 6.5;
+export function mouthRound(distance: number, x: number, z: number) {
+  if (distance > 16) return distance;
+  const shore = Math.min(coastDistance(x, z) - 3, lakeDistance(x, z));
+  const h = Math.max(MOUTH_ROUND - Math.abs(distance - shore), 0) / MOUTH_ROUND;
+  if (h <= 0) return distance;
+  return Math.max(0, distance - h * h * MOUTH_PULL * (1 - smooth(distance, 6, 15)));
+}
 export function broadWaterLevelAt(x: number, z: number): number | undefined {
   if (coastDistance(x, z) <= 3) return SEA_LEVEL;
-  if (lakeDistance(x, z) <= 0) return LAKE_LEVEL;
+  if (lakeOutline(x, z) <= 0) return LAKE_LEVEL;
   return undefined;
 }
 export function mountainFoot(x: number) {
@@ -97,7 +134,7 @@ export function coastalTerrain(x: number, z: number, forest: number) {
   const coast = coastDistance(x, z);
   if(coast <= 0)return SEA_LEVEL - .12 - Math.min(46,-coast * (.045+.10*smooth(-coast,18,95)));
   let height = forest + mountainRelief(x, z);
-  const lake = lakeDistance(x, z);
+  const lake = lakeOutline(x, z);
   if (lake < 28) {
     const bed = LAKE_LEVEL - .08 + lake * .135 + .18 * noise(x * .08, z * .08);
     const shore = LAKE_LEVEL + Math.max(lake, 0) * .16;
@@ -129,5 +166,17 @@ export const coastalGLSL = `
   float lakeEllipse(vec2 d,vec2 c,vec2 r){vec2 q=d-c;return (length(vec2((q.x+q.y*.11)/r.x,q.y/r.y))-1.)*min(r.x,r.y);}
   float lakeJoin(float a,float b){float h=max(12.-abs(a-b),0.)/12.;return min(a,b)-h*h*3.;}
   float lakeDistance(vec2 p){vec2 d=p-vec2(${LAKE_CENTER.x.toFixed(8)},100.);float basin=lakeJoin(lakeJoin(lakeEllipse(d,vec2(0.),vec2(70.,80.)),lakeEllipse(d,vec2(38.,77.),vec2(48.,62.))),lakeEllipse(d,vec2(22.,-75.),vec2(36.,58.)));return basin+2.2*sin(p.x*.12+p.y*.045)+1.4*sin(p.y*.135-p.x*.037);}
+  float mouthRound(float d,vec2 p){if(d>16.)return d;float shore=min(coastDistance(p)-3.,lakeDistance(p));float h=max(${MOUTH_ROUND.toFixed(1)}-abs(d-shore),0.)/${MOUTH_ROUND.toFixed(1)};return max(0.,d-h*h*${MOUTH_PULL.toFixed(2)}*(1.-smoothstep(6.,15.,d)));}
   float snowCoverage(vec3 p,vec3 n){float line=86.+8.*sin(p.x*.037+p.z*.019)+5.*sin(p.z*.063);float slope=length(n.xz)/max(.01,abs(n.y));return smoothstep(line,line+22.,p.y)*(1.-smoothstep(.65,1.5,slope));}
+`;
+/** GLSL twin of {@link lakeOutline}; the including shader must already define streamCentre. */
+export const lakeOutlineGLSL = `
+  float lakeOutline(vec2 p){
+    float shore=lakeDistance(p);
+    if(shore>14.||shore<-8.)return shore;
+    float s=streamCentre(p.y+.5)-streamCentre(p.y-.5);
+    float river=abs(p.x-streamCentre(p.y))/sqrt(1.+s*s)-${RIVER_WATERLINE.toFixed(1)};
+    float h=max(${JOIN_REACH.toFixed(1)}-abs(shore-river),0.)/${JOIN_REACH.toFixed(1)};
+    return shore-h*h*${(JOIN_REACH*.25).toFixed(2)}*(1.-smoothstep(2.,12.,shore))*smoothstep(-8.,0.,shore);
+  }
 `;
