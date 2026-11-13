@@ -44,7 +44,7 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
     tAO:{value:null as THREE.Texture|null},aoSize:{value:new THREE.Vector2(1,1)},aoOn:{value:0},
     sunShadow:{value:null as THREE.Texture|null},sunMatrix:{value:sun.shadow.matrix},shadowTexel:{value:1/sun.shadow.mapSize.x},
     // The sky model's view table (game/render/world/sky-model.ts): the haze takes the sky's own colour towards the horizon.
-    skyLut:{value:null as THREE.Texture|null},hazeNeutral:{value:0},fogAmbient:{value:.8},fogDensity:{value:1},aerialDensity:{value:1/2600},
+    skyLut:{value:null as THREE.Texture|null},hazeNeutral:{value:0},fogAmbient:{value:.8},fogDensity:{value:1},aerialDensity:{value:1/11000},
     // The ground mist is lit by the whole sky dome (and the ground below it), not by the bright horizon: its colour comes from the sky model.
     mistColor:{value:new THREE.Color(.1,.12,.14)},
   };
@@ -94,6 +94,14 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
     uniform mat4 inverseProjection,cameraWorld,sunMatrix;
     uniform vec3 cameraPositionWorld,fogColor,sunDirection,sunScatterColor;
     uniform vec2 fogSize;uniform float fogSteps;
+    // The mist lies in the bottom few metres: its density falls by e every 14 m of height (it was 20). Inside the wood the eye and
+    // the trunks are within those metres and see as much of it as before; a view rising over the lake to the hills and the far
+    // range leaves it sooner, so they are not washed to one pale tone by the first 180 m of air.
+    #define MIST_FALL .07
+    // How far along a ray the mist is gathered: 180 m at eye level, so the wood fades into it as before, but only 35 m for a ray
+    // rising 2 degrees or more. A ray that leaves the ground layer leaves the mist; gathered over a full 180 m it left the island's
+    // range and the far mountains 17 % of their own colour at noon, a pale cut-out on a pale sky.
+    float mistReach(vec3 ray){return 180.-145.*smoothstep(0.,.035,ray.y);}
     uniform float time,darkness,shadowTexel,sunLevel,fogDensity;
     uniform sampler2D skyLut;uniform float fogAmbient,aerialDensity,hazeNeutral;uniform vec3 mistColor;
     varying vec2 vUv;
@@ -130,7 +138,7 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
     void main(){
       vec3 world=(cameraWorld*vec4(viewAt(vUv,surfaceDepth(vUv)),1.)).xyz;
       vec3 delta=world-cameraPositionWorld,ray=normalize(delta);
-      float distanceToSurface=min(length(delta),180.);
+      float distanceToSurface=min(length(delta),mistReach(ray));
       // Deterministic midpoint integration: no screen-space grain in distant fog.
       float jitter=.5;
       float stepLength=distanceToSurface/max(fogSteps,1.),opticalDepth=0.,illuminatedFog=0.,beamFog=0.;
@@ -140,7 +148,7 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
         float distanceAlongRay=(float(i)+jitter)*stepLength;
         vec3 p=cameraPositionWorld+ray*distanceAlongRay;
         float billow=noise((p+vec3(time*.10,0.,time*.035))*.085);
-        float heightDensity=exp(-max(p.y-1.5,0.)*.050);
+        float heightDensity=exp(-max(p.y-1.5,0.)*MIST_FALL);
         float density=(.014+billow*.03)*fogDensity*heightDensity*smoothstep(1.5,16.,distanceAlongRay);
         float extinction=density*stepLength;
         if(day>.025)illuminatedFog+=exp(-opticalDepth)*(1.-exp(-extinction))*sunlight(p);
@@ -173,8 +181,8 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
       vec3 color=waterVisible?water.rgb/water.a:texture2D(tColor,vUv).rgb;
       float depth=waterVisible?waterDepth:opaqueDepth;
       vec3 view=viewAt(vUv,depth);
-      float distanceToSurface=min(length(view),180.);
       vec3 ray=normalize(mat3(cameraWorld)*view);
+      float distanceToSurface=min(length(view),mistReach(ray));
       // Ambient occlusion, before fog so haze still covers it. Joint-bilateral upsample from half resolution: the four nearest texels,
       // weighted by bilinear distance and by how close their own depth is to this pixel's, relative to the best match (as the fog does).
       if(aoOn>.5&&!waterVisible&&depth<1.){
@@ -197,9 +205,14 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
         float fade=1.-smoothstep(${AO_FADE_NEAR.toFixed(1)},${AO_FADE_FAR.toFixed(1)},z);
         color*=1.-${AO_STRENGTH.toFixed(2)}*(1.-(1.-${SUNLIT_KEEP.toFixed(2)})*ao.g)*fade*(1.-ao.r);
       }
-      // Long-range haze beyond the mist: the air itself, a few kilometres of visibility, tinted by the same sky. The sky
-      // already contains its own air, so it is left alone.
-      if(depth<.999999)color=mix(hazeColor(ray),color,exp(-length(view)*aerialDensity));
+      // Long-range haze beyond the mist: the air itself, tinted by the same sky. The sky already contains its own air, so it is
+      // left alone. 11 km to 1/e (it was 2.6, and the far mountains 4 to 7 km out came out as flat pale cut-outs). The air thins
+      // with height (a scale height of 1.2 km): along a ray that climbs dh the haze is that of H/dh*(1-exp(-dh/H)) of its length
+      // at the eye's level, so a far summit 2 km up keeps half the haze its foot has and stands clear of it, as real ranges do.
+      if(depth<.999999){
+        float reach=length(view),climb=max(ray.y*reach,0.),thin=climb<1.?1.:1200./climb*(1.-exp(-climb/1200.));
+        color=mix(hazeColor(ray),color,exp(-reach*aerialDensity*thin));
+      }
       // The HDR sky draws the moving solar disc, moon and stars before fog.
       if(fogEnabled){
 `;
@@ -296,7 +309,7 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
     void main(){
       vec3 world=(cameraWorld*vec4(viewAt(vUv,surfaceDepth(vUv)),1.)).xyz;
       vec3 delta=world-cameraPositionWorld,ray=normalize(delta);
-      float surfaceDistance=min(length(delta),RAYS_FAR);
+      float surfaceDistance=min(length(delta),min(RAYS_FAR,mistReach(ray)));
       float steps=max(fogSteps,1.);
       // Interleaved gradient noise on the fog pixel grid: fixed on screen, so it can never crawl.
       float jitter=fract(52.9829189*fract(dot(floor(gl_FragCoord.xy),vec2(.06711056,.00583715))));
@@ -311,7 +324,7 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
         float distanceAlongRay=a+jitter*sliceLength;
         vec3 p=cameraPositionWorld+ray*distanceAlongRay;
         float billow=noise((p+vec3(time*.10,0.,time*.035))*.085);
-        float heightDensity=exp(-max(p.y-1.5,0.)*.050);
+        float heightDensity=exp(-max(p.y-1.5,0.)*MIST_FALL);
         float density=(.014+billow*.03)*fogDensity*heightDensity*smoothstep(1.5,16.,distanceAlongRay);
         float extinction=density*sliceLength;
         float scatter=exp(-opticalDepth)*(1.-exp(-extinction));
@@ -333,7 +346,7 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
           if(t0>=reach)break;
           float t1=.4+(reach-.4)*pow(float(i+1)/10.,1.5),sliceLength=t1-t0,along=t0+beamJitter*sliceLength;
           vec3 p=cameraPositionWorld+ray*along;
-          float extinction=.029*fogDensity*exp(-max(p.y-1.5,0.)*.050)*smoothstep(1.5,16.,along)*sliceLength;
+          float extinction=.029*fogDensity*exp(-max(p.y-1.5,0.)*MIST_FALL)*smoothstep(1.5,16.,along)*sliceLength;
           float scatter=exp(-beamDepth)*(1.-exp(-extinction));
           beamDepth+=extinction;
           vec3 fromLamp=p-flashPosition;float lampDistance=length(fromLamp);vec3 lampRay=fromLamp/max(lampDistance,1e-4);

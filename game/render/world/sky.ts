@@ -7,10 +7,12 @@ import { gradeFor, fogDensityFor } from '../post/grade';
 import type { Grade } from '../post/final-image';
 
 /** Solar geometry at a temperate northern latitude, in local solar hours.
- * World +X is east, +Z is south. The sun travels east → south → west. */
+ * World +X is east and -Z is south, where the sea is (coastal-geography.ts): the sun travels east, over the sea at noon, then
+ * west, so the island's range and the far mountains (+Z) face it. With the sun over them at noon (+Z south) they stood against
+ * it all day as flat, hazy silhouettes. */
 export function solarDirection(hours:number,latitude=49,declination=9) {
   const h=(hours-12)*Math.PI/12,lat=latitude*Math.PI/180,dec=declination*Math.PI/180;
-  return new THREE.Vector3(-Math.cos(dec)*Math.sin(h),Math.sin(lat)*Math.sin(dec)+Math.cos(lat)*Math.cos(dec)*Math.cos(h),Math.sin(lat)*Math.cos(dec)*Math.cos(h)-Math.cos(lat)*Math.sin(dec)).normalize();
+  return new THREE.Vector3(-Math.cos(dec)*Math.sin(h),Math.sin(lat)*Math.sin(dec)+Math.cos(lat)*Math.cos(dec)*Math.cos(h),-(Math.sin(lat)*Math.cos(dec)*Math.cos(h)-Math.cos(lat)*Math.sin(dec))).normalize();
 }
 
 /** Uniform solid-angle points avoid equirectangular pixel streaks at the poles.
@@ -91,8 +93,8 @@ export function createSky(renderer:THREE.WebGLRenderer,scene:THREE.Scene,sun:THR
         // A night sky seen by an adapted eye is a dark grey with no hue, not the deep blue the model gives a moonlit sky.
         color=mix(color,vec3(1.03,1.,.94)*dot(color,vec3(.2126,.7152,.0722)),nightAmount*.8);
         float c=cos(starRotation),s=sin(starRotation);
-        // Rotate about the celestial pole (49° north), not about the zenith.
-        vec3 axis=normalize(vec3(0.,.75471,-.65606));
+        // Rotate about the celestial pole (49° up in the north, +Z), not about the zenith.
+        vec3 axis=normalize(vec3(0.,.75471,.65606));
         vec3 starRay=ray*c+cross(axis,ray)*s+axis*dot(axis,ray)*(1.-c);
         vec2 starUv=equirect(starRay);
         vec3 stars=panorama(nightMap,starUv)*ready;
@@ -155,7 +157,7 @@ export function createSky(renderer:THREE.WebGLRenderer,scene:THREE.Scene,sun:THR
   const starUniform={...cloudUniform,rotation:uniform.starRotation,amount:uniform.nightAmount,pixelRatio:{value:renderer.getPixelRatio()},starScale:uniform.starScale};
   const starMaterial=new THREE.ShaderMaterial({uniforms:starUniform,vertexColors:true,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,depthTest:true,
     vertexShader:`attribute float flux,sigma;uniform float rotation,pixelRatio;varying vec3 tint;varying float brightness,width,extent,elevation;varying vec3 vStarRay;
-      void main(){vec3 axis=normalize(vec3(0.,.75471,-.65606));float c=cos(-rotation),s=sin(-rotation);
+      void main(){vec3 axis=normalize(vec3(0.,.75471,.65606));float c=cos(-rotation),s=sin(-rotation);
         vec3 ray=position*c+cross(axis,position)*s+axis*dot(axis,position)*(1.-c);
         vStarRay=ray;elevation=ray.y;tint=color;brightness=flux;width=sigma*pixelRatio;
         extent=max(2.,ceil(width*6.));gl_PointSize=extent;

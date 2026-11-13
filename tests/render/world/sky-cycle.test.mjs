@@ -5,10 +5,10 @@ import * as THREE from 'three';
 const { solarDirection, starCatalog } = await import('../../../game/render/world/sky.ts');
 const { createStableSunShadow } = await import('../../../game/render/world/shadows.ts');
 
-test('the solar orbit rises in the east, passes south and sets in the west',()=>{
+test('the solar orbit rises in the east, passes south over the sea (-z) and sets in the west',()=>{
   const dawn=solarDirection(6),noon=solarDirection(12),dusk=solarDirection(18),night=solarDirection(0);
   assert.ok(dawn.x>.9&&dusk.x<-.9);
-  assert.ok(noon.y>.7&&noon.z>0&&Math.abs(noon.x)<1e-8);
+  assert.ok(noon.y>.7&&noon.z<0&&Math.abs(noon.x)<1e-8);
   assert.ok(night.y<0);
   assert.ok(solarDirection(0).distanceTo(solarDirection(24))<1e-10);
   for(let hour=0;hour<24;hour+=.125)assert.ok(Math.abs(solarDirection(hour).length()-1)<1e-10);

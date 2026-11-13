@@ -65,4 +65,6 @@ export function gradeFor(elevation: number, out?: Grade): Grade {
  * How thick the ground mist is: thickest from dusk to after dawn, thinning to about half when the sun is high and has
  * warmed the air, so a bright day shows its distance (the lake, the ridges) and the night closes in.
  */
-export const fogDensityFor = (elevation: number) => 1 - .5 * smooth(elevation, .08, .55);
+// The mist under a high sun is a sixth of the night's (it was a half): a clear summer day over alpine lake country is crisp, and
+// at .5 and then .34 the island's range and the far mountains read through it as pale cut-outs. Dawn, dusk and night keep it all.
+export const fogDensityFor = (elevation: number) => 1 - .84 * smooth(elevation, .08, .55);

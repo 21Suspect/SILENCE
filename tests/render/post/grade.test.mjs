@@ -24,10 +24,10 @@ test('no film grain by default, and a dusk grade warmer than noon and night', ()
   assert.ok(gradeFor(.05).temperature > gradeFor(-.4).temperature);
 });
 
-test('the mist is about half as thick under a high sun as at dusk and night', () => {
+test('the mist is a sixth as thick under a high sun as at dusk and night', () => {
   assert.equal(fogDensityFor(-.2), 1);
   assert.equal(fogDensityFor(.05), 1);
-  assert.ok(Math.abs(fogDensityFor(.9) - .5) < 1e-9);
+  assert.ok(Math.abs(fogDensityFor(.9) - .16) < 1e-9);
 });
 
 test('the eye rests at the hour\'s anchor: a lamp overhead or the sky above barely moves it', async () => {
