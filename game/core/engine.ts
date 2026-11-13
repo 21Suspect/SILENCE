@@ -344,11 +344,10 @@ export function createGame(container:HTMLElement) {
       return slicer.upload(t,urgent);
     },
     compile:(object,state)=>{
-      // The torch's bounce light comes and goes with it, so each state's programs carry both.
-      const light=flashlight.light,bounce=flashlight.bounce,was=light.visible,wasBounce=bounce.visible;light.visible=bounce.visible=state%2===1;
+      const light=flashlight.light,was=light.visible;light.visible=state%2===1;
       const unlit=state>=2?world2?.debug.streetLights.warm():undefined;
       try{renderer.compile(object,camera,scene);if(perfOn('shadowWarmup'))shadowPrograms.compile(object,camera,scene);}finally{
-        unlit?.();light.visible=was;bounce.visible=wasBounce;
+        unlit?.();light.visible=was;
         // compile() leaves the scene's light setup as it was for this light state, and three.js (r180) draws the next frame's shadow
         // maps before that frame sets its lights up again: without this the shadow pass would build depth programs for street lamps
         // and a torch that are off, the very stall this warm-up is for. An empty object only gathers the lights.

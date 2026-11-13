@@ -183,8 +183,9 @@ export function createSky(renderer:THREE.WebGLRenderer,scene:THREE.Scene,sun:THR
         sunColor.multiplyScalar(disc);
         moonDir.copy(direction).negate();
         skyIrradiance(direction,SUN_ILLUMINANCE,skyE);skyIrradiance(moonDir,MOON_ILLUMINANCE,moonSkyE);skyE.add(moonSkyE);
-        // A floor of airglow and starlight (the sky model's night term, over the hemisphere).
-        skyE.r+=.00006*Math.PI*1.6;skyE.g+=.00008*Math.PI*1.6;skyE.b+=.00016*Math.PI*1.6;
+        // A floor of airglow and starlight (the sky model's night term, over the hemisphere), lifted a little over the sky's own
+        // so a moonless wood keeps the shapes of its nearest trunks and floor instead of pure black (night probe, work/gfx/torch-probe.js).
+        skyE.r+=.00006*Math.PI*3.4;skyE.g+=.00008*Math.PI*3.4;skyE.b+=.00016*Math.PI*3.4;
         side.set(Math.cos(Math.atan2(direction.z,direction.x)+Math.PI/2),.06,Math.sin(Math.atan2(direction.z,direction.x)+Math.PI/2)).normalize();
         skyRadiance(side,direction,SUN_ILLUMINANCE,horizon);skyRadiance(side,moonDir,MOON_ILLUMINANCE,moonHorizon);horizon.add(moonHorizon);
         const fogAmbient=.8;
