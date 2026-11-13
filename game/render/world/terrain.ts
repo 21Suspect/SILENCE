@@ -9,7 +9,7 @@ import { perfOn, devBuild } from '../../core/perf-flags';
 import { createRockGeometry, createRockMaterial, createWeatheredWoodMaterial } from './surfaces';
 import { roadSurface } from './road-surface';
 import { roadMarkerSpot } from '../../sim/world/road-geometry';
-import { coastalGLSL } from '../../sim/world/coastal-geography';
+import { coastalGLSL, SEA_LEVEL, LAKE_LEVEL } from '../../sim/world/coastal-geography';
 import { coastalMaterialGLSL } from './coastal-material';
 
 import { WORLD_EXTENT, WORLD_RADIUS, TERRAIN_CHUNK, TERRAIN_STEP, hash, noise, pathX, riverX, roadZ, riverPresence, biomeAt, cacheTerrainBlock, releaseTerrainBlock, heightAt, vegetationExclusion, worldGeographyGLSL, waterHeightAt } from '../../sim/world/world';
@@ -439,7 +439,9 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
         (1.-smoothstep(2.,8.,lake+brokenEdge*.4))*.65);
       sandCover*=smoothstep(.55,.9,slopeNormal.y)*(1.-road);
       snowCover=snowCoverage(vGroundPosition,slopeNormal);
-      float wet=1.-smoothstep(.05,.65,vGroundPosition.y+5.2);
+      // Sand is wet, and half as bright, up to a hand's height over the water: by the sea, and now by the lake too, whose
+      // submerged pale sand otherwise shone up through clear water like a tropical lagoon's.
+      float wet=max(1.-smoothstep(.05,.65,vGroundPosition.y-(${SEA_LEVEL.toFixed(2)})),(1.-smoothstep(.05,.45,vGroundPosition.y-${LAKE_LEVEL.toFixed(2)}))*(1.-smoothstep(4.,14.,lake)));
       if(sandCover>.001){
         vec3 scan=coastPatch(uCoastalMap,coastDetail,0.).rgb;
         // Preserve photographed grain while giving the sand a real beach's albedo: dry quartz-and-shell sand reflects .3 to .45.
