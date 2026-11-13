@@ -231,7 +231,7 @@ export function createUndergrowth(
   /** `fernLOD` makes this one half of a pair that dissolve into each other across `band` metres from the eye. */
   /** `rootShade`: darken the lowest few centimetres toward the soil (grass blade bases). Not for leaves lying on the ground,
    * which are all within those centimetres. */
-  function prepareMaterial(source: THREE.MeshStandardMaterial, alpha: THREE.Texture, distance: number, breeze: number, fernLOD?:'near'|'far', band: readonly [number, number] = [FERN_LOD_START, FERN_LOD_END], rootShade = true) {
+  function prepareMaterial(source: THREE.MeshStandardMaterial, alpha: THREE.Texture, distance: number, breeze: number, fernLOD?:'near'|'far', band: readonly [number, number] = [FERN_LOD_START, FERN_LOD_END], rootShade = true, groundBlend = .82) {
     const material = source.clone();
     const reflected=distance!==GRASS_RANGE, ditherRange={value:false};
     // Albedo photographed in daylight must not be emitted again as light.
@@ -325,6 +325,15 @@ export function createUndergrowth(
           // Root color shares the damp litter palette rather than exposing a
           // bright card edge. Texture/color variation returns along each blade.
           diffuseColor.rgb=mix(vPlantSoil*.55,diffuseColor.rgb,vPlantRootShade);
+          {
+            // Every plant takes the colour of what it grows on. Photographed leaves are saturated and studio-lit; the moss and needle floor
+            // is a grey olive (83/86/68 in sRGB on the rendered moss), so a plain scan stands out from it tuft by tuft. Each leaf keeps its
+            // own light and dark, but most of its colour is the ground's: the forest floor's tone, or, where the plant's soil is pale
+            // (dunes, dry ground: plantSoil in ecology), the soil's own, so plants on sand are sandy and not forest green.
+            float leafLight=dot(diffuseColor.rgb,vec3(.2126,.7152,.0722));
+            vec3 groundTone=mix(vec3(.15,.157,.1),vPlantSoil*vec3(1.05,1.,.92),smoothstep(.15,.28,vPlantSoil.r));
+            diffuseColor.rgb=mix(diffuseColor.rgb,groundTone*clamp(leafLight/.09,.85,1.25),${groundBlend.toFixed(2)});
+          }
         `)
         .replace('#include <lights_physical_pars_fragment>', `
           #include <lights_physical_pars_fragment>
@@ -341,7 +350,7 @@ export function createUndergrowth(
         `);
       foliageLite(shader);
     };
-    material.customProgramCacheKey = () => `silence-understory-streamed-${distance}-${breeze}-${fernLOD??''}-${band[0]}-${band[1]}-${rootShade}`;
+    material.customProgramCacheKey = () => `silence-understory-streamed-${distance}-${breeze}-${fernLOD??''}-${band[0]}-${band[1]}-${rootShade}-${groundBlend}`;
     materials.push(material);
     return material;
   }
@@ -401,7 +410,7 @@ export function createUndergrowth(
       // No roughness map: the scans were shot fresh and glossy (ivy reads .3), and lying nearly flat they mirrored the bright
       // sky as grey-white flakes. Leaves on a forest floor carry a film of dust and damp; matte is right at this distance.
       const base = new THREE.MeshStandardMaterial({ map: set.color, normalMap: set.normal, side: THREE.DoubleSide });
-      const material = prepareMaterial(base, set.alpha, CARPET_RANGE, .25, undefined, undefined, false);
+      const material = prepareMaterial(base, set.alpha, CARPET_RANGE, .25, undefined, undefined, false, .7);
       material.roughness = .82;
       base.dispose();
       return material;
@@ -467,8 +476,9 @@ export function createUndergrowth(
     // The other plants of the floor, each with a full copy near and a grid-simplified one further out that dissolve
     // into each other across `band`, like the ferns.
     const addSpecies = (name: string, from: typeof herb, flora: Flora, range: number, band: readonly [number, number], breeze: number, capacity: number) => {
-      const near = prepareMaterial(from.meshes[0].material, from.alpha, range, breeze, 'near', band);
-      const far = prepareMaterial(from.meshes[0].material, from.alpha, range, breeze, 'far', band);
+      const blend = flora === 'celandine' ? .55 : .82;
+      const near = prepareMaterial(from.meshes[0].material, from.alpha, range, breeze, 'near', band, true, blend);
+      const far = prepareMaterial(from.meshes[0].material, from.alpha, range, breeze, 'far', band, true, blend);
       far.color.copy(near.color);
       const entry: Kind = { flora, range, band, near: [], far: [] };
       for (const mesh of from.meshes) {

@@ -1,5 +1,6 @@
 import { roadZ, roadSlope, ROAD_NORM } from '../../sim/world/world-noise';
 import { ROAD, roadArcTable } from '../../sim/world/road-profile';
+import { ROAD_CROSSING } from '../../sim/world/world-layout';
 
 /**
  * The valley road as ground shading: an old two-lane asphalt carriageway, its worn paint, and a verge that crumbles away into
@@ -18,6 +19,9 @@ export function roadSurface() {
   const arc = roadArcTable(roadZ, roadSlope).map(v => v.toFixed(3)).join(',');
   const functions = `
   const float ROAD_HALF=${ROAD.half.toFixed(2)};
+  // The bridge carries the road at a fixed level; the ground it spans (the stream bed and its banks) is metres below the deck.
+  const float BRIDGE_X=${ROAD_CROSSING.x.toFixed(2)};
+  const float BRIDGE_LEVEL=${ROAD_CROSSING.level.toFixed(2)};
   const float ROAD_ARC[${ROAD.arcCount}]=float[${ROAD.arcCount}](${arc});
   // Arc length of the centre line up to x: the paint is laid out along the road, so it neither stretches nor smears on the diagonals.
   // The table is uniform in x, so on the steep stretches its nodes lie far apart along the road: a cubic through the length and
@@ -132,7 +136,9 @@ export function roadSurface() {
       float roadAbs=abs(roadA),roadSide=roadA<0.?13.:41.,roadEdge=ROAD_HALF,roadOuter=ROAD_HALF+.9,roadAsphalt=0.,road=0.;
       float roadRoughAdd=0.;vec2 roadSlope=vec2(0.);
       if(roadHere){
-        float presence=roadPresence(p);
+        // The deck is a prop above the stream: the ground below it is not road, so no asphalt, paint or verge is drawn there.
+        float underBridge=(1.-smoothstep(26.,34.,abs(p.x-BRIDGE_X)))*smoothstep(1.,2.6,BRIDGE_LEVEL-vGroundPosition.y);
+        float presence=roadPresence(p)*(1.-underBridge);
         roadAsphalt=roadAsphaltEdge(p,roadAbs,roadS,roadSide,fp,roadEdge,roadOuter)*presence;
         float verge=1.-smoothstep(roadOuter-.5,roadOuter+.35,roadAbs+(surfaceNoise(p*1.6)-.5)*.5);
         road=max(verge*presence,roadAsphalt);
