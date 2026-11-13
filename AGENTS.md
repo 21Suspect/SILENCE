@@ -23,6 +23,11 @@ or fewer), `tools/playtest/nav-probe.mjs`, `tools/playtest/creature-run.mjs`, `t
 Blender 5.1: `blender --background --factory-startup --python tools/assets/world-v2/build.py -- cabin` (writes
 public/world/cabin.glb and game/data/world-assets.json; commit both together).
 
+Ground ghosting, in numbers: tools/ghosting (page.js runs fixed poses x switches in the dev server's tab and posts stills and
+JSON to receiver.mjs; measure.mjs writes the table; metrics.mjs is the maths, tested in tests/tools/ghosting). The relief
+march's maths is mirrored in game/render/world/relief-math.ts. `perfOn('groundRelief')` off builds the first version of the
+ground's relief shader, for A/B.
+
 ## Conventions
 
 - **Where code goes:** rules and simulation without three.js or the DOM go in game/sim/; anything drawn goes in
