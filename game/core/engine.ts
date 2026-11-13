@@ -77,6 +77,9 @@ export function createGame(container:HTMLElement) {
   const hemi=new THREE.HemisphereLight(0xc5d7d4,0x383e29,1.0);scene.add(hemi);
   const sun=new THREE.DirectionalLight(0xffefd0,.95);
   sun.position.set(25,37,-68);sun.castShadow=true;sun.shadow.autoUpdate=false;
+  // three lights only what shares a layer with the camera: the water's far reflection pass draws layer 3 (river.ts), and
+  // without them the reflected mountains were lit by the environment alone, nearly black. The torch and the lamps join too.
+  sun.layers.enable(3);hemi.layers.enable(3);
   const sunShadow=createStableSunShadow(sun,renderer.capabilities.maxTextureSize,()=>perfOn('sunShadowThrottle'));
   scene.add(sun,sun.target);
   const sky=createSky(renderer,scene,sun,hemi);

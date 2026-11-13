@@ -216,7 +216,8 @@ const waterV2Main=(branchCount:number)=>`
         // Wind lies on open water in patches: glassy calms where the shore reflects whole, and darker rough cat's-paws, drifting
         // with the gusts, tens of metres across. They break up whatever pattern remains and give a wide lake its scale.
         float wind=1.;
-        if(broad>.001){float gust=noise(p*.017+uTime*vec2(.021,.009))*.62+noise(p*.047-uTime*vec2(.012,.03))*.38;wind=mix(1.,mix(.28,1.45,smoothstep(.28,.72,gust)),broad);}
+        // How much wind there is today (uWind, river.ts update): glassy in still air, broken in a breeze; the sea keeps a swell.
+        if(broad>.001){float gust=noise(p*.017+uTime*vec2(.021,.009))*.62+noise(p*.047-uTime*vec2(.012,.03))*.38;wind=mix(1.,mix(.28,1.45,smoothstep(.28,.72,gust))*mix(uWind,max(uWind,.9),ocean),broad);}
         float rough=(.55+.8*riffle+.55*mid*running+.30*ocean)*wind*mix(.4,1.,smoothstep(0.,.08,below));
         vec2 bulk=layers.xy*rough,fine=layers.zw*rough;
         vec2 detail=bulk+fine,soft=bulk+fine*.3;
@@ -239,10 +240,13 @@ const waterV2Main=(branchCount:number)=>`
         float fresnel=.02+.98*pow(1.-viewAngle,5.);
         // The bed's image is bent less where the water is only a film over it.
         vec2 distortion=(vSlope*.5+soft)*.042*(1.+.8*mid*running)*(5./(vViewDepth+5.))*smoothstep(0.,.12,below);
-        // Ripples tilt the reflected ray twice as far as the surface, so they smear a reflection into streaks, mostly
-        // up and down the screen. The smear grows with distance, where a pixel spans many ripples.
-        // A lake lies calmer than a stream or the sea: its reflections are smeared half as far, so the shore stands crisp in it.
-        vec2 reflectShift=(vSlope*.4+soft)*vec2(.07,.19)*(.6+.9*smoothstep(4.,36.,vViewDepth))*smoothstep(0.,.03,below)*mix(1.,.5,broad*(1.-ocean));
+        // Ripples tilt the reflected ray twice as far as the surface. That bends the image by an angle, the same at any distance
+        // (only the ripples shrink on screen), and seen at a low angle mostly up and down. It was three times this and grew with
+        // distance, and tore the mountains in the lake into noisy shards; real water wobbles a reflection and draws it out
+        // downwards. A lake lies calmer than a stream or the sea, so the shore stands nearly whole in it where the wind drops.
+        vec2 reflectShift=(vSlope*.4+soft)*vec2(.026,.06)*smoothstep(0.,.03,below)*mix(1.,.6,broad*(1.-ocean));
+        // How far the image is drawn out downward: by the ripples' slope (each takes a band of the reflected world, not a point).
+        float streak=min(length(soft)*.12,.03)*smoothstep(0.,.03,below);
         vec2 refractUv=clamp(screen+distortion,vec2(.001),vec2(.999));
         if(viewDepth(refractUv)<vViewDepth)refractUv=screen;
         vec3 transmitted=texture2D(tOpaque,refractUv).rgb;
@@ -272,7 +276,12 @@ const waterV2Main=(branchCount:number)=>`
         vec3 reflection=skyBack;
         float localReflection=uReflectionDetail*(1.-smoothstep(.25,1.2,abs(dot(vec4(vWater,1.),uReflectionPlane))));
         if(localReflection>.001){
-          vec3 reflected=texture2D(tDiffuse,reflectUv).rgb;
+          // Five reads down a short vertical band, weighted to the middle: soft streaks, not a mirror, where the water ripples.
+          vec3 reflected=texture2D(tDiffuse,reflectUv).rgb*.32;
+          reflected+=texture2D(tDiffuse,clamp(reflectUv+vec2(0.,streak*.5),vec2(.001),vec2(.999))).rgb*.22;
+          reflected+=texture2D(tDiffuse,clamp(reflectUv-vec2(0.,streak*.5),vec2(.001),vec2(.999))).rgb*.22;
+          reflected+=texture2D(tDiffuse,clamp(reflectUv+vec2(0.,streak),vec2(.001),vec2(.999))).rgb*.12;
+          reflected+=texture2D(tDiffuse,clamp(reflectUv-vec2(0.,streak),vec2(.001),vec2(.999))).rgb*.12;
           reflection=mix(skyBack,reflectedAtmosphere(reflected,reflectUv,N),localReflection);
         }
         // A broken, moving surface scatters the sky; only near grazing does it approach a reflection.
@@ -372,8 +381,8 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
       tDiffuse:{value:null},color:{value:new THREE.Color()},textureMatrix:{value:new THREE.Matrix4()},
       tOpaque:{value:null},tOpaqueDepth:{value:null},uResolution:{value:new THREE.Vector2()},uInverseProjection:{value:new THREE.Matrix4()},uWorldToSurface:{value:new THREE.Matrix4()},uReflectionPlane:{value:new THREE.Vector4(0,1,0,-waterHeightAt(0))},
       tReflectionDepth:{value:null},uReflectionInverseProjection:{value:new THREE.Matrix4()},uReflectionCameraWorld:{value:new THREE.Matrix4()},uSunScatterColor:{value:new THREE.Color(1,.81,.52)},
-      uTime:{value:0},uDarkness:{value:0},uReflectionDetail:{value:0},uReflectionSteps:{value:6},uSky:{value:new THREE.Color(0x879b98)},uSunDirection:{value:new THREE.Vector3(.3,.55,-.7).normalize()},uRipple:{value:Array.from({length:RIPPLES},()=>new THREE.Vector4(0,0,99,0))},
-      ...(WORLD_V2?{tWaterNormal:{value:waterNormal},tWaterFoam:{value:waterFoam},uDetail:{value:2},uFoamGain:{value:0},uSunLight:{value:new THREE.Color(1.5,1.35,1.15)}}:{}),
+      uTime:{value:0},uDarkness:{value:0},uMist:{value:1},uReflectionDetail:{value:0},uReflectionSteps:{value:6},uSky:{value:new THREE.Color(0x879b98)},uSunDirection:{value:new THREE.Vector3(.3,.55,-.7).normalize()},uRipple:{value:Array.from({length:RIPPLES},()=>new THREE.Vector4(0,0,99,0))},
+      ...(WORLD_V2?{tWaterNormal:{value:waterNormal},tWaterFoam:{value:waterFoam},uDetail:{value:2},uFoamGain:{value:0},uWind:{value:1},uSunLight:{value:new THREE.Color(1.5,1.35,1.15)}}:{}),
     },
     vertexShader:`
       uniform mat4 textureMatrix,uWorldToSurface;uniform float uTime;
@@ -404,7 +413,7 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
       }`,
     fragmentShader:`
       uniform sampler2D tDiffuse,tOpaque,tOpaqueDepth,tReflectionDepth;uniform vec2 uResolution;
-      uniform mat4 uInverseProjection,uReflectionInverseProjection,uReflectionCameraWorld;uniform vec4 uReflectionPlane;uniform float uTime,uDarkness,uReflectionDetail,uReflectionSteps;uniform vec3 uSky,uSunDirection,uSunScatterColor;
+      uniform mat4 uInverseProjection,uReflectionInverseProjection,uReflectionCameraWorld;uniform vec4 uReflectionPlane;uniform float uTime,uDarkness,uMist,uReflectionDetail,uReflectionSteps;uniform vec3 uSky,uSunDirection,uSunScatterColor;
       varying vec4 vReflection;varying vec3 vWater,vEye;varying float vViewDepth;varying vec2 vSlope;
       ${WORLD_V2?'varying vec2 vChannel;varying float vRibbon;':''}
       float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
@@ -413,7 +422,7 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
       ${riverProfileGLSL}
       ${coastalGLSL}
       ${lakeOutlineGLSL}
-      uniform vec4 uRipple[${RIPPLES}];uniform sampler2D tWaterNormal,tWaterFoam;uniform float uDetail,uFoamGain;uniform vec3 uSunLight;
+      uniform vec4 uRipple[${RIPPLES}];uniform sampler2D tWaterNormal,tWaterFoam;uniform float uDetail,uFoamGain,uWind;uniform vec3 uSunLight;
       ${WATER_GLSL}`:''}
       float viewDepth(vec2 uv){float d=texture2D(tOpaqueDepth,uv).x;vec4 p=uInverseProjection*vec4(uv*2.-1.,d*2.-1.,1.);return -p.z/p.w;}
       float fogHash(vec3 p){p=fract(p*.3183099+vec3(.1,.2,.3));p*=17.;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}
@@ -422,6 +431,9 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
         float d=texture2D(tReflectionDepth,uv).r;
         vec4 view=uReflectionInverseProjection*vec4(uv*2.-1.,d*2.-1.,1.);
         vec3 ray=reflect(-normalize(vEye),normal);float distanceToHit=180.;
+        // Nothing near in the reflection: the far pass's mountains, distant shore or sky. Kilometres of air lie between, as in the
+        // main view (atmosphere.ts): the lower the reflected ray, the longer its path and the more of the sky's horizon colour.
+        if(d>=.99999)color=mix(color,uSky,(1.-smoothstep(0.,.22,ray.y))*.4);
         if(d<.99999&&abs(view.w)>.00001){
           vec3 hit=(uReflectionCameraWorld*vec4(view.xyz/view.w,1.)).xyz;
           vec3 delta=hit-vWater;distanceToHit=min(length(delta),180.);ray=normalize(delta);
@@ -435,8 +447,10 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
           if(float(i)>=uReflectionSteps)break;
           float along=(float(i)+.5)*stepLength;vec3 p=vWater+ray*along;
           float billow=fogNoise((p+vec3(uTime*.10,0.,uTime*.035))*.085);
-          float heightDensity=exp(-max(p.y-1.5,0.)*.050);
-          float density=(.014+billow*.03)*heightDensity*smoothstep(1.5,16.,cameraDistance+along);
+          // As the main mist (atmosphere.ts): falling off every 14 m of height, and as thick as the hour, the weather and the open
+          // water make it (uMist).
+          float heightDensity=exp(-max(p.y-1.5,0.)*.07);
+          float density=(.017+billow*.034)*uMist*heightDensity*smoothstep(1.5,16.,cameraDistance+along);
           opticalDepth+=density*stepLength;
         }
         float transmission=exp(-opticalDepth),day=1.-uDarkness;
@@ -503,7 +517,14 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
   // shader, while the expensive reflected forest render is not repeated at
   // display refresh rate for a static view.
   const reflectionInterval=.032,reflectionMoveEpsilon=.015,reflectionTurnLimit=Math.cos(.0025*.5);
-  const reflectionFar=240;
+  // Two passes into the one reflection target. First the far world (layer 3: the island seen from afar, the far range and the
+  // sky) out to the main camera's far plane; then, with only the depth cleared, the near world (layer 0: the ground round the
+  // player, trees, props) out to REFLECTION_NEAR, drawn over it. One pass at 240 m left the lake's far shore and every mountain
+  // out of the lake; one pass out to 20 km would draw the whole island's forest twice.
+  const REFLECTION_NEAR=320,FAR_LAYER=3;
+  // The mist over water and its shores, as a share of the wood's (mist-cover.ts: .08 over water, .28 on open land).
+  const MIST_OVER_WATER=.2;
+  let skyObjects:THREE.Object3D[]|undefined;
   stream.onBeforeRender=function(renderer,world,camera,geo,mat,group){
     if(import.meta.env.DEV&&world.userData.profileSkipReflection)return;
     const {uniforms}=material;
@@ -521,15 +542,25 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
     if(reflectionReady&&time>=reflectionTime&&time-reflectionTime<reflectionInterval&&!cameraChanged&&!lightingChanged&&!(import.meta.env.DEV&&world.userData.profileForceReflection))return;
     const background=world.background;world.background=world.userData.skyColor ?? background;
     const sourceCamera=camera as THREE.PerspectiveCamera;
-    const sourceFar=sourceCamera.far;
-    // Fog integration is capped at 180 m. Keep the reflected camera close to
-    // that useful range so distant forest batches never enter the reflection
-    // pass merely because the main view preserves a mountain horizon.
-    if(sourceFar>reflectionFar){sourceCamera.far=reflectionFar;sourceCamera.updateProjectionMatrix();}
+    const sourceFar=sourceCamera.far,virtual=stream.camera,clearColour=renderer.autoClearColor,autoClear=renderer.autoClear;
+    skyObjects??=['HDR sky with drifting clouds','Resolved stellar points'].map(name=>world.getObjectByName(name)).filter((o):o is THREE.Object3D=>!!o);
+    const skyShown=skyObjects.map(o=>o.visible);
     const wasVisible=stream.visible;
-    try{reflect.call(this,renderer,world,camera,geo,mat,group);}finally{
-      stream.visible=wasVisible;
-      if(sourceFar>reflectionFar){sourceCamera.far=sourceFar;sourceCamera.updateProjectionMatrix();}
+    try{
+      // The far world and the sky, at the main camera's own far plane.
+      virtual.layers.set(FAR_LAYER);
+      reflect.call(this,renderer,world,camera,geo,mat,group);
+      // The near world over it: depth cleared, colour kept, the sky left out (it would cover the far pass from its far depth).
+      // The water pass runs with autoClear off, which makes the Reflector clear everything itself; with autoClear on and the
+      // colour's clear off, only the depth is cleared.
+      if(sourceFar>REFLECTION_NEAR){sourceCamera.far=REFLECTION_NEAR;sourceCamera.updateProjectionMatrix();}
+      virtual.layers.set(0);for(const o of skyObjects)o.visible=false;
+      renderer.autoClear=true;renderer.autoClearColor=false;stream.visible=wasVisible;
+      reflect.call(this,renderer,world,camera,geo,mat,group);
+    }finally{
+      renderer.autoClear=autoClear;renderer.autoClearColor=clearColour;stream.visible=wasVisible;
+      skyObjects.forEach((o,i)=>{o.visible=skyShown[i];});
+      if(sourceFar>REFLECTION_NEAR){sourceCamera.far=sourceFar;sourceCamera.updateProjectionMatrix();}
       world.background=background;
     }
     // Reflector changes its projection for oblique water clipping. Invert the
@@ -601,8 +632,13 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
     },
     update(time:number,player:THREE.Vector3,darkness:number){
       const lakeNear=WORLD_V2?Math.max(0,lakeDistance(player.x,player.z)):Infinity,seaNear=WORLD_V2?Math.max(0,coastDistance(player.x,player.z)):Infinity;
-      // Reflect the dominant local body; distant water transitions to fog/sky.
-      const nearLake=lakeNear<55,nearSea=seaNear<85;
+      const distance=WORLD_V2?channelOffset(player.x,player.z):Math.abs(player.x-riverX(player.z));
+      // Reflect the body that matters most from here. A lake or the sea mirrors the land round it from across its whole width
+      // (out to 320 m and 260 m away), not only within a few steps of its edge; a river only close by (55 m), and the river's
+      // tilted plane wins only when the player stands by it rather than by the lake or the sea.
+      const lakeWeight=WORLD_V2?1-THREE.MathUtils.smoothstep(lakeNear,150,320):0,seaWeight=WORLD_V2?1-THREE.MathUtils.smoothstep(seaNear,120,260):0;
+      const riverWeight=1-THREE.MathUtils.smoothstep(distance,23,55);
+      const nearLake=lakeWeight>0&&lakeWeight>=riverWeight&&lakeWeight>=seaWeight,nearSea=!nearLake&&seaWeight>0&&seaWeight>=riverWeight;
       const grade=nearSea||nearLake?0:waterGradeAt(player.z),intercept=nearSea?SEA_LEVEL:nearLake?LAKE_LEVEL:waterHeightAt(player.z)-grade*player.z;
       stream.rotation.x=-Math.PI/2-Math.atan(grade);stream.position.y=intercept;stream.updateMatrixWorld(true);
       material.uniforms.uWorldToSurface.value.copy(stream.matrixWorld).invert();
@@ -616,8 +652,18 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
       if(scene.userData.sunDirection)material.uniforms.uSunDirection.value.copy(scene.userData.sunDirection);
       // The sun's light at the ground, which lights the water's own colour and its foam (the sky's is uSky).
       if(WORLD_V2&&scene.userData.sunScatterColor)(material.uniforms.uSunLight.value as THREE.Color).copy(scene.userData.sunScatterColor).multiplyScalar(SUN_ILLUMINANCE*LIGHT_TUNING.sun);
-      const distance=WORLD_V2?channelOffset(player.x,player.z):Math.abs(player.x-riverX(player.z));
-      nearby=distance<110&&Math.abs(player.z)<RIVER_EXTENT+110;lakeNearby=lakeNear<450;seaNearby=seaNear<1000;material.uniforms.uReflectionDetail.value=1-THREE.MathUtils.smoothstep(Math.min(distance,lakeNear,seaNear),23,55);
+      nearby=distance<110&&Math.abs(player.z)<RIVER_EXTENT+110;lakeNearby=lakeNear<450;seaNearby=seaNear<1000;
+      material.uniforms.uReflectionDetail.value=Math.max(lakeWeight,seaWeight,riverWeight);
+      // The mist the reflected light crosses: the hour's and the weather's (sky.ts), as thin as it lies over water (mist-cover.ts).
+      if(WORLD_V2)material.uniforms.uMist.value=((scene.userData.fogDensity as number|undefined)??1)*MIST_OVER_WATER;
+      // The wind over open water. Mountain air is still at night and in the early morning (mist forms in it, and a lake goes
+      // glassy and mirrors the land), stirs once the sun is well up and blows hardest under a high sun. Where the mist's
+      // weather is thick (sim/world/weather.ts) the air is stiller still. 0.15 is a glassy calm, 1.1 a fresh breeze.
+      if(WORLD_V2){
+        const sunUp=Math.max(0,(scene.userData.sunDirection as THREE.Vector3|undefined)?.y??0),afternoon=THREE.MathUtils.smoothstep(sunUp,.3,.8);
+        const weather=(scene.userData.mistWeather as number|undefined)??1;
+        material.uniforms.uWind.value=THREE.MathUtils.clamp(.18+.9*afternoon-(weather-1)*.35,.15,1.1);
+      }
       // Keep a long continuous stream without submitting its entire kilometre
       // to either rasterisation or the reflection pass on every frame.
       const first=Math.min(rows,Math.max(0,Math.floor((player.z-135+RIVER_EXTENT)/rowStep)));

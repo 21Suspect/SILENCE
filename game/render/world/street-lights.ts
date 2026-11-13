@@ -146,6 +146,9 @@ export function createStreetLights(o: StreetLightOptions) {
     for (let i = 0; i < LAMP.maxLights; i++) {
       const light = new THREE.SpotLight(0xff9638, 0, LAMP.reach, LAMP.angle, 1, 2), target = new THREE.Object3D();
       light.castShadow = false; light.visible = false; light.name = `Street lamp light ${i}`; light.target = target;
+      // Also on the water's far reflection layer, so the reflected land is built for the same lights as the main view (no new
+      // shader to compile the first time a lake comes into view).
+      light.layers.enable(3);
       group.add(light, target); slots.push({ light, target, level: 0 });
     }
   }

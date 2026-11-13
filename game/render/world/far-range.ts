@@ -69,7 +69,7 @@ export function createFarRange(scene: THREE.Scene, renderer: THREE.WebGLRenderer
   mesh.name = 'Far mountain range';
   // Drawn with the horizon (layer 2: the main view, not the water's reflection), after the ground so the near land's depth
   // spares it the pixels it covers, and before the sky.
-  mesh.layers.set(2); mesh.renderOrder = 3; mesh.frustumCulled = false;
+  mesh.layers.set(2); mesh.layers.enable(3); mesh.renderOrder = 3; mesh.frustumCulled = false;
   scene.add(mesh);
   return {
     mesh,

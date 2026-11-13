@@ -89,6 +89,8 @@ export function createFlashlight(scene:THREE.Scene,camera:THREE.PerspectiveCamer
   // Physical falloff (decay 2): at 1.35 a wall at 30 m was lit nearly as hard as one at 10. 14 cd puts a trunk at 8 m in the hot
   // spot at a clear mid-grey at the night's exposure; the ground at your feet still burns white, as it does.
   const light=new THREE.SpotLight(0xfff0dc,0,45,.95,.5,2);light.map=cookie;light.castShadow=true;light.shadow.autoUpdate=false;light.shadow.mapSize.set(1024,1024);light.shadow.camera.near=.06;light.shadow.bias=-.00002;light.shadow.normalBias=.015;
+  // On the water's far reflection layer too (river.ts), so the reflected land keeps the main view's set of lights.
+  light.layers.enable(3);
   scene.add(light,light.target);const direction=new THREE.Vector3(),target=new THREE.Vector3(),offset=new THREE.Vector3();
   // No light of its own away from the hand: a point light at wherever the beam landed (a stand-in for what the lit patch throws
   // back) jumped to far trunks and was dragged through the trees as the view swept, a lamp floating in the wood. All the torch's

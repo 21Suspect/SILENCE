@@ -130,7 +130,7 @@ export function createSky(renderer:THREE.WebGLRenderer,scene:THREE.Scene,sun:THR
   const dome=new THREE.Mesh(new THREE.SphereGeometry(1,48,24),material);dome.name='HDR sky with drifting clouds';dome.frustumCulled=false;
   // Drawn last of the opaque scene: it sits at the far plane and tests depth, so it is shaded only where it shows. Drawn first
   // (-1000), the cloud shader ran under every tree and hill (-0.4 ms at spawn at 1920x1080 with the ground drawn late too).
-  dome.renderOrder=perfOn('skyLast')?1000:-1000;scene.add(dome);scene.background=null;scene.userData.hasSky=true;
+  dome.renderOrder=perfOn('skyLast')?1000:-1000;dome.layers.enable(3);scene.add(dome);scene.background=null;scene.userData.hasSky=true;
   scene.userData.skyLut=lut.texture;
   let disposed=false,dayTexture:THREE.DataTexture|undefined,nightTexture:THREE.DataTexture|undefined,environment:THREE.WebGLRenderTarget|undefined;
   const generator=new THREE.PMREMGenerator(renderer);generator.compileEquirectangularShader();
@@ -170,7 +170,7 @@ export function createSky(renderer:THREE.WebGLRenderer,scene:THREE.Scene,sun:THR
         float extinction=smoothstep(-.015,.15,elevation)*mix(.35,1.,smoothstep(.02,.65,elevation));
         gl_FragColor=vec4(tint*brightness*profile*amount*starScale*extinction*cloudTransmission(cloudField(normalize(vStarRay)).x),1.);
       }`});
-  const starPoints=new THREE.Points(starGeometry,starMaterial);starPoints.name='Resolved stellar points';starPoints.frustumCulled=false;starPoints.renderOrder=-999;scene.add(starPoints);
+  const starPoints=new THREE.Points(starGeometry,starMaterial);starPoints.name='Resolved stellar points';starPoints.frustumCulled=false;starPoints.renderOrder=-999;starPoints.layers.enable(3);scene.add(starPoints);
   // Light colours from the model, refreshed when the sun has moved a little (each is a few hundred small CPU evaluations).
   // The forest's haze by day: droplets and pollen lit by sun and sky together and scattered many times over, so it reads near
   // white and a touch warm, not the blue of the open sky that a single scattering of sky light gives. MIST_NEUTRAL of its colour

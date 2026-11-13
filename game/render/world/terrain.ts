@@ -581,7 +581,9 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
   // by the game camera), but does not need a duplicate draw in the water's
   // layer-0 reflection. Reflected terrain fades into the same fog/sky before
   // this coarse horizon contributes a visible landmark.
-  horizon.name='Coastal headlands and alpine skyline';horizon.renderOrder=2;horizon.layers.set(2);scene.add(horizon);
+  horizon.name='Coastal headlands and alpine skyline';horizon.renderOrder=2;horizon.layers.set(2);
+  // Layer 3: the water's far reflection pass (river.ts) draws it, with the far range and the sky, out to the far plane.
+  horizon.layers.enable(3);scene.add(horizon);
   let worker:Worker|undefined;
   let requested:TerrainTile|undefined,prepared:PreparedTerrainTile|undefined;
   let pendingChunks=0,lastCoverageUpdate=performance.now();
