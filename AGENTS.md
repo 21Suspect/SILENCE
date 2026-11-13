@@ -30,6 +30,10 @@ on them in game/render/props/prop-materials.ts. Detailed parts (round logs, disp
 firewood) are in parts_hq.py. Every build prints a support audit (support.py: `SUPPORT ... N FLOATING`, details in
 work/gfx/audit): nothing may float, so get it to 0 before showing a prop.
 
+In-game stills in one command: `node tools/shots/shoot.mjs --module work/gfx/cabin-shots.js --ids front,inside --tag t1` drives
+Google Chrome headless (its own profile, kept running, its frame loop parked between calls; `--reload` after rebuilding a GLB, `--stop` to
+close it) and writes work/gfx/shots/<tag>-<id>.png, HUD included. A shot module exports `prepare(id)`, which poses the game.
+
 Ground ghosting, in numbers: tools/ghosting (page.js runs fixed poses x switches in the dev server's tab and posts stills and
 JSON to receiver.mjs; measure.mjs writes the table; metrics.mjs is the maths, tested in tests/tools/ghosting). The relief
 march's maths is mirrored in game/render/world/relief-math.ts. `perfOn('groundRelief')` off builds the first version of the
