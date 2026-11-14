@@ -11,18 +11,16 @@ import { stumpGeometry } from './forest-assets';
 import { createVegetationBatcher, type VegetationBatchDefinition, type VegetationBatchHandle } from './vegetation-batches';
 import { perfOn } from '../../core/perf-flags';
 import { INSTANCE_CULL_HEADER, instanceCullGLSL, instanceCullSwitch } from './instance-cull';
-import { foliageLite } from './foliage-shading';
-import { TRUNK_RINGS, TRUNK_SEGMENTS, buildConiferVariants } from './conifer';
-import { buildBroadleafVariants } from './broadleaf';
+import { BANDS, NEAR_PREFETCH, NEAR_TREES, barkPoint, loadAlders, loadNear, type AlderModel } from './alder';
+import { createAlderMaterials, type AlderMaterials } from './alder-materials';
 import { loadNature, type NatureVariant } from './nature-assets';
 import { createSlice, runSlice, runToEnd } from '../../core/time-slice';
 
 type Collider = { x: number; z: number; radius: number };
 type Tree = { x: number; z: number; y: number; height: number; width: number; yaw: number; kind: number; seed: number };
 type Scatter = { x: number; z: number; y: number; size: number; yaw: number; variant: number };
-// Every tree is grown from a seed, several per species (pines and spruces by conifer.ts, birches and oaks by broadleaf.ts); a
-// tree takes one by its own seed.
-const VARIANTS = 4;
+// How far a tree's foot is sunk below the ground the layout gave it, in metres a unit of its scale: the alders' roots flare out of the bark.
+const FOOT_SINK=.06;
 // Trees are placed out to TREE_RANGE+FOREST_BUFFER round the point the forest was last rebuilt at and faded by distance from the eye in
 // the shader, so the placement stays valid until the player is FOREST_BUFFER from that point. A rebuild starts every FOREST_STEP and
 // is spread over a few frames; the 1.5 m between the two is the room it has to finish in.
@@ -30,7 +28,6 @@ const FOREST_STEP=6, FOREST_BUFFER=FOREST_STEP+1.5, TREE_RANGE=98, TREE_COLLISIO
 // The crown band is a uniform (dev: __SILENCE__.perf.crownBand()), so other bands can be measured and compared live; both crowns
 // are placed over CROWN_PLACE_*, so widen that to try a band outside it. 22/30 m against the earlier 30/40 (2026-11-12, 1920x1080,
 // interleaved A/B): -0.1 ms at the canopy, -0.4 at spawn, -0.44 at dusk; judged in play to look the same.
-const CROWN_PLACE_START=CROWN_DETAIL_START, CROWN_PLACE_END=CROWN_DETAIL_END;
 // How far the scanned ground pieces are drawn. Each dissolves out over the last 8 m, so a rebuild never pops one in or out.
 const ROCK_RANGE=58, BRANCH_RANGE=42, STUMP_RANGE=65, TRUNK_RANGE=77, PEBBLE_RANGE=24;
 // Trees within this distance cast crown shadows (the sun's shadow map spans 72 m round the player, shadows.ts).
@@ -143,23 +140,6 @@ function logGeometry() {
   geometry.userData.closedShellTriangles = sideCount / 3; return geometry;
 }
 
-const ROOT_SHADER_HEADER = `
-  attribute float rootIndex;
-  attribute vec4 rootHeightsA;
-  attribute vec4 rootHeightsB;
-  attribute vec4 rootHeightsC;
-  attribute vec4 rootHeightsD;
-`;
-const ROOT_SHADER_DEFORM = `
-  #include <begin_vertex>
-  float rootShift = 0.0;
-  if (rootIndex < 3.5) rootShift = rootHeightsA[int(rootIndex + .5)];
-  else if (rootIndex < 7.5) rootShift = rootHeightsB[int(rootIndex - 4.0 + .5)];
-  else if (rootIndex < 11.5) rootShift = rootHeightsC[int(rootIndex - 8.0 + .5)];
-  else rootShift = rootHeightsD[int(rootIndex - 12.0 + .5)];
-  transformed.y += rootShift * (1.0 - smoothstep(0.0, 2.0, max(position.y, 0.0)));
-`;
-
 export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number) => number, exclusion: (x: number, z: number) => number, spawn: THREE.Vector3) {
   const group = new THREE.Group(); group.name = 'Forest — grounded trunks, pine crowns, deadfall and litter'; scene.add(group);
   const layout=naturalLayout({heightAt,exclusion,biomeAt,riverX,riverPresence,roadZ,radius:WORLD_RADIUS});
@@ -171,28 +151,6 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
   };
   const bark = new THREE.MeshStandardMaterial({ color: 0xb4b5aa, map: texture('/textures/bark-diff.jpg', true), normalMap: texture('/textures/bark-normal.jpg'), roughnessMap: texture('/textures/bark-rough.jpg'), roughness: .98, normalScale: new THREE.Vector2(1.25, 1.25), vertexColors: true });
   const logBark = bark.clone(); logBark.vertexColors = false; logBark.color.set(0xa4aa9c);
-  // The conifers wear the bark and needle sprays of Poly Haven's scanned pine and fir (CC0; tools/assets/trees, packed in
-  // public/world/trees): the bark's own occlusion baked into its colour, its normals and roughness, the twig atlases at 2K.
-  const coniferBark=(folder:string,name:string)=>{
-    const m=new THREE.MeshStandardMaterial({map:texture(`/world/trees/${folder}/bark-color.jpg`,true),normalMap:texture(`/world/trees/${folder}/bark-normal.jpg`),roughnessMap:texture(`/world/trees/${folder}/bark-roughness.jpg`),
-      roughness:1,normalScale:new THREE.Vector2(1.1,1.1),vertexColors:true});
-    // The scans' bark averages 0.035 to 0.045 linear albedo with their occlusion baked in (texture audit), half of real dry bark
-    // and of the forest floor, and with the relief's own cavity occlusion on top every trunk read as a blue-black silhouette.
-    m.color.setScalar(2);
-    m.name=name;return m;
-  };
-  const coniferNeedles=(folder:string,name:string)=>{
-    const m=new THREE.MeshStandardMaterial({map:texture(`/world/trees/${folder}/twig-color.jpg`,true,false),alphaMap:texture(`/world/trees/${folder}/twig-alpha.png`,false,false),
-      normalMap:texture(`/world/trees/${folder}/twig-normal.jpg`,false,false),roughnessMap:texture(`/world/trees/${folder}/twig-roughness.jpg`,false,false),
-      normalScale:new THREE.Vector2(.5,.5),alphaTest:.3,alphaToCoverage:true,side:THREE.DoubleSide,roughness:1,vertexColors:true});
-    m.name=name;return m;
-  };
-  const pineBark=coniferBark('pine','Scanned Scots pine bark'),spruceBark=coniferBark('spruce','Scanned fir bark');
-  const pineNeedles=coniferNeedles('pine','Scanned pine sprays'),spruceNeedles=coniferNeedles('spruce','Scanned fir sprays');
-  const birchBark=new THREE.MeshStandardMaterial({map:texture('/plantassets/forest-variety/birch-diff.jpg',true),normalMap:texture('/plantassets/forest-variety/birch-normal.jpg'),roughnessMap:texture('/plantassets/forest-variety/birch-rough.jpg'),roughness:.96,normalScale:new THREE.Vector2(.85,-.85),vertexColors:true,color:0xe5e4d8});
-  birchBark.name='Scanned silver birch — peeling bark and fissures';
-  const oakBark=new THREE.MeshStandardMaterial({map:texture('/plantassets/forest-variety/oak-diff.jpg',true),normalMap:texture('/plantassets/forest-variety/oak-normal.jpg'),roughnessMap:texture('/plantassets/forest-variety/oak-rough.jpg'),roughness:1,normalScale:new THREE.Vector2(.9,.9),vertexColors:true,color:0xdbd6bd});
-  oakBark.name='Scanned oak bark';
   const windTime = { value: 0 };
   const crownBand={value:new THREE.Vector2(CROWN_DETAIL_START,CROWN_DETAIL_END)};
   const forestEye={value:spawn.clone()};
@@ -227,48 +185,9 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
       `);
     };
   }
-  const foliageWind=(shader:THREE.WebGLProgramParametersWithUniforms) => {
-    shader.uniforms.uForestTime = windTime;
-    shader.vertexShader = 'uniform float uForestTime;\n' + shader.vertexShader;
-    shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', `
-      #include <begin_vertex>
-      #ifdef USE_INSTANCING
-        vec3 forestOrigin = instanceMatrix[3].xyz;
-        float tip = clamp(transformed.y / 31.,0.,1.);
-        float wind = uForestTime * .4 + forestOrigin.x * .09 + forestOrigin.z * .08;
-        transformed.x += sin(wind) * tip * tip * .033;
-        transformed.z += cos(wind*.83) * tip * tip * .018;
-      #endif
-    `);
-    // Leaves and needles let light through. A sprig lit from behind (light on the far side of the face turned to the eye)
-    // glows a yellower green instead of going black: a thin leaf passes on roughly as much light as it reflects, shifted to
-    // the yellow. The light's colour already carries its shadow, so only leaves the sun reaches through the crown glow.
-    shader.fragmentShader = shader.fragmentShader.replace('#include <lights_physical_pars_fragment>', THREE.ShaderChunk.lights_physical_pars_fragment.replace(
-      'reflectedLight.directDiffuse += irradiance * BRDF_Lambert( material.diffuseColor );',
-      '$&\n\treflectedLight.directDiffuse += saturate( - dot( geometryNormal, directLight.direction ) ) * directLight.color * BRDF_Lambert( material.diffuseColor ) * vec3( .6, .68, .3 );'));
-    foliageLite(shader);
-  };
-  pineNeedles.onBeforeCompile=foliageWind;spruceNeedles.onBeforeCompile=foliageWind;
-  const rootDepth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
-  const rootDistance = new THREE.MeshDistanceMaterial();
-  for (const material of [bark, birchBark, oakBark, pineBark, spruceBark, rootDepth, rootDistance]) {
-    material.onBeforeCompile = shader => {
-      shader.vertexShader = ROOT_SHADER_HEADER + shader.vertexShader;
-      shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', ROOT_SHADER_DEFORM);
-    };
-  }
   // Bark relief (bark-relief.ts): each scan's height map and how deep it stands in metres, between its black and white.
-  varyDirectionalTexture(bark);varyDirectionalTexture(birchBark,{height:texture('/plantassets/forest-variety/birch-height.jpg'),depth:.012});
-  varyDirectionalTexture(oakBark,{height:texture('/plantassets/forest-variety/oak-height.jpg'),depth:.03});
-  varyDirectionalTexture(pineBark,{height:texture('/world/trees/pine/bark-height.jpg'),depth:.02});varyDirectionalTexture(spruceBark,{height:texture('/world/trees/spruce/bark-height.jpg'),depth:.02});
+  varyDirectionalTexture(bark);
   varyDirectionalTexture(logBark);
-  // Cull bounds per species (model units, the tree is 31 tall): a conifer's limbs and crown reach about 6.5 from its axis, a
-  // birch's 8.5, an oak's 17 (broadleaf.ts budgets). The shadow materials serve every species, so they take the oak's.
-  fadeInstances(bark,83,TREE_RANGE,'trunk');
-  for(const m of [pineBark,spruceBark])fadeInstances(m,83,TREE_RANGE,'trunk',[-1,33,6.5]);
-  fadeInstances(birchBark,83,TREE_RANGE,'trunk',[-1,33,8.5]);
-  for(const m of [oakBark,rootDepth,rootDistance])fadeInstances(m,83,TREE_RANGE,'trunk',[-1,36,17]);
-  for(const m of [pineNeedles,spruceNeedles])fadeInstances(m,83,TREE_RANGE,'crown',[0,32.5,6.5]);
   const stoneMaterials=[createRockMaterial(false),createRockMaterial(false),createRockMaterial(false)];
   for(let i=1;i<3;i++){
     const m=stoneMaterials[i],prefix=i===1?'granite':'slate';
@@ -279,16 +198,6 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
   // The litter's leaves are cut from the Poly Haven tree_small_02 leaf atlas (public/plantassets/forest-variety).
   const leafMaterial = new THREE.MeshStandardMaterial({map:texture('/plantassets/forest-variety/broadleaf-diff.jpg',true,false),normalMap:texture('/plantassets/forest-variety/broadleaf-normal.jpg',false,false),normalScale:new THREE.Vector2(.25,.25), vertexColors: true, side: THREE.DoubleSide, roughness: .78 });
   fadeInstances(leafMaterial,26,34);
-  // Oak and birch wear leaf sprays composed from scanned leaves (tools/assets/trees/sprays.py: ambientCG LeafSet016 and
-  // LeafSet004, CC0). The oak scans are a pale spring green: the material colour brings them to a deep summer leaf.
-  const broadleafLeaves=(folder:string,name:string,color:number,cull:readonly [number,number,number])=>{
-    const m=new THREE.MeshStandardMaterial({map:texture(`/world/trees/${folder}/spray-color.jpg`,true,false),alphaMap:texture(`/world/trees/${folder}/spray-alpha.png`,false,false),
-      normalMap:texture(`/world/trees/${folder}/spray-normal.jpg`,false,false),normalScale:new THREE.Vector2(.7,.7),alphaTest:.3,alphaToCoverage:true,side:THREE.DoubleSide,
-      roughness:.74,vertexColors:true,color});
-    m.name=name;m.onBeforeCompile=foliageWind;fadeInstances(m,83,TREE_RANGE,'crown',cull);
-    return m;
-  };
-  const oakLeaves=broadleafLeaves('oak','Composed oak sprays',0x7f9070,[4,36,17]),birchLeaves=broadleafLeaves('birch','Composed birch sprays',0xa8b494,[6,32.5,8.5]);
   const grain = endgrainTextures(); textures.push(grain.map, grain.normalMap, grain.roughnessMap);
   const woodMaterial = new THREE.MeshStandardMaterial({ ...grain, color: 0xd9d3bf, normalScale: new THREE.Vector2(.6, .6), roughness: .94, side: THREE.DoubleSide });
   const geometries: THREE.BufferGeometry[] = [];
@@ -306,100 +215,58 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
     geometries.push(geometry);
     return {id: `forest-${definitionSerial++}`,geometry,material,capacity,castShadow:cast,name,layer,radius,spatial};
   }
-  const rootAttributeNames = ['rootHeightsA', 'rootHeightsB', 'rootHeightsC', 'rootHeightsD'];
-  const trunkCapacity=320;
-  // Models: VARIANTS of each species in kind order (pine, spruce, birch, oak); a tree's species is its kind/2.
-  const models=[...buildConiferVariants('pine',VARIANTS),...buildConiferVariants('spruce',VARIANTS),...buildBroadleafVariants('birch',VARIANTS),...buildBroadleafVariants('oak',VARIANTS)];
-  const MODELS=models.length,SPECIES=['Scots pine','Norway spruce','Silver birch','English oak'];
-  const modelOf=(tree:Tree)=>Math.floor(tree.kind/2)*VARIANTS+tree.seed%VARIANTS;
-  const kindOfModel=(m:number)=>Math.floor(m/VARIANTS)*2;
-  // A grown tree's crown scales with its trunk, so its sprays would stretch on a squat, wide tree: a conifer's width is held
-  // within a quarter of its height, a broadleaf's (its model is already broad) within .9 to 1.2 of it, wider trees wider.
-  // Every use of a tree's width below (collider, bark contact, ground under the roots) takes this.
-  const girth=(tree:Tree)=>tree.kind<4?Math.min(1.25*tree.height,Math.max(.75*tree.height,tree.width))
-    :tree.height*(.9+.3*Math.min(1,Math.max(0,tree.kind<6?(tree.width-.42)/.38:(tree.width-1.12)/.75)));
-  const trunkBatches=(lowDetail:boolean)=>Array.from({length:MODELS},(_,m)=>{
-    const model=models[m],kind=kindOfModel(m),geometry=lowDetail?model.farTrunk:model.trunk;
-    for(const name of rootAttributeNames)geometry.setAttribute(name,new THREE.InstancedBufferAttribute(new Float32Array(trunkCapacity*4),4).setUsage(THREE.DynamicDrawUsage));
-    const definition=instances(geometry,kind<2?pineBark:kind<4?spruceBark:kind<6?birchBark:oakBark,trunkCapacity,true,`${SPECIES[kind/2]} ${m%VARIANTS+1}${lowDetail?' distant':''}`);
-    definition.customDepthMaterial=rootDepth; definition.customDistanceMaterial=rootDistance; definition.sectorSize=192;
-    return definition;
-  });
-  const trunks=trunkBatches(false),farTrunks=trunkBatches(true);
-  // How far each model's wood reaches from its axis, for culling: an oak's limbs spread 12 m and more.
-  const trunkReach=trunks.map(d=>{const {min,max}=d.geometry.boundingBox!;return Math.hypot(Math.max(-min.x,max.x),Math.max(-min.z,max.z));});
-  const barkContacts = new WeakMap<Tree, NonNullable<SolidCollider['barkContact']>>();
-  const barkRay = new THREE.Ray();
-  const barkA = new THREE.Vector3(), barkB = new THREE.Vector3(), barkC = new THREE.Vector3(), barkHit = new THREE.Vector3();
-  function barkContactFor(tree: Tree) {
-    const cached = barkContacts.get(tree);
-    if (cached) return cached;
-    const geometry = trunks[modelOf(tree)].geometry;
-    const position = geometry.getAttribute('position'), index = geometry.index!;
-    const cos = Math.cos(tree.yaw), sin = Math.sin(tree.yaw);
-    const contact = (angle: number, y: number) => {
-      const localY = (y - tree.y) / tree.height;
-      const ring = TRUNK_RINGS.findIndex(height => height - .08 > localY) - 1;
-      if (ring < 0) return;
-      const dx = Math.cos(angle + tree.yaw), dz = Math.sin(angle + tree.yaw);
-      barkRay.origin.set(dx * 4, localY, dz * 4);
-      barkRay.direction.set(-dx, 0, -dz);
-      // The bole is the first indexed part of the merged tree. Intersect only
-      // the two rings at the foot's height, without testing any branches.
-      const start = ring * TRUNK_SEGMENTS * 6, end = start + TRUNK_SEGMENTS * 6;
-      let nearest = -Infinity, x = 0, z = 0;
-      for (let i = start; i < end; i += 3) {
-        barkA.fromBufferAttribute(position, index.getX(i));
-        barkB.fromBufferAttribute(position, index.getX(i + 1));
-        barkC.fromBufferAttribute(position, index.getX(i + 2));
-        if (!barkRay.intersectTriangle(barkA, barkB, barkC, false, barkHit)) continue;
-        const radial = barkHit.x * dx + barkHit.z * dz;
-        if (radial > nearest) { nearest = radial; x = barkHit.x; z = barkHit.z; }
-      }
-      if (!Number.isFinite(nearest)) return;
-      return {x: tree.x + (x * cos + z * sin) * girth(tree) + Math.cos(angle) * .025,
-        y, z: tree.z + (z * cos - x * sin) * girth(tree) + Math.sin(angle) * .025};
-    };
-    barkContacts.set(tree, contact);
+  // ---- The trees: Black Alders (alder.ts), each in up to four levels of detail that dissolve into one another by distance. ----
+  // Not loaded yet, the forest has no trees (the loading veil waits for them); the cells, the scatter and the ground pieces carry on.
+  type TreeEntry={model:AlderModel;definitions:Map<string,VegetationBatchDefinition>;shadow?:VegetationBatchDefinition};
+  let entries:TreeEntry[]=[],pools:TreeEntry[][]=[],alderMaterials:AlderMaterials|undefined,nearDirty=false;
+  // Which alders each of the old species' places take: tall and narrow for the pines and spruces, the smaller ones for the
+  // birches, the broad open-grown ones for the oaks. A tree takes one by its own seed.
+  const POOLS:string[][]=[
+    ['Forest_01','Forest_02','Forest_03','Forest_05','Field_04'],['Forest_02','Forest_03','Forest_04','Forest_05','Forest_01'],
+    ['Forest_04','Forest_05','Forest_06','Forest_07','Field_05','Forest_09'],['Field_01','Field_02','Field_03','Field_04','Field_05','Forest_08'],
+  ];
+  /**
+   * The bands a level fades across. The level after the finest one comes in two variants: on a tree that has the finest level it
+   * dissolves in under it, and on one that does not (only the nearest few do) it simply fills the near range.
+   */
+  function levelBands(model:AlderModel,i:number,under:boolean){
+    const level=model.levels[i];
+    const inBand=under?BANDS[0]:(i===0||(i===1&&model.near))?undefined:BANDS[level.from-1];
+    return {inBand,outBand:level.to<3?BANDS[level.to]:undefined};
+  }
+  const levelKey=(i:number,under:boolean)=>under?`${i}u`:`${i}`;
+  function defineLevel(entry:TreeEntry,i:number,under:boolean){
+    const level=entry.model.levels[i],key=levelKey(i,under);
+    if(!level.mesh||!alderMaterials||entry.definitions.has(key))return;
+    const {inBand,outBand}=levelBands(entry.model,i,under);
+    // Instances a model may hold at once: a handful of the finest, many of the light ones.
+    const capacity=level===entry.model.near?NEAR_TREES+2:level.from>=2?420:240;
+    const definition=instances(level.mesh.geometry,alderMaterials.forMesh(entry.model,key,level.mesh.parts,inBand,outBand),capacity,false,`${entry.model.name} ${key} L${level.lod}`);
+    definition.sectorSize=level.to===0?40:level.to===1?96:192;entry.definitions.set(key,definition);
+  }
+  const entryFor=(tree:Tree)=>{const pool=pools[Math.floor(tree.kind/2)];return pool?.length?pool[(Math.imul(tree.seed,2654435761)>>>0)%pool.length]:undefined;};
+  /** A tree's size: its own height number (.5 to 1.2) spread over .8 to 1.45 times the alder as scanned. */
+  const scaleOf=(tree:Tree)=>THREE.MathUtils.clamp(.8+(tree.height-.5)*.9,.8,1.45);
+  const barkContacts=new WeakMap<Tree,NonNullable<SolidCollider['barkContact']>>();
+  function barkContactFor(tree:Tree,model:AlderModel,s:number){
+    let contact=barkContacts.get(tree);
+    if(!contact){const y=tree.y-FOOT_SINK*s;contact=(angle,at)=>barkPoint(model,tree.x,y,tree.z,tree.yaw,s,angle,at);barkContacts.set(tree,contact);}
     return contact;
   }
-  const crownMaterial=(kind:number)=>kind<2?pineNeedles:kind<4?spruceNeedles:kind<6?birchLeaves:oakLeaves;
-  const crowns=Array.from({length:MODELS},(_,m)=>{
-    const geometry=models[m].crown,kind=kindOfModel(m);
-    const {min,max}=geometry.boundingBox!;
-    const horizontalRadius=Math.hypot(Math.max(-min.x,max.x),Math.max(-min.z,max.z));
-    const definition=instances(geometry,crownMaterial(kind),512,false,kind<4?'Canopy conifer':'Canopy broadleaf');
-    definition.sectorSize=56;
-    return {definition,horizontalRadius,centerY:(min.y+max.y)*.5,verticalRadius:(max.y-min.y)*.5};
-  });
-  // Distant crowns: past CROWN_DETAIL_END a crown carries about a third of its sprays, each larger, so it covers the same
-  // sky with a fraction of the triangles; at that range single sprays are a few pixels anyway.
-  const farCrowns=crowns.map((near,m)=>{
-    const kind=kindOfModel(m);
-    const definition=instances(models[m].farCrown,crownMaterial(kind),512,false,(kind<4?'Canopy conifer':'Canopy broadleaf')+' distant');
-    definition.sectorSize=56;
-    return {...near,definition};
-  });
-  // Crown shadows. Without them the floor under a closed canopy lay in full sun with only the limbs' stripes across it. The
-  // detailed crowns are far too heavy to draw into the shadow map as well (it is redrawn several times a second as the sun
-  // moves: 30 to 60 ms more a redraw at the canopy station), so every tree in shadow range casts from its light crown
-  // instead. three.js draws a shadow caster wherever it draws the object, so the stand-in's material sends every vertex
-  // outside the view (nothing is rasterised). The shadow pass takes its alpha map, cut-off and side (three.js copies them
-  // from the object's material into the depth material), so it carries the crown's: the sprays cast sprays, not cards.
-  const crownCasters=new Map<THREE.Material,THREE.MeshBasicMaterial>();
-  const crownShadows=farCrowns.map((far,m)=>{
-    const visible=crownMaterial(kindOfModel(m)) as THREE.MeshStandardMaterial;
-    let caster=crownCasters.get(visible);
-    if(!caster){
-      caster=new THREE.MeshBasicMaterial({alphaMap:visible.alphaMap,alphaTest:.3,side:THREE.DoubleSide});caster.shadowSide=THREE.DoubleSide;caster.name=`${visible.name} (shadow only)`;
-      caster.onBeforeCompile=shader=>{shader.vertexShader=shader.vertexShader.replace('#include <project_vertex>','#include <project_vertex>\ngl_Position=vec4(2.,2.,2.,1.);');};
-      caster.customProgramCacheKey=()=>'silence-shadow-only';
-      crownCasters.set(visible,caster);
+  loadAlders(POOLS.flat()).then(set=>{
+    if(disposed)return;
+    alderMaterials=createAlderMaterials(set.textureBase,forestEye,windTime,76,TREE_RANGE-4,textures);
+    entries=set.models.map(model=>({model,definitions:new Map()}));
+    for(const entry of entries){
+      entry.model.levels.forEach((_,i)=>{defineLevel(entry,i,false);if(i===1&&entry.model.near)defineLevel(entry,i,true);});
+      // Every tree within shadow range casts from its lightest mesh (nothing of it is drawn in the picture): the fine ones are far too
+      // heavy for the sun's shadow map, which is redrawn several times a second.
+      const mesh=entry.model.levels[entry.model.levels.length-1].mesh!;
+      entry.shadow=instances(mesh.geometry,alderMaterials.casting(mesh.parts),200,true,`${entry.model.name} shadow`);entry.shadow.sectorSize=56;
     }
-    const definition=instances(far.definition.geometry,caster,512,true,`${far.definition.name} shadow`);
-    definition.sectorSize=56;
-    return definition;
-  });
+    pools=POOLS.map(names=>names.map(n=>entries.find(e=>e.model.name===n)).filter((e):e is TreeEntry=>!!e));
+    rescan=true;
+  }).catch(error=>console.warn('SILENCE: the alder trees did not load; the forest stays empty.',error));
   const stones = Array.from({length:9},(_,i)=>{
     const g=createRockGeometry(182+i*83),type=Math.floor(i/3);
     if(type===1)g.scale(1.18,.82,.96);if(type===2)g.scale(1.35,.56,.88);
@@ -568,27 +435,6 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
     if (!rendering) return undefined;
     return vegetation.place(definition, value, radius);
   }
-  const rootSample = new THREE.Vector3();
-  const rootOffsets = new WeakMap<Tree, Float32Array>();
-  function groundRoots(tree: Tree, instance: number, mesh:THREE.InstancedMesh) {
-    let offsets = rootOffsets.get(tree);
-    if (!offsets) {
-      offsets = new Float32Array(16);
-      const position = mesh.geometry.getAttribute('position');
-      const c = Math.cos(tree.yaw), s = Math.sin(tree.yaw);
-      for (let i = 0; i < offsets.length; i++) {
-        const x = position.getX(i) * girth(tree), z = position.getZ(i) * girth(tree);
-        rootSample.set(tree.x + c * x + s * z, 0, tree.z - s * x + c * z);
-        offsets[i] = (heightAt(rootSample.x, rootSample.z) - tree.y) / tree.height;
-      }
-      rootOffsets.set(tree, offsets);
-    }
-    for (let i = 0; i < rootAttributeNames.length; i++) {
-      const attribute = mesh.geometry.getAttribute(rootAttributeNames[i]);
-      const start = i * 4;
-      attribute.setXYZW(instance, offsets[start], offsets[start + 1], offsets[start + 2], offsets[start + 3]);
-    }
-  }
   /**
    * Places the trees and their litter round `player` into the hidden copy and/or rebuilds the colliders, then swaps it on screen.
    * A generator so that update() can run it a slice a frame: with `sliced` it yields whenever the slice is used up.
@@ -607,33 +453,47 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
       if(sliced&&slice.over())yield;
     }
     for(const [key] of cells){const [x,z]=key.split(',').map(Number);if(Math.abs(x-cx0)>5||Math.abs(z-cz0)>5)cells.delete(key);}
+    // The finest level goes on the few nearest trees, once a model's mesh has arrived; the nearest trees' models start loading it.
+    const nearest=new Set<Tree>();
+    if(rendering&&entries.length){
+      const candidates:{d:number;tree:Tree}[]=[];
+      for(const cell of nearby)for(const tree of cell.trees){const d=(tree.x-player.x)**2+(tree.z-player.z)**2;if(d<(NEAR_PREFETCH+FOREST_BUFFER)**2)candidates.push({d,tree});}
+      candidates.sort((a,b)=>a.d-b.d);
+      candidates.forEach(({d,tree},rank)=>{
+        const entry=entryFor(tree);if(!entry)return;
+        if(d<NEAR_PREFETCH**2&&entry.model.nearState==='idle')loadNear(entry.model,()=>{nearDirty=true;});
+        if(rank<NEAR_TREES&&entry.model.nearState==='ready'&&d<(BANDS[0][1]+FOREST_BUFFER)**2){defineLevel(entry,0,false);nearest.add(tree);}
+      });
+    }
+    nearDirty=false;
     for(const cell of nearby)for (const tree of cell.trees) {
       const distance2 = (tree.x - player.x) ** 2 + (tree.z - player.z) ** 2;
       if(pause())yield;
+      const entry=entryFor(tree);
+      if(!entry)continue;
+      const model=entry.model,s=scaleOf(tree);
       if(updateColliders&&distance2<=TREE_COLLISION_RANGE**2){
-        const radius=models[modelOf(tree)].boleRadius*girth(tree)+.08;nextColliders.push({x:tree.x,z:tree.z,radius});
-        nextSolid.push({kind:'capsule',ax:tree.x,az:tree.z,bx:tree.x,bz:tree.z,radius,minY:tree.y-.15,maxY:tree.y+31*tree.height,tag:'tree',barkContact:barkContactFor(tree),crownBase:tree.y+models[modelOf(tree)].crownBase*tree.height});
+        const radius=model.boleRadius*s+.08;nextColliders.push({x:tree.x,z:tree.z,radius});
+        nextSolid.push({kind:'capsule',ax:tree.x,az:tree.z,bx:tree.x,bz:tree.z,radius,minY:tree.y-.15,maxY:tree.y+model.height*s,tag:'tree',barkContact:barkContactFor(tree,model,s),crownBase:tree.y+model.crownBase*s});
       }
       if (!rendering||distance2>(TREE_RANGE+FOREST_BUFFER)**2) continue;
-      dummy.position.set(tree.x, tree.y, tree.z); dummy.rotation.set(0, tree.yaw, 0); dummy.scale.set(girth(tree), tree.height, girth(tree));
+      dummy.position.set(tree.x, tree.y-FOOT_SINK*s, tree.z); dummy.rotation.set(0, tree.yaw, 0); dummy.scale.setScalar(s);
       dummy.updateMatrix();
-      const model=modelOf(tree);
-      const trunkDefinition=distance2<(TRUNK_DETAIL_END+FOREST_BUFFER)**2?trunks[model]:farTrunks[model];
-      const treeInstance=vegetation.allocate(trunkDefinition,tree.x,tree.z,trunkReach[model]*girth(tree)+.5,tree.y+15.5*tree.height,16.5*tree.height+2.5);
-      if(treeInstance){
-        treeInstance.mesh.setMatrixAt(treeInstance.index,dummy.matrix);
-        groundRoots(tree,treeInstance.index,treeInstance.mesh);
+      const withNear=nearest.has(tree);
+      for(let i=0;i<model.levels.length;i++){
+        const level=model.levels[i];
+        if(level===model.near&&!withNear)continue;
+        const under=withNear&&i===1,definition=entry.definitions.get(levelKey(i,under));
+        if(!definition)continue;
+        // Each level is placed over the distances it is drawn at, widened by FOREST_BUFFER (the placement is redone every FOREST_STEP metres).
+        const {inBand,outBand}=levelBands(model,i,under);
+        const from=inBand?Math.max(0,inBand[0]-FOREST_BUFFER):0,to=outBand?outBand[1]+FOREST_BUFFER:Infinity;
+        if(distance2<from*from||distance2>to*to)continue;
+        const instance=vegetation.allocate(definition,tree.x,tree.z,model.reach*s+.5,tree.y+model.height*s*.5,model.height*s*.5+.5);
+        if(instance)instance.mesh.setMatrixAt(instance.index,dummy.matrix);
       }
-      // Inside the band both crowns are placed and the shader dissolves one into the other.
-      const lod=true;
-      for(const crown of [!lod||distance2<(CROWN_PLACE_END+FOREST_BUFFER)**2?crowns[model]:undefined,lod&&distance2>(CROWN_PLACE_START-FOREST_BUFFER)**2?farCrowns[model]:undefined]){
-        if(!crown)continue;
-        const crownInstance=vegetation.allocate(crown.definition,tree.x,tree.z,crown.horizontalRadius*girth(tree)+.5,
-          tree.y+crown.centerY*tree.height,crown.verticalRadius*tree.height+.5);
-        if(crownInstance)crownInstance.mesh.setMatrixAt(crownInstance.index,dummy.matrix);
-      }
-      if(distance2<SHADOW_RANGE**2){
-        const shadow=farCrowns[model],caster=vegetation.allocate(crownShadows[model],tree.x,tree.z,shadow.horizontalRadius*girth(tree)+.5,tree.y+shadow.centerY*tree.height,shadow.verticalRadius*tree.height+.5);
+      if(distance2<SHADOW_RANGE**2&&entry.shadow){
+        const caster=vegetation.allocate(entry.shadow,tree.x,tree.z,model.reach*s+.5,tree.y+model.height*s*.5,model.height*s*.5+.5);
         if(caster)caster.mesh.setMatrixAt(caster.index,dummy.matrix);
       }
     }
@@ -748,7 +608,7 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
       vegetation.end();
       buffers[1-shown].visible=true;buffers[shown].visible=false;shown=1-shown;
       lastRenderPosition.copy(player);
-      group.userData.species=trunks.map((definition,i)=>({name:definition.name,count:vegetation.count(definition)+vegetation.count(farTrunks[i])}));
+      group.userData.species=entries.map(e=>({name:e.model.name,count:[...e.definitions.values()].reduce((n,d)=>n+vegetation.count(d),0)}));
     }
     group.userData.cells=cells.size;
   }
@@ -776,7 +636,7 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
       forestEye.value.copy(player);
       if(!job){
         const changed=rescan||player.distanceToSquared(lastPosition)>20;
-        const rebuilt=rescan||player.distanceToSquared(lastRenderPosition)>FOREST_STEP**2;rescan=false;
+        const rebuilt=rescan||nearDirty||player.distanceToSquared(lastRenderPosition)>FOREST_STEP**2;rescan=false;
         if(changed||rebuilt){job=build(player.clone(),changed,rebuilt,perfOn('slicedForest'));jobVisuals=rebuilt;}
       }
       let swapped=false;
@@ -794,7 +654,7 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
     dispose() {
       if (disposed) return; disposed = true; job = undefined; undergrowth.dispose(); scene.remove(group); for (const b of batchers) b.dispose(); geometries.forEach(g => g.dispose()); textures.forEach(t => t.dispose());
       for (const map of [stonesMaterial.map, stonesMaterial.normalMap, stonesMaterial.roughnessMap]) map?.dispose();
-      [bark, birchBark, oakBark, logBark, pineBark, spruceBark, pineNeedles, spruceNeedles, oakLeaves, birchLeaves, ...crownCasters.values(), ...stoneMaterials, leafMaterial, woodMaterial, rootDepth, rootDistance, ...natureMaterials].forEach(m => m.dispose());cells.clear();
+      [bark, logBark, ...stoneMaterials, leafMaterial, woodMaterial, ...natureMaterials].forEach(m => m.dispose());alderMaterials?.dispose();cells.clear();
     },
   };
 }

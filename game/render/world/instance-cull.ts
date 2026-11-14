@@ -22,8 +22,9 @@ export const INSTANCE_CULL_HEADER = 'uniform float uInstanceCull;';
 
 /** GLSL for the top of an instanced vertex `main()`: returns when the instance's segment (0, bottom, 0) to (0, top, 0), swept by
  * `radius` times its horizontal scale, is wholly outside one plane of the view frustum or behind the camera. */
-export function instanceCullGLSL(bottom: number, top: number, radius: number) {
-  const f = (x: number) => x.toFixed(3);
+export function instanceCullGLSL(bottom: number | string, top: number | string, radius: number | string) {
+  // Numbers are written into the shader; a string is a GLSL expression (the alders read their bounds from a uniform).
+  const f = (x: number | string) => typeof x === 'string' ? x : x.toFixed(3);
   return `
     #ifdef USE_INSTANCING
     if(uInstanceCull>.5){
