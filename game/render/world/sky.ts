@@ -222,6 +222,8 @@ export function createSky(renderer:THREE.WebGLRenderer,scene:THREE.Scene,sun:THR
   const MIST_NEUTRAL=.45,WARM_WHITE=new THREE.Color(1.04,1,.9),warmMist=new THREE.Color(),warmSky=new THREE.Color();
   // By day both are 0: the user chose the cooler day of before (2026-11-13, the w0 stills) over the warmed one (.5 and .65).
   const SKY_NEUTRAL_DAY=0,SKY_NEUTRAL_NIGHT=.85,ENV_NEUTRAL=0;
+  // The day's sky light over the Sky light slider's value (see where the hemisphere light is set).
+  const SKY_DAY_LIFT=1.4;
   const mist=new THREE.Color(),groundBounce=new THREE.Color(),sunColor=new THREE.Color(),skyE=new THREE.Color(),moonSkyE=new THREE.Color(),fog=new THREE.Color();
   const groundTint=new THREE.Color(.82,.9,.62),grade:Grade=gradeFor(1),moonDir=new THREE.Vector3(),keyDirection=new THREE.Vector3(),sampled=new Float64Array(6),sunAzimuth=new THREE.Vector2(1,0);
   const noonSky=skyIrradiance(new THREE.Vector3(0,.8,.6).normalize(),SUN_ILLUMINANCE),noonLuminance=noonSky.r*.2126+noonSky.g*.7152+noonSky.b*.0722;
@@ -299,7 +301,9 @@ export function createSky(renderer:THREE.WebGLRenderer,scene:THREE.Scene,sun:THR
       // The key light's colour with its strength against the sun's in it, as the water and the mist's shafts read it (they scale it
       // by the sun's illuminance): the moon's colour alone, at the sun's strength, lit the night sea a glowing daylight cyan.
       scatter.copy(sun.color).multiplyScalar(moonUp?moonLight/SUN_ILLUMINANCE:1);
-      hemi.color.copy(skyE);hemi.intensity=LIGHT_TUNING.sky;
+      // By day the sky's light is SKY_DAY_LIFT times the slider's: the slider's .25 was chosen for the night (2026-11-14) and left the
+      // day's shade a little too dark. It eases in with the sun between 6 degrees below the horizon and 3.5 above, as the night's own terms do.
+      hemi.color.copy(skyE);hemi.intensity=LIGHT_TUNING.sky*(1+(SKY_DAY_LIFT-1)*THREE.MathUtils.smoothstep(elevation,-.1,.06));
       // The ground's bounce from below: a dark, green-brown forest floor lit by the sun and sky together.
       hemi.groundColor.copy(sunColor).multiplyScalar(SUN_ILLUMINANCE*Math.max(elevation,0)).add(skyE).multiply(groundTint).multiplyScalar(.11);
       const skyLuminance=skyE.r*.2126+skyE.g*.7152+skyE.b*.0722;

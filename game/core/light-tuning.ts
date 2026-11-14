@@ -1,6 +1,6 @@
 /**
- * Live lighting knobs for Pause > Developer Options > Lighting: factors over the tuned values (1 changes nothing) and an exposure
- * offset in stops (0 changes nothing), read every frame by the code that owns each light. They are saved in this browser
+ * Live lighting knobs for Pause > Developer Options > Lighting: factors over the tuned values (1 changes nothing; `sky` and `night`
+ * start below 1 for now, see there) and an exposure offset in stops (0 changes nothing), read every frame by the code that owns each light. They are saved in this browser
  * (localStorage), so a tuned look survives the reload a code edit causes; Reset puts them all back.
  */
 export const LIGHT_DEFAULTS = {
@@ -12,10 +12,14 @@ export const LIGHT_DEFAULTS = {
   torchReach: 1,
   /** Sunlight, times. */
   sun: 1,
-  /** Sky light from above (the hemisphere), times; by night it is the moon's sky and the night floor. */
-  sky: 1,
-  /** The night's floor of airglow and starlight, times: how much of a moonless wood is readable without the torch. */
-  night: 1,
+  /** Sky light from above (the hemisphere), times; by night it is the moon's sky and the night floor.
+   *  .25 since 2026-11-14: chosen by the user on the slider, with `night` below, because the night had become far too bright. It
+   *  is the same factor by day, so the day's sky light is a quarter of its tuned value too, until the tuned values themselves are redone. */
+  sky: .25,
+  /** The night's floor of airglow and starlight, times: how much of a moonless wood is readable without the torch.
+   *  .4 on 2026-11-14 (see `sky`), then .6 the same day: the darkest places (a trunk's shadow, under the canopy) had gone too black.
+   *  Only this floor was raised: the eye's exposure rests at its cap at night, so lamps and the torch are no brighter for it. */
+  night: .6,
   /** Street lamps and the cabin's lantern, times. */
   lamps: 1,
   /** Mist and haze thickness, times. */
