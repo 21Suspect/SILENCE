@@ -20,6 +20,8 @@ import { createMeshSurface } from './surface-support';
 import { naturalLayout, groundedOrigin, type LayoutScatter } from '../../sim/world/placement';
 import { ROAD_CROSSING, BRIDGE_HALF_SPAN, BRIDGE_RAIL } from '../../sim/world/world-layout';
 import { WORLD_V2, WORLD_SEED } from '../../sim/world/world-flags';
+import { groundTileFeatures, GROUND_ROAD, GROUND_BANK, GROUND_MOUNTAIN } from '../../sim/world/ground-features';
+import type { GpuWarmup } from '../gpu/gpu-warmup';
 import { groundGeometry, buildTerrainTile, unpackTerrainTile, type TerrainTile, type PreparedTerrainTile } from './terrain-geometry';
 export { hash, noise, pathX, riverX, roadZ, roadDistance, heightAt } from '../../sim/world/world';
 
@@ -540,7 +542,55 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
   };
   material.userData.parallax=parallax;material.userData.relief=relief;
   material.customProgramCacheKey=()=> `silence-ground-layers-v4${WORLD_V2?`-w2-${WORLD_SEED}`:''}-${perfOn('groundTaps')?'taps':'all'}-${perfOn('groundRelief')?'relief':'legacy'}${devBuild?'-dev':''}`;
-  const terrainChunks=new Map<string,{tile:TerrainTile;mesh:THREE.Mesh}>();
+  // A tile that cannot show the road, a river bank or the mountain is drawn with a program built without them, and so is every tile
+  // inside the ring where the near ground hands over to the distant one (sim/world/ground-features.ts has the tiles' test and the
+  // measurement: the code for what is not there cost 3.3 ms of a 28 ms frame at 2560 x 1440 in the deep forest). Each cut puts a
+  // constant where the shader worked the mask out, and the compiler drops what hangs on it. A cut that no longer finds its line
+  // leaves the whole shader in: the picture is the same either way, only the saving is lost (said once, in the dev server).
+  const GROUND_FAR=8;
+  const GROUND_CUTS:[feature:number,from:string|RegExp,to:string][]=[
+    [GROUND_ROAD,'bool roadHere=roadFrame(p,roadA,roadS,roadT);','roadA=0.;roadS=0.;roadT=vec2(1.,0.);bool roadHere=false;'],
+    [GROUND_BANK,'float bank=bedWeight(vGroundPosition);','float bank=0.;'],
+    [GROUND_MOUNTAIN,/mz=mountainZone\(vGroundPosition\)[^;]*;/,'mz=0.;'],
+    // The hand-over to the distant ground stays in the tiles that reach its ring (GROUND_FAR, see updateChunks): a program each, so
+    // the ring's tiles (2.3 ms of the frame with the whole shader) lose what they cannot show as well.
+    [GROUND_FAR,`float distantBlend=smoothstep(max(uNearCoverage*.65,uNearCoverage-${TRANSITION_WIDTH}.),uNearCoverage,detailDistance);`,'float distantBlend=0.;'],
+  ];
+  const groundVariants=new Map<number,THREE.MeshStandardMaterial>();
+  /** The ground's material with only `keep` left in: one of the GROUND_ features or none, with or without GROUND_FAR. */
+  const groundVariant=(keep:number)=>{
+    let variant=groundVariants.get(keep);
+    if(!variant){
+      variant=new THREE.MeshStandardMaterial({roughness:1,color:0xffffff});variant.userData=material.userData;
+      variant.onBeforeCompile=(shader,renderer)=>{
+        material.onBeforeCompile(shader,renderer);
+        let source=shader.fragmentShader;
+        for(const [feature,from,to] of GROUND_CUTS){
+          if(feature&keep)continue;
+          const cut=source.replace(from,to);
+          if(cut===source){if(devBuild)console.warn(`SILENCE: the ground shader no longer has "${String(from).slice(0,48)}": tiles are drawn with the whole shader (terrain.ts GROUND_CUTS).`);return;}
+          source=cut;
+        }
+        shader.fragmentShader=source;
+      };
+      variant.customProgramCacheKey=()=>`${material.customProgramCacheKey()}-keep${keep}`;
+      groundVariants.set(keep,variant);
+    }
+    return variant;
+  };
+  // Their programs are built behind the loading veil (in every light state, like everything else): a tile by the river must not
+  // compile the bank's variant in the frame it is first drawn.
+  let variantsWarmed=false;
+  const warmGroundVariants=()=>{
+    const warm=scene.userData.gpuWarmup as GpuWarmup|undefined;if(!warm)return;
+    variantsWarmed=true;
+    const stand=new THREE.PlaneGeometry(1,1),group=new THREE.Group();
+    stand.setAttribute('treeGround',new THREE.BufferAttribute(new Float32Array(4),1));stand.setAttribute('biome',new THREE.BufferAttribute(new Float32Array(16),4));stand.setAttribute('horizonY',new THREE.BufferAttribute(new Float32Array(4),1));
+    for(const keep of [0,GROUND_ROAD,GROUND_BANK,GROUND_MOUNTAIN])for(const far of [0,GROUND_FAR]){const mesh=new THREE.Mesh(stand,groundVariant(keep|far));mesh.receiveShadow=true;group.add(mesh);}
+    warm.add({label:'ground variants',textures:[],object:group});
+  };
+  // `keep`: the one feature the tile's program keeps (0 none), or -1 for the whole shader (a tile with two of them: a bridge, a tunnel's mouth).
+  const terrainChunks=new Map<string,{tile:TerrainTile;mesh:THREE.Mesh;keep:number}>();
   // The low-detail distant surface preserves the mountain silhouette and covers
   // teleports while near chunks stream. It is below the exact walkable surface.
   const horizonMaterial=new THREE.MeshStandardMaterial({map:stoneMap,color:horizonColor,roughness:.98});
@@ -625,7 +675,8 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
     // distance dissolve), so the GPU cannot hide them for free the other way round. Measured at 1920x1080: -1.2 ms at the
     // canopy station, -0.45 ms at spawn (interleaved A/B, work/perf/ov.js).
     if(perfOn('terrainLast'))mesh.renderOrder=1;
-    scene.add(mesh);terrainChunks.set(tileKey(tile),{tile,mesh});
+    const features=groundTileFeatures(tile.x,tile.z);
+    scene.add(mesh);terrainChunks.set(tileKey(tile),{tile,mesh,keep:features===0||features===GROUND_ROAD||features===GROUND_BANK||features===GROUND_MOUNTAIN?features:-1});
   }
   function stopWorker(){
     worker?.terminate();worker=undefined;requested=undefined;prepared=undefined;
@@ -671,9 +722,21 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
     // uncached area, reveal the complete detail outward over the coarse ground.
     nearCoverage.value=initial?coverage:Math.min(coverage,nearCoverage.value+Math.min(now-lastCoverageUpdate,50)*.16);
     lastCoverageUpdate=now;
-    for(const [key,{tile,mesh}] of terrainChunks){
+    // Inside this radius the hand-over to the distant ground is exactly zero (the shader's own smoothstep), so a tile whose farthest
+    // corner is inside it (a metre to spare) draws the same without that code; the others keep it (GROUND_FAR).
+    const handOver=Math.max(nearCoverage.value*.65,nearCoverage.value-TRANSITION_WIDTH),variants=WORLD_V2&&perfOn('groundVariants');
+    if(variants&&!variantsWarmed&&perfOn('streamWarmup'))warmGroundVariants();
+    for(const [key,{tile,mesh,keep}] of terrainChunks){
       const distance2=tileDistanceSquared(tile.x,tile.z,player.x,player.z);
       mesh.visible=distance2<nearCoverage.value**2;
+      const farX=Math.max(Math.abs(player.x-tile.x*TERRAIN_CHUNK),Math.abs(player.x-(tile.x+1)*TERRAIN_CHUNK)),farZ=Math.max(Math.abs(player.z-tile.z*TERRAIN_CHUNK),Math.abs(player.z-(tile.z+1)*TERRAIN_CHUNK));
+      mesh.material=variants&&keep>=0?groundVariant(Math.hypot(farX,farZ)+1<handOver?keep:keep|GROUND_FAR):material;
+      // three.js draws opaque things of one render order grouped by material, then front to back. With one ground material that was
+      // front to back; with the variants it became by program, and on a mountainside (ground behind ground) the far tiles' pixels
+      // were shaded and then covered, and the variants (made later than the far forest's material) came after the far forest's
+      // impostors at the same order, which then drew every tree the hillside hides: 1.4 ms slower at the overlook. The order is now
+      // the tile's own distance, nearest first, after the streamed forest (0) and before the far forest (1).
+      if(perfOn('terrainLast'))mesh.renderOrder=variants?.5+Math.sqrt(distance2)*1e-4:1;
       if(distance2>RETAIN_RADIUS**2){scene.remove(mesh);mesh.geometry.dispose();terrainChunks.delete(key);releaseTerrainBlock(tile.x,tile.z);}
     }
   }
@@ -834,6 +897,6 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
       }
       return support;
     },
-    dispose() {stopWorker();for(const {tile,mesh} of terrainChunks.values()){scene.remove(mesh);mesh.geometry.dispose();releaseTerrainBlock(tile.x,tile.z);}terrainChunks.clear();scene.remove(horizon);horizon.geometry.dispose();horizonMaterial.dispose();for(const t of textures)t.dispose();for(const g of bridgeGeometries)g.dispose();material.dispose();river.dispose();boulderGeo.dispose();boulderMat.dispose();markerMat.dispose();for(const g of markerGeometries)g.dispose();wood.dispose();}
+    dispose() {stopWorker();for(const variant of groundVariants.values())variant.dispose();for(const {tile,mesh} of terrainChunks.values()){scene.remove(mesh);mesh.geometry.dispose();releaseTerrainBlock(tile.x,tile.z);}terrainChunks.clear();scene.remove(horizon);horizon.geometry.dispose();horizonMaterial.dispose();for(const t of textures)t.dispose();for(const g of bridgeGeometries)g.dispose();material.dispose();river.dispose();boulderGeo.dispose();boulderMat.dispose();markerMat.dispose();for(const g of markerGeometries)g.dispose();wood.dispose();}
   };
 }

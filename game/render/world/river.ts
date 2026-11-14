@@ -6,6 +6,7 @@ import { SUN_ILLUMINANCE } from './sky-model';
 import { LIGHT_TUNING } from '../../core/light-tuning';
 import { WORLD_V2 } from '../../sim/world/world-flags';
 import { LAKE_CENTER, LAKE_RADII, LAKE_LEVEL, SEA_LEVEL, lakeDistance, coastDistance, coastalGLSL, lakeOutlineGLSL } from '../../sim/world/coastal-geography';
+import { perfOn } from '../../core/perf-flags';
 
 /** Live ripple rings: a footfall each stride, plus the small rings of drops coming back down. */
 const RIPPLES=WORLD_V2?12:8;
@@ -131,6 +132,11 @@ const waterV2Main=(branchCount:number)=>`
         float bedSlope=max((abs(dFdx(below))+abs(dFdy(below)))/max(length(dpx)+length(dpy),1e-4),.04),shoreDist=below/bedSlope;
         // Surface intersection is determined by the real depth-buffer shoreline.
         if(thickness<.001)discard;
+        #ifdef WATER_PROBE
+        // The sea's pixel count (createRiver, watch): about one visible pixel in a thousand passes, on a fixed screen pattern.
+        if(fract(52.9829189*fract(dot(floor(gl_FragCoord.xy),vec2(.06711056,.00583715))))>.001)discard;
+        gl_FragColor=vec4(0.);return;
+        #endif
         float river=step(vRibbon,1.5),isLake=step(1.5,vRibbon)*(1.-step(2.5,vRibbon)),isSea=step(2.5,vRibbon);
         // Who draws which pixel. The river owns its channel (the mouth-rounded channel mask) down to the shoreline; the lake and
         // the sea own everything past it, and a little beyond their outlines outside the channel, so a bank that dips under
@@ -525,10 +531,56 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
   // The mist over water and its shores, as a share of the wood's (mist-cover.ts: .08 over water, .28 on open land).
   const MIST_OVER_WATER=.2;
   let skyObjects:THREE.Object3D[]|undefined;
-  stream.onBeforeRender=function(renderer,world,camera,geo,mat,group){
+  // Has any water reached the screen? The sea's box is in view from everywhere on the island and a river is 'near' at 55 m, so the
+  // reflection (the far world, then 2.4 M triangles of the near one) was drawn on every second frame in a forest with no water
+  // in sight: 3.7 ms of a 31 ms frame at 2560 x 1440 (work/fable). The water's own shader discards what the land hides, so an
+  // occlusion query round each water body's draw answers exactly that, a frame or two late, for the river, the lake and the sea
+  // apart: the open sea shows at the horizon through any gap in the wood, but only water within about a metre of the reflection's
+  // plane takes the reflection (localReflection in the shader), so the sea counts only where the plane is the sea's or lies at
+  // its level (`seaMatters`, see update). And a query only says whether any pixel was drawn: for the sea, whose far water takes the
+  // reflection too and shows as a few pixels between the trunks from 200 m inland, the count is taken on a stand-in drawn with the
+  // same shader that keeps one visible pixel in a thousand (WATER_PROBE), so the sea counts from a couple of thousand pixels up
+  // (a twentieth of a percent of the picture) and a glimpse of it does not. While no water that matters has been drawn for
+  // REFLECTION_UNSEEN the reflection is left out; standing at the water (`atWater`) it is always drawn, so turning round on a
+  // shore never meets a lake without its reflection.
+  const REFLECTION_UNSEEN=2000;
+  let atWater=true,seaMatters=true;
+  const watch=(()=>{
+    // Bodies: 0 the river, 1 the lake, 2 the sea.
+    const pending:{query:WebGLQuery,body:number}[]=[],spare:WebGLQuery[]=[],seenAt=[-1,-1,-1];let active:{query:WebGLQuery,body:number}|null=null;
+    const context=(renderer:THREE.WebGLRenderer)=>renderer.getContext() as WebGL2RenderingContext;
+    return {
+      /** Reads the answers that have arrived (in order: a later one is never ready before an earlier one). */
+      poll(renderer:THREE.WebGLRenderer){
+        const gl=context(renderer);if(seenAt[0]<0)seenAt.fill(performance.now());
+        while(pending.length&&gl.getQueryParameter(pending[0].query,gl.QUERY_RESULT_AVAILABLE)){
+          const {query,body}=pending.shift()!;if(gl.getQueryParameter(query,gl.QUERY_RESULT))seenAt[body]=performance.now();spare.push(query);
+        }
+      },
+      begin(renderer:THREE.WebGLRenderer,body:number){
+        // A stalled driver must not pile queries up: with twelve unanswered the water counts as seen and nothing more is asked.
+        if(active||body<0)return;if(pending.length>=12){seenAt.fill(performance.now());return;}
+        const gl=context(renderer),query=spare.pop()??gl.createQuery();if(!query)return;
+        gl.beginQuery(gl.ANY_SAMPLES_PASSED,query);active={query,body};
+      },
+      end(renderer:THREE.WebGLRenderer){if(!active)return;context(renderer).endQuery(WebGL2RenderingContext.ANY_SAMPLES_PASSED);pending.push(active);active=null;},
+      /** Milliseconds since each body (river, lake, sea) was last seen. */
+      ages(){const now=performance.now();return seenAt.map(t=>Math.round(now-t));},
+      /** Milliseconds since water that takes the reflection was last known to be on screen (0 before the first answer). */
+      unseen(){if(seenAt[0]<0)return 0;return performance.now()-Math.max(seenAt[0],seenAt[1],seaMatters?seenAt[2]:-Infinity);},
+      dispose(renderer?:THREE.WebGLRenderer){if(!renderer)return;const gl=context(renderer);for(const query of [...pending.map(p=>p.query),...spare])gl.deleteQuery(query);pending.length=spare.length=0;},
+    };
+  })();
+  let watchRenderer:THREE.WebGLRenderer|undefined;
+  // Dev: __SILENCE__.perf.scene().userData.waterSeen() says why the reflection is or is not being drawn.
+  if(import.meta.env.DEV)scene.userData.waterSeen=()=>({atWater,seaMatters,unseenMs:Math.round(watch.unseen()),sinceSeenMs:watch.ages()});
+  const reflectWater:typeof stream.onBeforeRender=function(this:THREE.Object3D,renderer,world,camera,geo,mat,group){
     if(import.meta.env.DEV&&world.userData.profileSkipReflection)return;
     const {uniforms}=material;
     if(uniforms.uReflectionDetail.value<.001){reflectionReady=false;return;}
+    // No water on screen for a while and none at hand: nothing to reflect into (the shader's sky fallback covers the frame or two
+    // before the reflection is back once some is seen again).
+    if(perfOn('reflectionSeen')&&!atWater&&watch.unseen()>REFLECTION_UNSEEN&&!(import.meta.env.DEV&&world.userData.profileForceReflection)){reflectionReady=false;uniforms.uReflectionDetail.value=0;return;}
     cameraWorldPosition.setFromMatrixPosition(camera.matrixWorld);
     // Reflector itself skips a surface that faces away from the camera. Keep
     // the cache invalid in that case, and force the water shader to use its
@@ -571,6 +623,10 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
     reflectionSky.copy(uniforms.uSky.value);reflectionScatter.copy(uniforms.uSunScatterColor.value);reflectionSun.copy(uniforms.uSunDirection.value);
     reflectionTime=time;reflectionDarkness=darkness;reflectedFlashlight=flashlight;reflectionReady=true;
   };
+  // Every water body: the reflection first (it draws the world, and must not be counted), then the count of its own pixels.
+  /** A water body's hook: the reflection, then the count of its pixels as `body` (-1: not counted here). */
+  const watched=(body:number):typeof stream.onBeforeRender=>(renderer,world,camera,_geo,_mat,group)=>{watchRenderer=renderer;watch.poll(renderer);reflectWater.call(stream,renderer,world,camera,geometry,material,group);watch.begin(renderer,body);};
+  stream.onBeforeRender=watched(0);stream.onAfterRender=renderer=>watch.end(renderer);
   scene.add(stream);
   // Broad bodies reuse this material and its one reflection target. Their actual
   // shoreline comes from the same geographic mask and opaque depth as terrain.
@@ -590,11 +646,19 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
     for(let j=0;j<nz;j++)for(let i=0;i<nx;i++){const a=j*(nx+1)+i,b=a+nx+1;idx.push(a,b,a+1,a+1,b,b+1);}
     const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(p,3));g.setAttribute('uv',new THREE.Float32BufferAttribute(u,2));g.setAttribute('aRibbon',new THREE.Float32BufferAttribute(k,1));g.setIndex(idx);
     const mesh=new THREE.Mesh(g,material);mesh.rotation.x=-Math.PI/2;mesh.layers.set(1);mesh.frustumCulled=false;mesh.name=name;
-    mesh.onBeforeRender=(renderer,world,camera,_geo,_mat,group)=>stream.onBeforeRender(renderer,world,camera,geometry,material,group);
+    mesh.onBeforeRender=watched(kind===2?1:-1);mesh.onAfterRender=renderer=>watch.end(renderer);
     scene.add(mesh);return mesh;
   }
   const lake=WORLD_V2?broadSurface('Lake — connected alpine watershed',2,LAKE_CENTER.x-LAKE_RADII.x*1.4,LAKE_CENTER.x+LAKE_RADII.x*1.4,LAKE_CENTER.z-LAKE_RADII.z*1.4,LAKE_CENTER.z+LAKE_RADII.z*1.4,52,72):null;
   const sea=WORLD_V2?broadSurface('Open sea — coastal horizon',3,-16000,16000,-16000,16000,80,100):null;
+  // The sea's stand-in for the pixel count: the sea's own mesh and shader, cut short after the test against the land (see watch).
+  const seaProbe=sea?new THREE.Mesh(sea.geometry,new THREE.ShaderMaterial({name:'Sea pixel count',uniforms:material.uniforms,vertexShader:material.vertexShader,fragmentShader:material.fragmentShader,
+    defines:{...material.defines,WATER_PROBE:1},glslVersion:material.glslVersion,side:material.side,colorWrite:false,depthWrite:false,depthTest:false})):null;
+  if(seaProbe){
+    seaProbe.rotation.x=-Math.PI/2;seaProbe.layers.set(1);seaProbe.frustumCulled=false;seaProbe.name='Sea pixel count';
+    seaProbe.onBeforeRender=renderer=>{watchRenderer=renderer;watch.poll(renderer);watch.begin(renderer,2);};seaProbe.onAfterRender=renderer=>watch.end(renderer);
+    scene.add(seaProbe);
+  }
   const lakeBounds=new THREE.Box3(new THREE.Vector3(LAKE_CENTER.x-LAKE_RADII.x*1.4,LAKE_LEVEL-.2,LAKE_CENTER.z-LAKE_RADII.z*1.4),new THREE.Vector3(LAKE_CENTER.x+LAKE_RADII.x*1.4,LAKE_LEVEL+.2,LAKE_CENTER.z+LAKE_RADII.z*1.4));
   const seaBounds=new THREE.Box3(new THREE.Vector3(-16000,SEA_LEVEL-.3,-16000),new THREE.Vector3(16000,SEA_LEVEL+.3,16000));
   let lakeNearby=false,seaNearby=false;
@@ -653,6 +717,9 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
       // The sun's light at the ground, which lights the water's own colour and its foam (the sky's is uSky).
       if(WORLD_V2&&scene.userData.sunScatterColor)(material.uniforms.uSunLight.value as THREE.Color).copy(scene.userData.sunScatterColor).multiplyScalar(SUN_ILLUMINANCE*LIGHT_TUNING.sun);
       nearby=distance<110&&Math.abs(player.z)<RIVER_EXTENT+110;lakeNearby=lakeNear<450;seaNearby=seaNear<1000;
+      // Within thirty metres of any water its reflection is kept whether or not the water is in view (see `watch`).
+      atWater=distance<30||lakeNear<30||seaNear<30;
+      seaMatters=nearSea||Math.abs((nearLake?LAKE_LEVEL:waterHeightAt(player.z))-SEA_LEVEL)<2;
       material.uniforms.uReflectionDetail.value=Math.max(lakeWeight,seaWeight,riverWeight);
       // The mist the reflected light crosses: the hour's and the weather's (sky.ts), as thin as it lies over water (mist-cover.ts).
       if(WORLD_V2)material.uniforms.uMist.value=((scene.userData.fogDensity as number|undefined)??1)*MIST_OVER_WATER;
@@ -677,12 +744,14 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
       stream.visible=nearby&&bounds.some(box=>frustum.intersectsBox(box)&&Math.abs((box.min.z+box.max.z)*.5-camera.position.z)<115);
       if(lake)lake.visible=lakeNearby&&frustum.intersectsBox(lakeBounds);
       if(sea)sea.visible=seaNearby&&frustum.intersectsBox(seaBounds);
+      if(seaProbe)seaProbe.visible=!!sea?.visible&&perfOn('reflectionSeen');
     },
     get visible(){return stream.visible||!!lake?.visible||!!sea?.visible;},
     get reflectionPlane(){return reflectionPlane;},
     dispose(){
-      disposed=true;scene.remove(stream);stream.dispose();geometry.dispose();
+      disposed=true;watch.dispose(watchRenderer);scene.remove(stream);stream.dispose();geometry.dispose();
       for(const body of [lake,sea])if(body){scene.remove(body);body.geometry.dispose();}
+      if(seaProbe){scene.remove(seaProbe);(seaProbe.material as THREE.Material).dispose();}
       if(WORLD_V2){waterNormal?.dispose();waterFoam?.dispose();for(const t of loadedTextures)t.dispose();if(scene.userData.waterRing===ring)delete scene.userData.waterRing;}
     }
   };

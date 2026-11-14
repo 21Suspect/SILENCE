@@ -586,7 +586,9 @@ export function createGame(container:HTMLElement) {
     if(settings.frameCap>0&&!benchActive&&now-last<1000/settings.frameCap*.85)return;
     const frameDuration=now-last,startCPU=performance.now();
     if(probe)probe.marks.start=startCPU;
-    const rawDelta=Math.min(frameDuration/1000,.1);last=now;
+    // Never negative: after snap() (dev) or a long block the browser can hand the next frame a timestamp older than `last`, and a negative
+    // step ran the clock, the fades and the camera's easing backwards (the camera left the world, measurements and stills went wrong).
+    const rawDelta=Math.max(0,Math.min(frameDuration/1000,.1));last=now;
     if(benchmarking)return;
     if(document.hidden)return;
     if(!loading&&admin.open){admin.update(now);return;}
