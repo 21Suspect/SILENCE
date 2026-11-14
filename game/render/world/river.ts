@@ -4,9 +4,9 @@ import { RIVER_EXTENT, waterHeightAt, waterGradeAt, riverProfileGLSL, riverCours
 import { BRANCHES, BRANCH_NARROW, branchX } from '../../sim/world/world-noise';
 import { SUN_ILLUMINANCE } from './sky-model';
 import { LIGHT_TUNING } from '../../core/light-tuning';
+import { perfOn } from '../../core/perf-flags';
 import { WORLD_V2 } from '../../sim/world/world-flags';
 import { LAKE_CENTER, LAKE_RADII, LAKE_LEVEL, SEA_LEVEL, lakeDistance, coastDistance, coastalGLSL, lakeOutlineGLSL } from '../../sim/world/coastal-geography';
-import { perfOn } from '../../core/perf-flags';
 
 /** Live ripple rings: a footfall each stride, plus the small rings of drops coming back down. */
 const RIPPLES=WORLD_V2?12:8;
@@ -126,7 +126,11 @@ const waterV2Main=(branchCount:number)=>`
         // Metres of water under the surface to the ground seen through this pixel (across the surface, which tilts down a
         // stream's steps: measured straight down, water above the eye on a cascade had no depth and vanished), and along the
         // view ray. Points on one ray scale with view depth, so the ground lies thickness/vViewDepth of vEye further on.
-        float through=thickness/max(vViewDepth,.001),below=max(dot(vEye,normalize(vec3(-vSlope.x,1.,-vSlope.y))),0.)*through,path=length(vEye)*through;
+        // The lake and the sea are level: their depth is measured straight down. Their ripple slope comes from the vertices, and on
+        // the sea's kilometre-wide triangles far out it is aliased into broad bands; tilted by it, the eye's kilometres-long ray
+        // put the bed above the surface there and the water went clear in long slivers along the horizon.
+        float level=step(1.5,vRibbon);
+        float through=thickness/max(vViewDepth,.001),below=max(dot(vEye,normalize(vec3(-vSlope.x*(1.-level),1.,-vSlope.y*(1.-level)))),0.)*through,path=length(vEye)*through;
         // Metres across the bed to the waterline: the depth over how fast it grows from pixel to pixel. A flat sandy shallow
         // and a steep bank then get the same narrow fringe of froth, where a band of depth alone covered the whole flat.
         float bedSlope=max((abs(dFdx(below))+abs(dFdy(below)))/max(length(dpx)+length(dpy),1e-4),.04),shoreDist=below/bedSlope;
@@ -523,6 +527,11 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
   // shader, while the expensive reflected forest render is not repeated at
   // display refresh rate for a static view.
   const reflectionInterval=.032,reflectionMoveEpsilon=.015,reflectionTurnLimit=Math.cos(.0025*.5);
+  // While the camera only walks (a few centimetres a frame) the reflection is redrawn at most every REFLECTION_WALK seconds: the
+  // water reprojects the last one through the camera it was drawn from (uReflectionCameraWorld), so the parallax a frame of
+  // walking leaves is under a pixel of a rippled reflection. A turn past REFLECTION_TURN redraws at once, so no edge of the water
+  // ever samples outside the last reflection's view. Redrawn every frame it cost about 2.4 ms by the lake (both passes).
+  const REFLECTION_WALK=1/40,reflectionTurnNow=Math.cos(.0175*.5);
   // Two passes into the one reflection target. First the far world (layer 3: the island seen from afar, the far range and the
   // sky) out to the main camera's far plane; then, with only the depth cleared, the near world (layer 0: the ground round the
   // player, trees, props) out to REFLECTION_NEAR, drawn over it. One pass at 240 m left the lake's far shore and every mountain
@@ -590,9 +599,11 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
     camera.getWorldQuaternion(cameraQuaternion);
     const time=uniforms.uTime.value as number,darkness=uniforms.uDarkness.value as number;
     const flashlight=!!world.userData.flashlight;
-    const cameraChanged=cameraWorldPosition.distanceToSquared(reflectionPosition)>reflectionMoveEpsilon**2||Math.abs(cameraQuaternion.dot(reflectionQuaternion))<reflectionTurnLimit;
+    const turnDot=Math.abs(cameraQuaternion.dot(reflectionQuaternion)),turnedNow=turnDot<reflectionTurnNow;
+    const cameraChanged=cameraWorldPosition.distanceToSquared(reflectionPosition)>reflectionMoveEpsilon**2||turnDot<reflectionTurnLimit;
     const lightingChanged=Math.abs(darkness-reflectionDarkness)>.002||flashlight!==reflectedFlashlight||colorChanged(uniforms.uSky.value,reflectionSky)||colorChanged(uniforms.uSunScatterColor.value,reflectionScatter)||reflectionSun.distanceToSquared(uniforms.uSunDirection.value)>1e-6;
     if(reflectionReady&&time>=reflectionTime&&time-reflectionTime<reflectionInterval&&!cameraChanged&&!lightingChanged&&!(import.meta.env.DEV&&world.userData.profileForceReflection))return;
+    if(perfOn('reflectionWalk')&&reflectionReady&&time>=reflectionTime&&time-reflectionTime<REFLECTION_WALK&&!turnedNow&&!lightingChanged&&!(import.meta.env.DEV&&world.userData.profileForceReflection))return;
     const background=world.background;world.background=world.userData.skyColor ?? background;
     const sourceCamera=camera as THREE.PerspectiveCamera;
     const sourceFar=sourceCamera.far,virtual=stream.camera,clearColour=renderer.autoClearColor,autoClear=renderer.autoClear;
@@ -600,9 +611,11 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
     const skyShown=skyObjects.map(o=>o.visible);
     const wasVisible=stream.visible;
     try{
-      // The far world and the sky, at the main camera's own far plane.
+      // The far world and the sky, at the main camera's own far plane, without the ground under the sea (terrain.ts reflectionClip).
       virtual.layers.set(FAR_LAYER);
+      const clip=world.userData.reflectionClip as {value:number}|undefined;if(clip)clip.value=SEA_LEVEL+.05;
       reflect.call(this,renderer,world,camera,geo,mat,group);
+      if(clip)clip.value=-1e9;
       // The near world over it: depth cleared, colour kept, the sky left out (it would cover the far pass from its far depth).
       // The water pass runs with autoClear off, which makes the Reflector clear everything itself; with autoClear on and the
       // colour's clear off, only the depth is cleared.
@@ -612,6 +625,7 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
       reflect.call(this,renderer,world,camera,geo,mat,group);
     }finally{
       renderer.autoClear=autoClear;renderer.autoClearColor=clearColour;stream.visible=wasVisible;
+      const clipAfter=world.userData.reflectionClip as {value:number}|undefined;if(clipAfter)clipAfter.value=-1e9;
       skyObjects.forEach((o,i)=>{o.visible=skyShown[i];});
       if(sourceFar>REFLECTION_NEAR){sourceCamera.far=sourceFar;sourceCamera.updateProjectionMatrix();}
       world.background=background;
@@ -728,7 +742,7 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
       // glassy and mirrors the land), stirs once the sun is well up and blows hardest under a high sun. Where the mist's
       // weather is thick (sim/world/weather.ts) the air is stiller still. 0.15 is a glassy calm, 1.1 a fresh breeze.
       if(WORLD_V2){
-        const sunUp=Math.max(0,(scene.userData.sunDirection as THREE.Vector3|undefined)?.y??0),afternoon=THREE.MathUtils.smoothstep(sunUp,.3,.8);
+        const sunUp=Math.max(0,(scene.userData.solarElevation as number|undefined)??0),afternoon=THREE.MathUtils.smoothstep(sunUp,.3,.8);
         const weather=(scene.userData.mistWeather as number|undefined)??1;
         material.uniforms.uWind.value=THREE.MathUtils.clamp(.18+.9*afternoon-(weather-1)*.35,.15,1.1);
       }

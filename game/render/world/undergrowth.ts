@@ -10,6 +10,7 @@ import { createSlice, runSlice, runToEnd, type Slice } from '../../core/time-sli
 import { perfOn } from '../../core/perf-flags';
 import { INSTANCE_CULL_HEADER, instanceCullGLSL, instanceCullSwitch } from './instance-cull';
 import { foliageLite } from './foliage-shading';
+import { lodDitherGLSL } from './lod-dither';
 import { coastDistance, beachWidth } from '../../sim/world/coastal-geography';
 import { WORLD_V2 } from '../../sim/world/world-flags';
 
@@ -308,13 +309,14 @@ export function createUndergrowth(
           ${fernLOD?`vFernBlend=${fernLOD==='near'?'0.':'1.'};`:''}
         #endif
       `);
-      shader.fragmentShader = `varying vec3 vPlantSoil; varying float vPlantRootShade; varying float vPlantFade; ${fernVarying}${reflected?'uniform bool uUnderstoryDither;':''}\n${shader.fragmentShader}`
+      shader.fragmentShader = `varying vec3 vPlantSoil; varying float vPlantRootShade; varying float vPlantFade; ${fernVarying}${reflected?'uniform bool uUnderstoryDither;':''}\n${lodDitherGLSL}\n${shader.fragmentShader}`
         .replace('#include <alphatest_fragment>', `
-          // MSAA coverage smooths both photographed leaf edges and the distance
-          // fade. No screen-space hash speckles are added to the distant fog.
+          // MSAA coverage smooths the photographed leaf edges. The distance fade is the complementary dither every hand-over uses
+          // (lod-dither.ts): past it each plant goes on as its own impostor (far-plants.ts), which takes exactly the pixels this
+          // gives up. Faded by coverage instead, the two overlapped and mid-band a quarter of the ground cover was missing.
           float alphaWidth=max(fwidth(diffuseColor.a),.0001);
-          diffuseColor.a=smoothstep(alphaTest-alphaWidth,alphaTest+alphaWidth,diffuseColor.a)*vPlantFade;
-          if(diffuseColor.a<.003)discard;
+          diffuseColor.a=smoothstep(alphaTest-alphaWidth,alphaTest+alphaWidth,diffuseColor.a);
+          if(diffuseColor.a<.003||lodFadeDiscard(1.,vPlantFade))discard;
         `)
         .replace('#include <alphahash_fragment>', reflected?`
           ${fernLOD?`if(vFernBlend>0.&&vFernBlend<1.&&getAlphaHashThreshold(vPosition)${fernLOD==='near'?'<':'>='}vFernBlend)discard;`:''}
@@ -341,7 +343,7 @@ export function createUndergrowth(
         `);
       foliageLite(shader);
     };
-    material.customProgramCacheKey = () => `silence-understory-streamed-${distance}-${breeze}-${fernLOD??''}-${band[0]}-${band[1]}-${rootShade}`;
+    material.customProgramCacheKey = () => `silence-understory-streamed-v2-${distance}-${breeze}-${fernLOD??''}-${band[0]}-${band[1]}-${rootShade}`;
     materials.push(material);
     return material;
   }
@@ -714,6 +716,17 @@ export function createUndergrowth(
   }
   return {
     ready,
+    /** The far plants' sources (far-plants.ts), once loaded: each kind's own models and materials and the range it is drawn to.
+     *  The celandine is left out: 40 cm plants are under a pixel past their 26 m. */
+    get impostorSource() {
+      if (!loaded || disposed) return undefined;
+      const plants: { flora: string; range: number; models: { geometry: THREE.BufferGeometry; material: THREE.Material }[] }[] = kinds.filter(k => k.flora !== 'celandine').map(k => ({ flora: k.flora, range: k.range, models: k.near.map(b => ({ geometry: b.geometry, material: b.material as THREE.Material })) }));
+      // The short grass at its own farthest levels: the fine tufts' and the swards' widest patches (the leaf carpets lie flat and
+      // are under a pixel past their 26 m).
+      plants.push({ flora: 'fine', range: GRASS_RANGE, models: farFine.map(b => ({ geometry: b.geometry, material: b.material as THREE.Material })) });
+      plants.push({ flora: 'meadow', range: MEADOW_RANGE, models: meadow[2].map(b => ({ geometry: b.geometry, material: b.material as THREE.Material })) });
+      return plants;
+    },
     /** `deferRefresh`: the forest is rebuilding this frame, so no new ring is started (one already under way carries on). */
     update(time: number, player: THREE.Vector3, deferRefresh = false) {
       timeUniform.value = time; eyeUniform.value.copy(player);

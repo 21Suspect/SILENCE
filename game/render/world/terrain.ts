@@ -6,6 +6,8 @@ import { createRiver } from './river';
 import { createGroundLayers } from './ground-layers';
 import { mountainLayers, mountainGLSL } from './mountain-surface';
 import { horizonAngles, gridHeights, horizonGLSL } from './terrain-horizon';
+import { farShadowGLSL, type FarShadow } from './far-shadow';
+import { bakeIslandMasks } from './mountain-bake-run';
 import { textureVariationGLSL } from './texture-variation';
 import { perfOn, devBuild } from '../../core/perf-flags';
 import { createRockGeometry, createRockMaterial, createWeatheredWoodMaterial } from './surfaces';
@@ -28,6 +30,16 @@ export { hash, noise, pathX, riverX, roadZ, roadDistance, heightAt } from '../..
 export const exclusion=vegetationExclusion;
 const DETAIL_RADIUS=112, TRANSITION_WIDTH=18, PREFETCH_RADIUS=144, RETAIN_RADIUS=160;
 const horizonColor=0x99998f;
+// The geology masks' grid: the distant terrain's own (horizonGeometry below), so the masks fit the land it draws.
+const MACRO_N=385,MACRO_STEP=WORLD_EXTENT*2/(MACRO_N-1);
+/** The macro texture (three panels on the distant terrain's 4 m grid: the range's masks, the distant ground's A and B), declared
+ *  once in whichever shader snippet comes first. */
+const macroGLSL=`
+  #ifndef SILENCE_MACRO
+  #define SILENCE_MACRO
+  uniform sampler2D uMacro;
+  vec2 macroAt(vec2 xz,float panel){vec2 at=((xz+${WORLD_EXTENT}.)/${MACRO_STEP}.+.5)/${MACRO_N}.;return vec2((clamp(at.x,.5/${MACRO_N}.,1.-.5/${MACRO_N}.)+panel)/3.,at.y);}
+  #endif`;
 const horizonTextureGLSL=`${mountainGLSL}
   vec3 horizonTexture(sampler2D tex,vec3 p,vec3 n){
     vec3 w=pow(abs(normalize(n)),vec3(4.));w/=max(dot(w,vec3(1.)),.0001);
@@ -47,9 +59,56 @@ const horizonTextureGLSL=`${mountainGLSL}
     float foot=342.+sin(p.x*.009+.2)*29.+sin(p.x*.027+1.)*11.;
     return max(smoothstep(foot-10.,foot+40.,p.z),smoothstep(440.,500.,abs(p.x)))*smoothstep(3.,12.,p.y);
   }
-  // The island's tree line and snow line (the massifs rise to 140 to 200 m and are bare rock; coastal-geography.ts snowCoverage).
-  // Conifers in a band at the foot, clumps on the ledges above; the rest is rock and scree.
-  const vec2 ISLAND_LINES=vec2(55.,330.);
+  // The island's tree line and snow line (the massifs rise to 140 to 250 m; coastal-geography.ts snowCoverage). Forest up the
+  // lower slopes to about 90 m, higher in the gullies and lower on the spurs (mountain-surface.ts), clumps above; then rock and scree.
+  const vec2 ISLAND_LINES=vec2(88.,330.);
+  // The range's geology masks (mountain-masks.ts), baked at load on the distant terrain's 4 m grid: 385 x 385 from (-768, -768).
+  // One texture of three panels on that grid (the masks, then the distant ground's two, farGroundGLSL): the near ground's shader
+  // is at WebGL's sixteen samplers once the torch's and a lamp's shadow maps are in. Each read is clamped inside its own panel.
+  ${macroGLSL}
+  vec4 mountainGeo(vec3 p){return texture(uMacro,macroAt(p.xz,0.));}
+`;
+
+/**
+ * The distant ground: the near ground's own layers (ground-layers.ts, through the same stochastic patches), mixed by the near
+ * ground's own masks from the same per-vertex data (far-forest-bake.ts groundA/B: worn earth, litter, stone, the trees' root
+ * ground, asphalt), only lower in detail: no relief, no height blend (at a distance the layers' heights average out and they share
+ * by weight, as the near ground's own mip levels do) and the mesh's own normal. Before it the distant ground was one tinted stone
+ * texture, grey and even, and the near ground faded into it over its last 40 m.
+ */
+const farGroundGLSL=`
+  ${macroGLSL}
+  vec3 farGround(vec3 P,vec3 n){
+    vec2 p=P.xz;
+    // A and B in the macro texture's second and third panels (mountainGeo has the first).
+    vec4 A=texture(uMacro,macroAt(p,1.)),B=texture(uMacro,macroAt(p,2.));
+    float worn=A.r,stoneB=A.b,road=B.r;
+    vec2 groundUv=p*vec2(1.,-1.)+vec2(surfaceNoise(p*.18),surfaceNoise(p*.18+27.))*.38;
+    float rootBlend=A.a*(.84+surfaceNoise(p*3.1+19.)*.16);
+    float leafBlend=clamp(max(A.g,rootBlend*.68),0.,1.);
+    float stoneBlend=clamp(stoneB+(1.-n.y)*stoneB*.3,0.,1.);
+    float steep=1.-smoothstep(.6,.84,n.y),level=smoothstep(.7,.93,n.y),ground=1.-road;
+    float damp=smoothstep(.5,.82,surfaceNoise(p*.043+40.)*.65+surfaceNoise(p*.19+3.)*.35);
+    float dirt=smoothstep(.12,.95,worn+(surfaceNoise(p*1.7)-.5)*.75+(surfaceNoise(p*.45+21.)-.5)*.5+(surfaceNoise(p*7.)-.5)*.2)*ground*.62;
+    float wRock=stoneBlend*steep*ground,wRocky=stoneBlend*(1.-steep)*.9*ground,wPath=dirt;
+    float wRoots=rootBlend*.7*ground*(1.-dirt);
+    float wLitter=clamp(leafBlend*(.62+.38*surfaceNoise(p*.08+12.)),0.,1.)*ground*(1.-dirt*.7);
+    float mossField=damp*.55+surfaceNoise(p*.31+77.)*.2+surfaceNoise(p*1.3+11.)*.15+surfaceNoise(p*4.7)*.1;
+    float wMoss=.72*smoothstep(.22,.78,mossField)*level*(1.-stoneB)*ground*(1.-dirt)*(1.-leafBlend*.45);
+    float wFloor=max(.08,1.-max(max(max(wRock,wRocky),max(wPath,wRoots)),max(wLitter,wMoss)));
+    TexturePatch t=groundTexturePatch(groundUv/2.5);vec3 c=samplePatchLayer(uGroundColor,t,0.).rgb*wFloor;float w=wFloor;
+    if(wLitter>.02){t=groundTexturePatch(groundUv/3.+vec2(57.,9.));c+=samplePatchLayer(uGroundColor,t,1.).rgb*wLitter;w+=wLitter;}
+    if(wRoots>.02){t=groundTexturePatch(groundUv/1.67+vec2(13.,71.));c+=samplePatchLayer(uGroundColor,t,2.).rgb*vec3(.74,.72,.68)*wRoots;w+=wRoots;}
+    if(wMoss>.02){t=groundTexturePatch(groundUv/1.5+vec2(91.,37.));c+=samplePatchLayer(uGroundColor,t,3.).rgb*wMoss;w+=wMoss;}
+    if(wPath>.02){t=groundTexturePatch(groundUv/2.5+vec2(29.,5.));c+=samplePatchLayer(uGroundColor,t,4.).rgb*wPath;w+=wPath;}
+    if(wRocky>.02){t=groundTexturePatch(groundUv/2.+vec2(63.,44.));c+=samplePatchLayer(uGroundColor,t,5.).rgb*vec3(.66,.66,.64)*wRocky;w+=wRocky;}
+    if(wRock>.02){t=groundTexturePatch(P.xz/2.+vec2(21.,48.));c+=samplePatchLayer(uGroundColor,t,6.).rgb*wRock;w+=wRock;}
+    c/=w;
+    float broad=surfaceNoise(p*.065+5.)*.65+surfaceNoise(p*.19)*.35;
+    c*=mix(vec3(.84,.87,.8),vec3(1.07,1.05,.98),broad);
+    // The road: its old asphalt (road-surface.ts), at its mean tone; the paint and patches are under a pixel out here.
+    return mix(c,vec3(.072,.074,.079),road*.94);
+  }
 `;
 
 function tileDistanceSquared(x:number,z:number,px:number,pz:number) {
@@ -59,7 +118,9 @@ function tileDistanceSquared(x:number,z:number,px:number,pz:number) {
   return dx*dx+dz*dz;
 }
 
-export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer?: THREE.WebGLRenderer) {
+export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer?: THREE.WebGLRenderer, farShadow?: FarShadow) {
+  // The island-wide sun shadow (far-shadow.ts), or none (tests, tools): then farShadow() is 1.
+  const farShadowSource=farShadow?farShadowGLSL:'float farShadow(vec3 p,float b){return 1.;}';
   const loader = new THREE.TextureLoader();
   const textures:THREE.Texture[]=[];
   const solidColliders:SolidCollider[]=[];
@@ -93,6 +154,20 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
   const groundLayers=createGroundLayers(renderer);textures.push(groundLayers.color,groundLayers.surface);
   // The mountains' scans (mountain-surface.ts), shared with the far range and kept for the renderer's life.
   const mountain=mountainLayers(renderer);
+  // On the distant terrain's 4 m grid, three panels side by side in one texture (mountainGeo, farGroundGLSL): the range's geology
+  // masks, then what the near ground reads per vertex for the distant ground (far-forest-bake.ts groundA, groundB).
+  // The masks start neutral (no ridge, no drainage, no debris, level) until the bake comes in, behind the loading veil.
+  const macroData=new Uint8Array(MACRO_N*3*MACRO_N*4);for(let j=0;j<MACRO_N;j++)for(let i=0;i<MACRO_N;i++){const o=(j*MACRO_N*3+i)*4;macroData[o]=128;macroData[o+3]=128;}
+  const mountainMacro=new THREE.DataTexture(macroData,MACRO_N*3,MACRO_N);
+  /** Writes one panel (0 masks, 1 ground A, 2 ground B) from rows of MACRO_N texels. */
+  const setPanel=(panel:number,data:Uint8Array)=>{const row=MACRO_N*4;for(let j=0;j<MACRO_N;j++)macroData.set(data.subarray(j*row,j*row+row),j*row*3+panel*row);mountainMacro.needsUpdate=true;};
+  let disposedMacro=false;
+  // The trees the bake stands on the range's forest cover (mountain-bake.ts), for the distant forest (far-forest.ts) to draw.
+  let gotMountainTrees:(trees:{trees:Float32Array;horizons:Uint8Array})=>void=()=>{};
+  const mountainTrees=new Promise<{trees:Float32Array;horizons:Uint8Array}>(resolve=>{gotMountainTrees=resolve;});
+  // The distant terrain's 4 m grid of heights, for the island forest's distant layout (far-forest-bake.ts).
+  let heightGrid:{heights:Float32Array;n:number;step:number;x0:number}|undefined;
+  mountainMacro.magFilter=mountainMacro.minFilter=THREE.LinearFilter;mountainMacro.needsUpdate=true;textures.push(mountainMacro);
   // Shared with the forest's scanned rocks, which take the lichen-rock layer as their close-up detail (forest.ts rockDetail).
   scene.userData.groundLayers=groundLayers;
   const material = new THREE.MeshStandardMaterial({ roughness: 1, color: 0xffffff });
@@ -110,6 +185,8 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
     RELIEF=perfOn('groundRelief');
     // The rebuilt world's road is worked out in game/render/world/road-surface.ts; the original keeps its narrow dirt track.
     const road=WORLD_V2?roadSurface():undefined;
+    if(farShadow)Object.assign(shader.uniforms,farShadow.uniforms);
+    shader.uniforms.uMacro={value:mountainMacro};
     shader.uniforms.uNearCenter={value:nearCenter};shader.uniforms.uNearCoverage=nearCoverage;shader.uniforms.uDistantTint={value:distantTint};
     shader.uniforms.uRoadMap={value:roadMap};shader.uniforms.uRoadNormal={value:roadNormal};
     shader.uniforms.uStoneMap={value:stoneMap};
@@ -129,7 +206,9 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
       uniform sampler2DArray uGroundColor,uGroundSurface;
       uniform vec2 uNearCenter;uniform float uNearCoverage;uniform vec3 uDistantTint;uniform float uParallax;uniform float uPathStyle;uniform vec4 uPathTune;uniform vec3 uPathTint;uniform vec3 uSunDirection;
       uniform vec4 uRelief,uReliefB,uReliefC;
+      ${farShadowSource}
       ${textureVariationGLSL}
+      ${WORLD_V2?farGroundGLSL:''}
       // Where each ground layer's patches sit (offset in xy) and how large its scan is (1/size in z), as the layer reads
       // below, and how deep its relief is in metres (w): the depth its height map spans.
       vec4 groundLayerFrame(int layer){
@@ -446,7 +525,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
       }
       if(distantBlend>0.){
         vec3 baseNormal=inverseTransformDirection(normalize(vNormal),viewMatrix);
-        groundColor=mix(groundColor,uDistantTint*horizonTexture(uStoneMap,vGroundPosition,baseNormal),distantBlend);
+        groundColor=mix(groundColor,${WORLD_V2?'farGround(vGroundPosition,baseNormal)':'uDistantTint*horizonTexture(uStoneMap,vGroundPosition,baseNormal)'},distantBlend);
       }
       float sandCover=0.,snowCover=0.,mz=0.;Mountain mtn;
       TexturePatch coastDetail=groundTexturePatch(groundUv/.85+vec2(17.,63.));
@@ -470,12 +549,16 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
         sand*=mix(1.,.46,wet);
         groundColor=mix(groundColor,sand,sandCover);
       }
-      // Close to, only the rock faces are mountain: the far view's canopy and turf are flat colours a few metres off, so gentler
-      // ground keeps the forest floor's own layers within 80 m and takes the far view's look by 260 m.
+      // The range is the same rock, scree and turf near as far (mountain-surface.ts), from about 30 degrees up even at the tunnels'
+      // mouths; only its forest is not: within 80 m the real trees stand there, so under them the forest floor's own layers stay,
+      // and the far view's dark forest floor takes over by 260 m (the first version kept everything short of 55 degrees as forest
+      // floor near the eye, so the slopes over the tunnels were not the mountain seen from the lake).
       vec3 mtnN=inverseTransformDirection(normalize(vNormal),viewMatrix);
-      mz=mountainZone(vGroundPosition)*mix(smoothstep(.42,.62,1.-mtnN.y),1.,smoothstep(80.,260.,length(vGroundPosition-cameraPosition)));
+      float mtnFar=smoothstep(80.,260.,length(vGroundPosition-cameraPosition));
+      mz=mountainZone(vGroundPosition)*mix(smoothstep(.12,.24,1.-mtnN.y),1.,mtnFar);
       if(mz>.001){
-        mtn=mountainLook(vGroundPosition,mtnN,1.,ISLAND_LINES);
+        mtn=mountainLook(vGroundPosition,mtnN,1.,ISLAND_LINES,mountainGeo(vGroundPosition));
+        mz*=1.-mtn.forest*(1.-mtnFar);
         snowCover*=1.-mz;sandCover*=1.-mz;
         groundColor=mix(groundColor,mtn.albedo,mz);
       }
@@ -527,6 +610,8 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
       #include <lights_fragment_end>
       // The relief's own shadows (see the parallax above) take the direct light only: sky light still reaches the hollows.
       reflectedLight.directDiffuse*=reliefShade;reflectedLight.directSpecular*=reliefShade;
+      // Past the sun's own 72 m map (shadows.ts) the island-wide one (far-shadow.ts) carries the trees' and the land's shadows.
+      {float w=smoothstep(26.,34.,length(vGroundPosition.xz-cameraPosition.xz));if(w>0.){float far=mix(1.,farShadow(vGroundPosition,.8),w);reflectedLight.directDiffuse*=far;reflectedLight.directSpecular*=far;}}
       `);
     // Dev debug views (uReliefB.z), as grey: 1 the layer count * .06, 2 a constant (uReliefB.w), 3 the depth the ray reached * .5, 4 the steps * .01,
     // 5 how far the lookup jumps between neighbouring pixels (pixels * .04), 6 how far one march step moves it (pixels * .04).
@@ -594,19 +679,23 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
   const terrainChunks=new Map<string,{tile:TerrainTile;mesh:THREE.Mesh;keep:number}>();
   // The low-detail distant surface preserves the mountain silhouette and covers
   // teleports while near chunks stream. It is below the exact walkable surface.
+  // The water's far reflection pass (river.ts) sets this to the sea's level while it draws: the ground under the water is cut
+  // away there, as the reflector's oblique near plane should do but cannot reliably with a 20 km far plane (the seabed showed
+  // in the sea's reflection as dark streaks along the horizon). Below everything otherwise.
+  const reflectionClip={value:-1e9};scene.userData.reflectionClip=reflectionClip;
   const horizonMaterial=new THREE.MeshStandardMaterial({map:stoneMap,color:horizonColor,roughness:.98});
   horizonMaterial.onBeforeCompile=shader=>{
     shader.uniforms.uNearCenter={value:nearCenter};
     shader.uniforms.uNearCoverage=nearCoverage;
     shader.uniforms.uCoastalMap={value:coastalMap};shader.uniforms.uCoastalNormal={value:coastalNormal};
-    shader.uniforms.uMountainColor={value:mountain.color};shader.uniforms.uMountainSurface={value:mountain.surface};shader.uniforms.uSunDirection=sunDirection;
+    shader.uniforms.uMountainColor={value:mountain.color};shader.uniforms.uMountainSurface={value:mountain.surface};shader.uniforms.uMacro={value:mountainMacro};shader.uniforms.uSunDirection=sunDirection;shader.uniforms.uReflectionClip=reflectionClip;if(farShadow)Object.assign(shader.uniforms,farShadow.uniforms);shader.uniforms.uGroundColor={value:groundLayers.color};
     shader.vertexShader=`attribute vec4 horizonA,horizonB;varying vec4 vHorizonA,vHorizonB;varying vec3 vHorizon;varying vec3 vRidgeNormal;\n${shader.vertexShader}`.replace('#include <worldpos_vertex>','#include <worldpos_vertex>\nvHorizonA=horizonA;vHorizonB=horizonB;vHorizon=(modelMatrix*vec4(transformed,1.)).xyz;vRidgeNormal=normalize(mat3(modelMatrix)*normal);');
-    shader.fragmentShader=`uniform vec2 uNearCenter;uniform float uNearCoverage;uniform vec3 uSunDirection;varying vec3 vHorizon;varying vec3 vRidgeNormal;\n${textureVariationGLSL}\n${horizonTextureGLSL}\n${horizonGLSL}\nfloat hz=0.;Mountain hm;\n${coastalGLSL}\n${coastalMaterialGLSL}\n${shader.fragmentShader}`.replace('#include <map_fragment>',`
-      if(length(vHorizon.xz-uNearCenter)<uNearCoverage)discard;
-      diffuseColor.rgb*=horizonTexture(map,vHorizon,vRidgeNormal);
+    shader.fragmentShader=`uniform vec2 uNearCenter;uniform float uNearCoverage,uReflectionClip;uniform vec3 uSunDirection;varying vec3 vHorizon;varying vec3 vRidgeNormal;\n${farShadowSource}\n${textureVariationGLSL}\nuniform sampler2DArray uGroundColor;\n${WORLD_V2?farGroundGLSL:''}\n${horizonTextureGLSL}\n${horizonGLSL}\nfloat hz=0.;Mountain hm;\n${coastalGLSL}\n${coastalMaterialGLSL}\n${shader.fragmentShader}`.replace('#include <map_fragment>',`
+      if(length(vHorizon.xz-uNearCenter)<uNearCoverage||vHorizon.y<uReflectionClip)discard;
+      ${WORLD_V2?'diffuseColor.rgb=farGround(vHorizon,normalize(vRidgeNormal));':'diffuseColor.rgb*=horizonTexture(map,vHorizon,vRidgeNormal);'}
       ${WORLD_V2?`
       hz=mountainZone(vHorizon);
-      if(hz>.001){hm=mountainLook(vHorizon,normalize(vRidgeNormal),1.,ISLAND_LINES);diffuseColor.rgb=mix(diffuseColor.rgb,hm.albedo,hz);}
+      if(hz>.001){hm=mountainLook(vHorizon,normalize(vRidgeNormal),1.,ISLAND_LINES,mountainGeo(vHorizon));diffuseColor.rgb=mix(diffuseColor.rgb,hm.albedo,hz);}
       TexturePatch detail=groundTexturePatch(vHorizon.xz/2.1);
       float snow=snowCoverage(vHorizon,normalize(vRidgeNormal));
       float sand=(1.-smoothstep(beachWidth(vHorizon.xz)*.65,beachWidth(vHorizon.xz)+8.,coastDistance(vHorizon.xz)))*smoothstep(.55,.9,vRidgeNormal.y);
@@ -616,7 +705,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
     `).replace('#include <roughnessmap_fragment>','#include <roughnessmap_fragment>\n      if(hz>.001)roughnessFactor=mix(roughnessFactor,hm.roughness,hz);')
       .replace('#include <normal_fragment_maps>','#include <normal_fragment_maps>\n      if(hz>.001)normal=normalize(mix(normal,mat3(viewMatrix)*hm.normal,hz));')
       // The land's own shadows and sky occlusion beyond the sun's shadow map (terrain-horizon.ts).
-      .replace('#include <lights_fragment_end>','#include <lights_fragment_end>\n      {float sh=horizonShadow(normalize(uSunDirection)),sky=horizonSky();reflectedLight.directDiffuse*=sh;reflectedLight.directSpecular*=sh;reflectedLight.indirectDiffuse*=sky;reflectedLight.indirectSpecular*=sky;}');
+      .replace('#include <lights_fragment_end>','#include <lights_fragment_end>\n      {float sh=horizonShadow(normalize(uSunDirection))*farShadow(vHorizon,1.2),sky=horizonSky();reflectedLight.directDiffuse*=sh;reflectedLight.directSpecular*=sh;reflectedLight.indirectDiffuse*=sky;reflectedLight.indirectSpecular*=sky;}');
   };
   const horizonGeometry=groundGeometry(WORLD_EXTENT*2,384,0,0);
   {
@@ -627,8 +716,18 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
     const a=new Uint8Array(n*n*4),b=new Uint8Array(n*n*4);
     for(let i=0;i<n*n;i++)for(let k=0;k<4;k++){a[i*4+k]=angles[i*8+k];b[i*4+k]=angles[i*8+4+k];}
     horizonGeometry.setAttribute('horizonA',new THREE.BufferAttribute(a,4,true));horizonGeometry.setAttribute('horizonB',new THREE.BufferAttribute(b,4,true));
+    heightGrid={heights:grid,n,step,x0:-WORLD_EXTENT};
+    // The geology masks from the same heights, in a worker (mountain-bake.ts): about 0.3 s, off this thread.
+    if(WORLD_V2)void bakeIslandMasks(grid,n,step,-WORLD_EXTENT).then(bake=>{
+      if(disposedMacro)return;
+      setPanel(0,bake.masks);
+      gotMountainTrees({trees:bake.trees,horizons:bake.treeHorizons});
+    });
   }
   const horizon=new THREE.Mesh(horizonGeometry,horizonMaterial);
+  // The distant ground casts into the island-wide shadow (whole, under the near tiles too), so ridges shade what lies past them.
+  const horizonCasterMaterial=new THREE.MeshBasicMaterial();
+  if(farShadow){const caster=new THREE.Mesh(horizonGeometry,horizonCasterMaterial);caster.name='Distant ground (shadow caster)';caster.matrixAutoUpdate=false;farShadow.casters.add(caster);}
   // The mountain silhouette is retained in the main view (layer 2 is enabled
   // by the game camera), but does not need a duplicate draw in the water's
   // layer-0 reflection. Reflected terrain fades into the same fog/sky before
@@ -636,6 +735,13 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
   horizon.name='Coastal headlands and alpine skyline';horizon.renderOrder=2;horizon.layers.set(2);
   // Layer 3: the water's far reflection pass (river.ts) draws it, with the far range and the sky, out to the far plane.
   horizon.layers.enable(3);scene.add(horizon);
+  // The open sea's floor, past the distant terrain's edge (its 1.5 km square) out to where the sea ends (river.ts, 16 km), a metre
+  // below the island's shelf (coastal-geography.ts levels it 46 m under the sea). Without it the water there had nothing under
+  // it and let the sky through: a pale, ragged strip at the horizon, and the shelf's edge a dark band before it.
+  const seaFloorGeometry=new THREE.RingGeometry(WORLD_EXTENT*.98,16000,96,1);seaFloorGeometry.rotateX(-Math.PI/2);
+  const seaFloorMaterial=new THREE.MeshStandardMaterial({color:0x4a463c,roughness:1});
+  const seaFloor=new THREE.Mesh(seaFloorGeometry,seaFloorMaterial);seaFloor.name='Open sea floor';seaFloor.position.y=SEA_LEVEL-47.2;
+  seaFloor.layers.set(2);seaFloor.matrixAutoUpdate=false;seaFloor.updateMatrix();scene.add(seaFloor);
   // The road across the bridge is the road: a strip over the deck drawn with this same ground material, so its asphalt,
   // aggregate, cracks, patches, paint and worn edges are the very ones of the approaches (they are worked out from the world
   // position), and nothing marks where the bridge begins. The deck model under it carries the road only from afar. It stands
@@ -859,6 +965,12 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
   bridgeGeometries.push(combinedTimbers);bridgeGroup.clear();
   const combinedBridge=new THREE.Mesh(combinedTimbers,wood);combinedBridge.castShadow=true;combinedBridge.receiveShadow=true;bridgeGroup.add(combinedBridge);
   return {
+    /** The range's forest (mountain-bake.ts): x, y, z, height in metres per tree, and eight horizon bytes each. */
+    mountainTrees,
+    /** The near ground's per-vertex data for the distant ground (far-forest-bake.ts), once baked. */
+    setFarGround(a:Uint8Array,b:Uint8Array){setPanel(1,a);setPanel(2,b);},
+    /** The distant terrain's height grid (n x n, `step` apart from (x0, x0)). */
+    get heightGrid(){return heightGrid;},
     water:river,
     get solidColliders(){return activeColliders;},
     get collisionVersion(){return collisionVersion;},
@@ -877,9 +989,9 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
       }
       let propsChanged=false;
       for(const prop of distantProps){
-        // Fog fully conceals this range; hysteresis avoids toggling shadows when
-        // the player walks along the culling boundary. The bridge stays whole.
-        const range=(prop.object.visible?118:108)+prop.radius;
+        // Drawn out to where each is about a pixel across (330 m a metre of its radius, as the world's props: pois.ts PIXEL_RANGE);
+        // the haze no longer hides 110 m, where the footbridge used to vanish. Hysteresis keeps shadows from toggling on the edge.
+        const range=Math.min(1200,prop.radius*330)*(prop.object.visible?1.08:1)+prop.radius;
         const visible=(prop.x-player.x)**2+(prop.z-player.z)**2<range*range;
         if(prop.object.visible!==visible){prop.object.visible=visible;propsChanged=true;}
       }
@@ -898,6 +1010,6 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
       }
       return support;
     },
-    dispose() {stopWorker();for(const variant of groundVariants.values())variant.dispose();for(const {tile,mesh} of terrainChunks.values()){scene.remove(mesh);mesh.geometry.dispose();releaseTerrainBlock(tile.x,tile.z);}terrainChunks.clear();scene.remove(horizon);horizon.geometry.dispose();horizonMaterial.dispose();for(const t of textures)t.dispose();for(const g of bridgeGeometries)g.dispose();material.dispose();river.dispose();boulderGeo.dispose();boulderMat.dispose();markerMat.dispose();for(const g of markerGeometries)g.dispose();wood.dispose();}
+    dispose() {stopWorker();disposedMacro=true;for(const variant of groundVariants.values())variant.dispose();for(const {tile,mesh} of terrainChunks.values()){scene.remove(mesh);mesh.geometry.dispose();releaseTerrainBlock(tile.x,tile.z);}terrainChunks.clear();scene.remove(horizon);horizon.geometry.dispose();horizonMaterial.dispose();horizonCasterMaterial.dispose();scene.remove(seaFloor);seaFloorGeometry.dispose();seaFloorMaterial.dispose();for(const t of textures)t.dispose();for(const g of bridgeGeometries)g.dispose();material.dispose();river.dispose();boulderGeo.dispose();boulderMat.dispose();markerMat.dispose();for(const g of markerGeometries)g.dispose();wood.dispose();}
   };
 }

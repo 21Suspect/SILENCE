@@ -2,6 +2,7 @@
  * Noise for mountains: gradient noise (value noise reads blocky along a crest) and Musgrave's ridged multifractal. Shared by the
  * island's range (coastal-geography.ts) and the far range (render/world/far-range-shape.ts). Pure maths, deterministic.
  */
+import { erosionFilter, EROSION_DEFAULTS, type ErosionParams, type ErosionResult } from './erosion-filter';
 // 2D gradient noise, about -1..1: value noise reads blocky at a ridge, and ridges are made from where this crosses zero.
 const GRADIENTS = Array.from({ length: 256 }, (_, i) => { const a = (i * 2.399963229728653) % (Math.PI * 2); return [Math.cos(a), Math.sin(a)] as const; });
 const PERM = (() => { const p = Array.from({ length: 256 }, (_, i) => i); let s = 1234567; for (let i = 255; i > 0; i--) { s = (s * 1103515245 + 12345) >>> 0; const j = s % (i + 1); [p[i], p[j]] = [p[j], p[i]]; } return p; })();
@@ -28,42 +29,18 @@ export function ridged(x: number, z: number, octaves: number) {
   return sum / total;
 }
 
-// ---- Erosion filter (after Clay John's "Eroded Terrain Noise", 2022). From cells on a jittered grid, cosine stripes run
-// across the slope direction, so their troughs run down the fall line: gullies. Each octave turns its stripes by the slope the
-// octaves before it carved, so the finer gullies run into the bigger ones and branch, as drainage does. Pure maths, no simulation:
-// any point's height is known on its own, which the terrain worker, the colliders and the tests all need.
-const cellHash = (ix: number, iz: number) => {
-  let h = Math.imul(ix, 374761393) + Math.imul(iz, 668265263); h = Math.imul(h ^ (h >>> 13), 1274126177); h ^= h >>> 16;
-  return [(h & 0xffff) / 65536, ((h >>> 16) & 0xffff) / 65536] as const;
-};
-/** One octave at p (in cells) for a cross-slope vector dir: [value -1..1, d/dx, d/dz] (in cells). */
-function gullyOctave(px: number, pz: number, dx: number, dz: number, out: number[]) {
-  const ix = Math.floor(px), iz = Math.floor(pz), fx = px - ix, fz = pz - iz;
-  let v = 0, gx = 0, gz = 0, wt = 0;
-  for (let i = -2; i <= 1; i++) for (let j = -2; j <= 1; j++) {
-    const [hx, hz] = cellHash(ix - i, iz - j), ppx = fx + i - hx * .5, ppz = fz + j - hz * .5;
-    const w = Math.exp(-(ppx * ppx + ppz * ppz) * 2), mag = (ppx * dx + ppz * dz) * Math.PI * 2, s = Math.sin(mag);
-    v += Math.cos(mag) * w; gx -= s * dx * w; gz -= s * dz * w; wt += w;
-  }
-  out[0] = v / wt; out[1] = gx / wt; out[2] = gz / wt;
-}
-const octave = [0, 0, 0];
+// ---- Erosion: Rune Skovbo Johansen's Advanced Terrain Erosion Filter (erosion-filter.ts, MPL-2.0), in metres. It replaced a
+// Clay John style filter (cosine stripes across the slope) whose soft gullies on both sides of every crest read as crumpled
+// foil; this one keeps crests sharp and valley floors clean, joins its gullies downhill and gives a ridge map for the shading.
+export type { ErosionResult };
+export { EROSION_DEFAULTS };
 /**
- * Gullies carved into land of slope (sx, sz) (rise over run) at (x, z) metres: the height to add, in metres. `spacing` is the
- * widest gullies' spacing, `depth` their depth; each finer octave halves both. Level ground is left level (the stripes need a
- * slope to run down).
+ * Erosion of land of height h (metres) and slope (sx, sz) at (x, z), the filter run in units of `unit` metres (so its gullies are
+ * params.scale x unit apart at their widest). fadeTarget: -1 valley .. +1 peak (see erosion-filter.ts). Height and slopes
+ * come back in metres and rise over run; ridge -1 (gully line) .. +1 (ridge line).
  */
-export function erosionFilter(x: number, z: number, sx: number, sz: number, spacing: number, depth: number, octaves = 5) {
-  let h = 0, hx = 0, hz = 0, a = 1, f = 1, total = 0;
-  // Only the flanks are cut: near a summit, where the slope eases, the crest stays whole (cut there, it broke into a comb of spires).
-  const slope = Math.hypot(sx, sz), t = Math.min(1, Math.max(0, (slope - .12) / .5)), fade = t * t * (3 - 2 * t);
-  for (let k = 0; k < octaves; k++) {
-    // The cross-slope direction, turned by the slope of the gullies carved so far (in cells of this octave): branching.
-    // The slope's pull (3) over the carved gullies' (1.2): stronger branching curled them into whorls.
-    const dx = (sz * 3 + hz * 1.2), dz = (-sx * 3 - hx * 1.2);
-    gullyOctave(x * f / spacing, z * f / spacing, dx, dz, octave);
-    h += octave[0] * a; hx += octave[1] * a * f; hz += octave[2] * a * f; total += a;
-    a *= .5; f *= 2;
-  }
-  return (h / total - .45) * depth * fade;
+export function erodeMetres(x: number, z: number, h: number, sx: number, sz: number, fadeTarget: number, unit: number, params: ErosionParams, out: ErosionResult) {
+  erosionFilter(x / unit, z / unit, h / unit, sx, sz, fadeTarget, params, out);
+  out.height *= unit; out.magnitude *= unit;
+  return out;
 }

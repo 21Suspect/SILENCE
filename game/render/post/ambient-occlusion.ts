@@ -31,7 +31,7 @@ export function createAmbientOcclusion(renderer: THREE.WebGLRenderer, camera: TH
   const targetA = new THREE.WebGLRenderTarget(1, 1, opts), targetB = new THREE.WebGLRenderTarget(1, 1, opts);
   const size = new THREE.Vector2(1, 1);
   const uniforms = {
-    tDepth: shared.tDepth, cameraWorld: shared.cameraWorld, sunDirection: shared.sunDirection, sunMatrix: shared.sunMatrix, sunShadow: shared.sunShadow,
+    tDepth: shared.tDepth, cameraWorld: shared.cameraWorld, sunDirection: shared.sunDirection, sunMatrix: shared.sunMatrix, sunAtlas: shared.sunAtlas, sunShadow: shared.sunShadow,
     shadowTexel: shared.shadowTexel, sunLevel: shared.sunLevel,
     aoSize: { value: size }, projScale: { value: new THREE.Vector2(1, 1) }, nearFar: { value: new THREE.Vector2(.1, 1000) },
     slices: { value: 3 }, steps: { value: 8 }, hasShadow: { value: 0 }, frame: { value: 0 },
@@ -39,7 +39,7 @@ export function createAmbientOcclusion(renderer: THREE.WebGLRenderer, camera: TH
   const vertexShader = 'varying vec2 vUv;void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}';
   const material = new THREE.ShaderMaterial({ uniforms, vertexShader, depthTest: false, depthWrite: false, fragmentShader: `
     precision highp float;
-    uniform sampler2D tDepth,sunShadow;uniform mat4 cameraWorld,sunMatrix;uniform vec3 sunDirection;
+    uniform sampler2D tDepth,sunShadow;uniform mat4 cameraWorld,sunMatrix;uniform vec2 sunAtlas;uniform vec3 sunDirection;
     uniform vec2 aoSize,projScale,nearFar;uniform float shadowTexel,sunLevel,hasShadow,slices,steps,frame;
     varying vec2 vUv;
     const float PI=3.14159265,HALF_PI=1.57079633,RADIUS=${AO_RADIUS.toFixed(2)},THIN=${AO_THIN.toFixed(2)},FADE_FAR=${AO_FADE_FAR.toFixed(1)};
@@ -107,7 +107,7 @@ export function createAmbientOcclusion(renderer: THREE.WebGLRenderer, camera: TH
         if(hasShadow>.5){
           vec4 pr=sunMatrix*vec4(Pw+Nw*.12,1.);vec3 uv=pr.xyz/pr.w;
           if(uv.z>0.&&uv.z<1.&&uv.x>0.&&uv.x<1.&&uv.y>0.&&uv.y<1.){
-            float dd=dot(texture2D(sunShadow,uv.xy),vec4(255./256.,255./65536.,255./16777216.,1./16777216.));
+            float dd=dot(texture2D(sunShadow,vec2(uv.x*sunAtlas.y+sunAtlas.x,uv.y)),vec4(255./256.,255./65536.,255./16777216.,1./16777216.));
             lit=smoothstep(uv.z-.0014,uv.z+.0004,dd);
             float border=min(min(uv.x,1.-uv.x),min(uv.y,1.-uv.y));lit=mix(1.,lit,smoothstep(0.,.055,border));
           }

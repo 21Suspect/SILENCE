@@ -21,7 +21,9 @@ CI (.github/workflows/checks.yml) runs typecheck, lint, test and build on every 
 Tools: `node --experimental-strip-types --no-warnings tools/playtest/run.mjs --seeds 4 --jobs 4` (bot nights; keep jobs at 4
 or fewer), `tools/playtest/nav-probe.mjs`, `tools/playtest/creature-run.mjs`, `tools/playtest/map.mjs`. Rebuild a prop with
 Blender 5.1: `blender --background --factory-startup --python tools/assets/world-v2/build.py -- cabin` (writes
-public/world/cabin.glb and game/data/world-assets.json; commit both together).
+public/world/cabin.glb and game/data/world-assets.json; commit both together), then remake its mesh levels of detail with
+`node tools/assets/prop-lod.mjs cabin` (writes public/world/lod/cabin.bin and game/data/prop-lod.json; a stale level file is
+ignored with a warning and the prop drawn whole).
 
 Buildings rebuilt for detail use the tiled pipeline (`Model(..., tiled=True)`, tools/assets/world-v2/tiled.py): shared CC0
 scans in public/world/materials (`python3 tools/assets/world-v2/library.py fetch` then `pack`) at 900 to 2000 texels per

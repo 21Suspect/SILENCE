@@ -29,7 +29,10 @@ export const NIGHT: Key = {
   // at arm's length closes it, by at most a stop and a quarter, so the ground under it does not burn white.
   // Blue, short of the first night key (white balance -.3, blue shadows, blue rod shift: a night frame 2.7 times bluer than red).
   // Neutral-warm (.86) read plain grey and 1.3 not blue enough; this key with the rod shift gives about 1.8.
-  key: .09, minExposure: .4, maxExposure: 90, anchor: 90, response: .35, bright: .35, close: 1.25, open: .5, bias: 0, temperature: -.12, tint: 0, saturation: .9, contrast: 1.06,
+  // In a lamp-lit room the eye now follows the light down by up to four stops (it could close 1.25): the cabin's lantern-lit room
+  // stayed at the dark wood's exposure and burned white, the open door a glare from outside. A lamp in the distance still barely
+  // moves it: the bright response only acts on a view a stop and more brighter than the night's.
+  key: .09, minExposure: .4, maxExposure: 90, anchor: 90, response: .35, bright: .6, close: 4, open: .5, bias: 0, temperature: -.12, tint: 0, saturation: .9, contrast: 1.06,
   shadows: [.97, .99, 1.06], highlights: [1.02, 1, .97], scotopic: 1, vignette: .18, grain: 0, bloom: .08,
 };
 

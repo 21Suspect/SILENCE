@@ -25,7 +25,8 @@ export const LAMP = {
   /** Candela at full, and the cone's half angle. 170 cd is a real sodium lamp (8 lux on the road), seven stops over the moonlit
    *  wood the night exposure is set for: the eye had to close round it and the wood went black. The eye now stays near the night's
    *  rest (final-image.ts eyeExposure), so the lamp is set to read as a bright, failing old lamp at that exposure instead. */
-  candela: 16, angle: 1.18,
+  // 10 (it was 16): a pool of sodium light under each lamp that reads against the moonlit road instead of blinding beside it.
+  candela: 10, angle: 1.18,
 } as const;
 
 /** FNV-1a with a finaliser: a repeatable 0..1 from an id and a salt, so lamps of one kind never match. */

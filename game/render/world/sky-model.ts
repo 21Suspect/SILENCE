@@ -172,7 +172,8 @@ export function skyIrradiance(lightDir: THREE.Vector3, E: number, out = new THRE
  * The sky-view table on the GPU. `update` re-renders it when the sun (and with it the moon) has moved; it costs well under
  * 0.1 ms (192 x 108 texels).
  */
-export function createSkyLut(renderer: THREE.WebGLRenderer) {
+/** `smooth` says whether the table follows the sun finely near the horizon (the engine ties it to a dev switch). */
+export function createSkyLut(renderer: THREE.WebGLRenderer, smooth: () => boolean = () => true) {
   const [W, H] = SKY_LUT_SIZE;
   const target = new THREE.WebGLRenderTarget(W, H, { type: THREE.HalfFloatType, depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, wrapS: THREE.ClampToEdgeWrapping, wrapT: THREE.ClampToEdgeWrapping });
   const uniforms = { sunDir: { value: new THREE.Vector3(0, 1, 0) }, sunE: { value: SUN_ILLUMINANCE }, moonE: { value: MOON_ILLUMINANCE }, airglow: { value: new THREE.Color(0.00006, 0.00008, 0.00016) } };
@@ -199,8 +200,12 @@ export function createSkyLut(renderer: THREE.WebGLRenderer) {
   return {
     texture: target.texture,
     update(sunDir: THREE.Vector3) {
-      // Only the sun's elevation matters (the table is relative to its azimuth).
-      if (Math.abs(sunDir.y - last.y) < 2e-4 && Number.isFinite(last.x)) return;
+      // Only the sun's elevation matters (the table is relative to its azimuth). Redrawn when it has moved 2e-4, which at noon is a
+      // change of the sky of a few hundredths of a percent, but at twilight (where the sky's light falls by up to 15 % per .0015 of
+      // elevation) steps of 1 to 2 % at 14 a second: so near the horizon the step shrinks with the distance from it, to a change of
+      // about .3 % at most (every frame, for the half minute of each twilight; the table costs .17 ms to draw).
+      const step = smooth() ? Math.min(2e-4, 6e-4 * (Math.abs(sunDir.y) + .01)) : 2e-4;
+      if (Math.abs(sunDir.y - last.y) < step && Number.isFinite(last.x)) return;
       last.copy(sunDir); uniforms.sunDir.value.copy(sunDir);
       const previous = renderer.getRenderTarget(), info = renderer.info.render, { calls, triangles } = info;
       renderer.setRenderTarget(target); renderer.render(scene, camera); renderer.setRenderTarget(previous);

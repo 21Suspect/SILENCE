@@ -11,12 +11,16 @@ import { createAtmosphere } from '../render/world/atmosphere';
 import { ForestAudio } from '../audio/audio';
 import { createEncounters } from '../render/creature/encounters';
 import { createStory } from '../render/props/story';
-import { createStableSunShadow } from '../render/world/shadows';
+import { createStableSunShadow, installSunBlend } from '../render/world/shadows';
 import { renderRatio } from './quality';
 import { createCollisionWorld, moveCharacter, characterSupportAt, solidContact } from '../sim/world/collision';
 import { createAdmin } from '../ui/admin';
 import { createSky } from '../render/world/sky';
-import { createFarRange } from '../render/world/far-range';
+import { createFarForest } from '../render/world/far-forest';
+import { createFarScatter } from '../render/world/far-scatter';
+import { createFarPlants } from '../render/world/far-plants';
+import { createFarShadow } from '../render/world/far-shadow';
+import { bakeFarForest } from '../render/world/mountain-bake-run';
 import { biomeAt, riverSurfaceAt, WORLD_DESTINATIONS } from '../sim/world/world';
 import { createFlashlight } from '../render/props/flashlight';
 import { createTapTracker } from './tap';
@@ -55,14 +59,15 @@ export function createGame(container:HTMLElement) {
   const manager=THREE.DefaultLoadingManager,oldStart=manager.onStart,oldLoad=manager.onLoad,oldProgress=manager.onProgress;
   manager.onStart=()=>{pendingAssets++;lastAsset=performance.now();};manager.onLoad=()=>{pendingAssets=0;lastAsset=performance.now();};manager.onProgress=()=>{lastAsset=performance.now();texturesDirty=true;};
   const scene = new THREE.Scene();
-  // The far plane reaches the far mountains (render/world/far-range.ts, 1.3 to 9.5 km). Depth precision near the eye is set by the
-  // near plane alone (1/z), so this costs the near ground nothing; at 9.5 km a depth step is about 70 m, and the farthest ridge
-  // still sits in front of the sky, which is drawn at a depth of .999999 (a far plane of 20 km leaves room to 15 km).
+  // The far plane reaches the sea's horizon: the island stands alone in open water, the sea drawn out to 16 km (river.ts). Depth
+  // precision near the eye is set by the near plane alone (1/z), so this costs the near ground nothing.
   const camera = new THREE.PerspectiveCamera(69,window.innerWidth/window.innerHeight,.075,20000);
   camera.rotation.order='YXZ';camera.layers.enable(2);
   // The field of view the settings ask for, eased towards; the sprint widening is added on top of it each frame.
   let baseFov=camera.fov;
   if(perfOn('lightGuards'))guardUnlitLights();
+  // The sun's second shadow map (shadows.ts): carried to the lighting chunk in a light probe that lights nothing. Must run after the guard.
+  installSunBlend();
   const renderer=new THREE.WebGLRenderer({antialias:false,powerPreference:'high-performance',alpha:false});
   let pixelRatio=renderRatio(settings.resolution,window.innerWidth,window.innerHeight,window.devicePixelRatio);
   renderer.outputColorSpace=THREE.LinearSRGBColorSpace;
@@ -80,13 +85,25 @@ export function createGame(container:HTMLElement) {
   // three lights only what shares a layer with the camera: the water's far reflection pass draws layer 3 (river.ts), and
   // without them the reflected mountains were lit by the environment alone, nearly black. The torch and the lamps join too.
   sun.layers.enable(3);hemi.layers.enable(3);
-  const sunShadow=createStableSunShadow(sun,renderer.capabilities.maxTextureSize,()=>perfOn('sunShadowThrottle'));
-  scene.add(sun,sun.target);
+  const sunProbe=new THREE.LightProbe();
+  const sunShadow=createStableSunShadow(sun,renderer.capabilities.maxTextureSize,()=>perfOn('sunShadowThrottle'),sunProbe,renderer);
+  scene.add(sun,sun.target,sunProbe);
   const sky=createSky(renderer,scene,sun,hemi);
-  const farRange=WORLD_V2?createFarRange(scene,renderer):undefined;
   const player=new THREE.Vector3(pathX(12),heightAt(pathX(12),12),12);
-  const terrain=createTerrain(scene,player,renderer);
-  const forest=createForest(scene,heightAt,exclusion,player);
+  // The sun's shadows over the whole island (far-shadow.ts): the distant ground and the forest cast into it and sample it.
+  const farShadow=WORLD_V2?createFarShadow(renderer):undefined;
+  const terrain=createTerrain(scene,player,renderer,farShadow);
+  const forest=createForest(scene,heightAt,exclusion,player,farShadow);
+  // The forest past the streamed trees, to the island's edge and up the range (far-forest.ts): the same trees, as impostors.
+  const farForest=WORLD_V2?createFarForest(scene,renderer,forest.impostorSource,player,farShadow):undefined;
+  // The forest floor's boulders, stumps, fallen trunks and branches past the streamed ones (far-scatter.ts): the same pieces, as impostors.
+  const farScatter=WORLD_V2?createFarScatter(scene,renderer,forest.impostorSource,player,farShadow):undefined;
+  // The undergrowth past its streamed ring (far-plants.ts): the same plants from the same ecology, as impostors, grown in a worker.
+  const farPlants=WORLD_V2?createFarPlants(scene,renderer,forest.impostorSource,player,farShadow):undefined;
+  if(farForest){
+    void terrain.mountainTrees.then(d=>farForest.setRange(d.trees,d.horizons));
+    const grid=terrain.heightGrid;if(grid)void bakeFarForest(grid.heights,grid.n,grid.step,grid.x0).then(d=>{farForest.setIsland(d);farScatter?.setData(d);terrain.setFarGround(d.groundA,d.groundB);farPlants?.start(grid,player);});
+  }
   const story=createStory(scene,heightAt);
   const collisions=createCollisionWorld();scene.userData.treesNear=(x:number,z:number,r:number)=>collisions.nearby(x,z,r);   // the fog shades itself under the crowns (atmosphere.ts)
   collisions.replace('story',story.solidColliders);
@@ -102,7 +119,7 @@ export function createGame(container:HTMLElement) {
     subscribe:(listener:(e:Noise)=>void)=>{if(world2)return world2.noise.subscribe(listener);classicNoise.add(listener);return()=>{classicNoise.delete(listener);};},
   };
   const flashlight=createFlashlight(scene,camera,heightAt,collisions,()=>{audio.flashlightClick();noise.emit({type:'noise',loudness:FLASHLIGHT_CLICK_LOUDNESS,source:'flashlight',x:player.x,z:player.z});});
-  const world2=WORLD_V2?createWorldV2({scene,camera,container,heightAt,collisions,flashlight,water:terrain.water,viewHeight:()=>renderer.domElement.height,riverX,exclusion,interactKey:()=>keyLabel(settings.bindings.interact)}):undefined;
+  const world2=WORLD_V2?createWorldV2({scene,camera,container,heightAt,farShadow,collisions,flashlight,water:terrain.water,viewHeight:()=>renderer.domElement.height,riverX,exclusion,interactKey:()=>keyLabel(settings.bindings.interact)}):undefined;
   // The objective in the top-left corner (rebuilt world only): always shown. O hides or shows it, and so does the Settings checkbox;
   // both are the one saved setting, so the choice is still there after a reload.
   const saveSettings=()=>{try{localStorage.setItem('silence-settings',JSON.stringify(settings));}catch{}};
@@ -489,7 +506,7 @@ export function createGame(container:HTMLElement) {
       /** Time the collision query the sun-ray canopy map is built from: `runs` calls of nearby(player, radius). Dev measurement only. */
       nearbyCost(radius=54,runs=40){const times:number[]=[];let n=0;for(let i=0;i<runs;i++){const t=performance.now();n=collisions.nearby(player.x+i*.37,player.z,radius).length;times.push(performance.now()-t);}times.sort((a,b)=>a-b);return{count:n,medianMs:times[Math.floor(runs/2)],maxMs:times[runs-1]};},
       /** The live renderer, scene and sun, for one-off measurements from the console. Dev only. */
-      handles(){return{renderer,scene,sun,camera,THREE};},
+      handles(){return{renderer,scene,sun,camera,THREE,farShadow,atmosphere};},
       /** Switch the torch on or off (it eases up or down over half a second of game time). Dev measurement only. */
       torch(on:boolean){const s=flashlight.inspect();if(s.owned&&s.on!==on)flashlight.toggle();},
       /** GPU texture memory estimate by source file, with duplicate uploads called out. */
@@ -557,7 +574,7 @@ export function createGame(container:HTMLElement) {
     // Draw the rig and its depth material with every light configuration while
     // the loading veil still covers the canvas. A compile alone would leave
     // skin buffers, bone textures, and texture uploads to the first encounter.
-    if(warmupDraws===0){forest.warmupTextures(renderer);if(perfOn('streamWarmup'))uploadSceneTextures();if(perfOn('slicedUpload'))slicer.prime();}
+    if(warmupDraws===0){forest.warmupTextures(renderer);farForest?.update();farScatter?.update();farPlants?.update();if(perfOn('streamWarmup'))uploadSceneTextures();if(perfOn('slicedUpload'))slicer.prime();}
     const light=flashlight.light,wasVisible=creature.visible,beamWasVisible=light.visible;
     const listener=scene.getObjectByName('The Listener'),listenerWasVisible=listener?.visible;
     if(listener)listener.visible=true;
@@ -709,7 +726,7 @@ export function createGame(container:HTMLElement) {
     if(camera.fov!==targetFov){camera.fov=targetFov;camera.updateProjectionMatrix();}
     staminaHud.update({allowed:active&&!grab&&!flying,value:run.value,exhausted:run.exhausted});
     camera.getWorldDirection(forward);
-    const startTerrain=performance.now(),terrainChanged=terrain.update(elapsed,player,darkness),startForest=performance.now(),forestChanged=forest.update(elapsed,player),endForest=performance.now();
+    const startTerrain=performance.now(),terrainChanged=terrain.update(elapsed,player,darkness),startForest=performance.now(),forestChanged=forest.update(elapsed,player),endForest=performance.now();farForest?.update();farScatter?.update();farPlants?.update();
     if(probe){const m=probe.marks;m.terrain0=startTerrain;m.forest0=startForest;m.forest1=endForest;}
     const storyChanged=story.update(player);
     const worldChanged=world2?world2.update({dt,time:elapsed,player,darkness,active:active&&!grab,simulate}):false;
@@ -738,7 +755,10 @@ export function createGame(container:HTMLElement) {
     const encounterCost=profile?performance.now()-startEncounter:0;
     if(probe)probe.marks.encounter1=performance.now();
     flashlight.update(elapsed,speed);
-    const shadowMoved=sunShadow.update(player,skyState.sunDirection);
+    // The sun's shadow in two maps blended by the sun's progress between them (shadows.ts), or one map redrawn on a cadence (the dev switch off).
+    const blend=perfOn('sunBlend');
+    const shadowMoved=blend?false:sunShadow.update(player,skyState.sunDirection);
+    farShadow?.update(skyState.sunDirection);
     const castersChanged=shadowDirty||terrainChanged||forestChanged||storyChanged||worldChanged||creatureWasVisible!==creature.visible;
     const animatedCaster=simulate&&creature.visible;
     sunDirty||=castersChanged||shadowMoved||animatedCaster;
@@ -751,8 +771,9 @@ export function createGame(container:HTMLElement) {
     // under the softness of its own edge. A moving caster (the creature) gets 30 a second. Anything that changes what
     // casts (a door, a streamed-in tree, a dropped item) still redraws at once.
     const sunGap=!perfOn('sunCadence')?0:animatedCaster?1000/30:skyState.sunElevation<.18?1000/15:1000/8;
-    const drawSun=darkness<.975&&sunDirty&&(castersChanged||!sun.shadow.map||cycleSpeed>1||(now-lastSunDraw>=sunGap&&(settings.shadowRate===0||now-lastSunDraw>=1000/settings.shadowRate)));
-    sun.shadow.needsUpdate=drawSun;
+    const drawSun=blend?sunShadow.frame({position:player,direction:skyState.sunDirection,casters:castersChanged,animated:animatedCaster,active:darkness<.975||skyState.moonLight>0,now,minGap:settings.shadowRate?1000/settings.shadowRate:0,spread:perfOn('sunSpread')?3:1})
+      :(darkness<.975||skyState.moonLight>0)&&sunDirty&&(castersChanged||!sun.shadow.map||cycleSpeed>1||(now-lastSunDraw>=sunGap&&(settings.shadowRate===0||now-lastSunDraw>=1000/settings.shadowRate)));
+    if(!blend)sun.shadow.needsUpdate=drawSun;
     if(drawSun){lastSunDraw=now;sunDirty=false;}
     flashlight.updateShadow(castersChanged||animatedCaster);
     renderer.shadowMap.needsUpdate=drawSun||flashlight.light.shadow.needsUpdate;
@@ -794,7 +815,7 @@ export function createGame(container:HTMLElement) {
     window.removeEventListener('mouseup',mouseUp);window.removeEventListener('mousemove',mouseMove);window.removeEventListener('keydown',keyDown);window.removeEventListener('keyup',keyUp);window.removeEventListener('blur',blur);window.removeEventListener('focus',focus);window.removeEventListener('resize',resize);window.visualViewport?.removeEventListener('resize',resize);densityQuery?.removeEventListener('change',densityChanged);window.removeEventListener('orientationchange',clearInput);
     document.removeEventListener('pointerlockchange',lockChange);document.removeEventListener('pointerlockerror',lockError);document.removeEventListener('visibilitychange',visibilityChange);
     renderer.domElement.removeEventListener('mousedown',mouseDown);renderer.domElement.removeEventListener('touchstart',touchStart);renderer.domElement.removeEventListener('touchmove',touchUpdate);renderer.domElement.removeEventListener('touchend',touchEnd);renderer.domElement.removeEventListener('touchcancel',touchEnd);
-    unsubscribeNoise();blackout.remove();objectiveHud?.dispose();inventory?.dispose();staminaHud.dispose();world2?.dispose();admin.dispose();slicer.dispose();perfOverlay.dispose();flashlight.dispose();sun.shadow.dispose();sky.dispose();farRange?.dispose();audio.dispose();encounters.dispose();forest.dispose();story.dispose();terrain.dispose();atmosphere.dispose();
+    unsubscribeNoise();blackout.remove();objectiveHud?.dispose();inventory?.dispose();staminaHud.dispose();world2?.dispose();admin.dispose();slicer.dispose();perfOverlay.dispose();flashlight.dispose();sunShadow.dispose();sky.dispose();audio.dispose();encounters.dispose();forest.dispose();farForest?.dispose();farScatter?.dispose();farPlants?.dispose();farShadow?.dispose();story.dispose();terrain.dispose();atmosphere.dispose();
     scene.traverse(object=>{if(object instanceof THREE.Mesh){object.geometry.dispose();const mats=Array.isArray(object.material)?object.material:[object.material];for(const mat of mats){for(const v of Object.values(mat))if(v instanceof THREE.Texture)v.dispose();mat.dispose();}}});
     renderer.dispose();renderer.domElement.remove();
   };

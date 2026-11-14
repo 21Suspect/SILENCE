@@ -155,7 +155,7 @@ test('GLBs load lazily within draw + 60 m, once per asset, and placements share 
 
 test('placements hide beyond their draw distance with hysteresis, and only a real flip reports changed casters', async () => {
   const { load } = fakeLoader(), scene = new THREE.Scene();
-  const pois = createPois(scene, flat(0), undefined, { assets: { hut: { ...hut, radius: 10 } }, placements: [{ id: 'a', asset: 'hut', x: 0, z: 0, yaw: 0, draw: 100 }], scatter: [], load });
+  const pois = createPois(scene, flat(0), undefined, { assets: { hut: { ...hut, radius: 10 } }, placements: [{ id: 'a', asset: 'hut', x: 0, z: 0, yaw: 0, draw: 100 }], scatter: [], load, pixelRange: 0 });
   const at = x => new THREE.Vector3(x, 0, 0);
   pois.update(at(50)); await wait(); pois.update(at(50));
   const object = pois.object('a');
@@ -342,4 +342,17 @@ test('a seated placement\'s ladder points follow the same transform as its hooks
   const w = worldLadder(ladder, p, 2, 0, q), expected = new THREE.Vector3(0, 3, 1).applyQuaternion(q).add(new THREE.Vector3(5, 2, 6));
   assert.ok(Math.abs(w.top.x - expected.x) < 1e-12 && Math.abs(w.top.y - expected.y) < 1e-12 && Math.abs(w.top.z - expected.z) < 1e-12);
   const up = worldLadder(ladder, p, 2, 0); assert.equal(up.top.y, 5, 'upright is unchanged');
+});
+
+test('a placement is drawn at least out to where it is about a pixel across (330 m a metre of radius), at most the island', async () => {
+  const { load } = fakeLoader(), scene = new THREE.Scene();
+  const pois = createPois(scene, flat(0), undefined, { assets: { hut: { ...hut, radius: 2 }, big: { ...hut, radius: 9 } }, placements: [{ id: 'a', asset: 'hut', x: 0, z: 0, yaw: 0, draw: 100 }, { id: 'b', asset: 'big', x: 0, z: 0, yaw: 0 }], scatter: [], load });
+  pois.update(new THREE.Vector3(600, 0, 0)); await wait(); pois.update(new THREE.Vector3(600, 0, 0));
+  assert.equal(pois.object('a').visible, true, 'radius 2: drawn to 660 m, not its own 100');
+  assert.equal(pois.object('b').visible, true);
+  pois.update(new THREE.Vector3(700, 0, 0));
+  assert.equal(pois.object('a').visible, false, 'past 660 + 2 + 12 m');
+  pois.update(new THREE.Vector3(1190, 0, 0)); assert.equal(pois.object('b').visible, true, 'radius 9: the island, 1200 m');
+  pois.update(new THREE.Vector3(1230, 0, 0)); assert.equal(pois.object('b').visible, false);
+  pois.dispose();
 });

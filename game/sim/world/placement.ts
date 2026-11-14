@@ -24,8 +24,11 @@ export function footprintsOverlap(a:Footprint,b:Footprint,margin=.12){
 }
 
 /** A deterministic priority disk process. All nine neighbour cells are considered
- * before accepting an object, so streaming order cannot create intersections. */
-export function createNaturalLayout(g:Geography){
+ * before accepting an object, so streaming order cannot create intersections.
+ * `treesOnly` stops each cell after its trees, for the distant forest (render/world/far-forest-bake.ts): they are drawn first
+ * from the cell's random stream and rank below everything else (a tree's priority is under .9, every other kind's 1 or more),
+ * so no other kind ever turns a tree away, and the trees come out exactly as the streamed forest's. */
+export function createNaturalLayout(g:Geography,treesOnly=false){
   const CELL=32,raw=new Map<string,{candidates:Candidate[];scatter:LayoutScatter[]}>(),accepted=new Map<string,LayoutCell>();
   const slope=(x:number,z:number)=>Math.hypot(g.heightAt(x+.6,z)-g.heightAt(x-.6,z),g.heightAt(x,z+.6)-g.heightAt(x,z-.6))/1.2;
   const reserved=(x:number,z:number,reach:number)=>{
@@ -63,6 +66,7 @@ export function createNaturalLayout(g:Geography){
       if(!supported)continue;
       add({x,z,y:g.heightAt(x,z),height,width,yaw:r()*Math.PI*2,kind,seed:Math.floor(r()*900000)},'trees',1.4*width+.08,0,0);
     }
+    if(treesOnly){const result={candidates,scatter};raw.set(key,result);return result;}
     const item=(size:number,variant:number):LayoutScatter=>{const x=(cx+r())*CELL,z=(cz+r())*CELL;return{x,z,y:g.heightAt(x,z),size,yaw:r()*Math.PI*2,variant};};
     for(let i=0;i<190;i++){const a=item(.5+r()*1.3,r());if(valid(a.x,a.z,.84)&&r()<.68&&slope(a.x,a.z)<.65)scatter.push(a);}
     // Fewer candidates, then minimum separation: rocks read as occasional

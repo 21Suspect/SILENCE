@@ -3,17 +3,59 @@ import { mistWeather, createGameClock } from '../../sim/world/weather';
 import { perfOn } from '../../core/perf-flags';
 import * as THREE from 'three';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
-import { createSkyLut, SKY_LUT_GLSL, SUN_ILLUMINANCE, MOON_ILLUMINANCE, transmittance, skyRadiance, skyIrradiance } from './sky-model';
+import { createSkyLut, SKY_LUT_GLSL, SUN_ILLUMINANCE, MOON_ILLUMINANCE, transmittance, skyIrradiance } from './sky-model';
 import { gradeFor, fogDensityFor } from '../post/grade';
 import type { Grade } from '../post/final-image';
 
 /** Solar geometry at a temperate northern latitude, in local solar hours.
  * World +X is east and -Z is south, where the sea is (coastal-geography.ts): the sun travels east, over the sea at noon, then
  * west, so the island's range and the far mountains (+Z) face it. With the sun over them at noon (+Z south) they stood against
- * it all day as flat, hazy silhouettes. */
+ * it all day as flat, hazy silhouettes. The path is turned SUN_TURN west about the vertical: due south at noon it stood straight
+ * behind anyone looking at the range from the lake, and every face, gully and stand of trees was lit head-on, flat and one
+ * colour; from the south-west it rakes across them, one side of each rib and gully in sun and the other in shade, as in the
+ * reference, and still lights the faces. */
+export const SUN_TURN=35*Math.PI/180;
 export function solarDirection(hours:number,latitude=49,declination=9) {
-  const h=(hours-12)*Math.PI/12,lat=latitude*Math.PI/180,dec=declination*Math.PI/180;
-  return new THREE.Vector3(-Math.cos(dec)*Math.sin(h),Math.sin(lat)*Math.sin(dec)+Math.cos(lat)*Math.cos(dec)*Math.cos(h),-(Math.sin(lat)*Math.cos(dec)*Math.cos(h)-Math.cos(lat)*Math.sin(dec))).normalize();
+  const h=(hours-12)*Math.PI/12,lat=latitude*Math.PI/180,dec=declination*Math.PI/180,c=Math.cos(SUN_TURN),s=Math.sin(SUN_TURN);
+  const x=-Math.cos(dec)*Math.sin(h),z=-(Math.sin(lat)*Math.cos(dec)*Math.cos(h)-Math.cos(lat)*Math.sin(dec));
+  return new THREE.Vector3(x*c+z*s,Math.sin(lat)*Math.sin(dec)+Math.cos(lat)*Math.cos(dec)*Math.cos(h),-x*s+z*c).normalize();
+}
+
+/** How far apart (in the sun's elevation, a sine) two samples of the sky model may lie at `elevation`: the sun's colour and the sky's light
+ * change by about 1/(elevation + .03) of themselves per unit of elevation, so the step is a fixed share of that and never under .0001 (the
+ * disc fading in over the horizon) or over .012 (noon, where they hardly move). At most 6 % relative change a step: a blend of two
+ * samples is then within .1 % of the model. */
+export const keyStep=(elevation:number)=>Math.min(.012,Math.max(1e-4,.02*(Math.abs(elevation)+.004)));
+
+/**
+ * A smooth stand-in for a slow function of the sun's elevation that costs real CPU to evaluate (`evaluate` fills `size` numbers).
+ * It keeps two evaluated samples round the last elevation asked for, one `keyStep` apart, and blends them linearly: the value moves with
+ * the sun, one evaluation each time the sun leaves the pair (stepping forward or back, the next pair shares an end with the last), where
+ * the function re-evaluated every .0015 of elevation changed in steps as visible as 5 % at dusk. `version` drops both samples when
+ * whatever the function reads (the lighting tuning) has changed.
+ */
+export function elevationKeyframes(size:number,evaluate:(elevation:number,out:Float64Array)=>void,step=keyStep){
+  let a=new Float64Array(size),b=new Float64Array(size),ea=NaN,eb=NaN,last=NaN,version=NaN;
+  return {
+    /** Evaluations so far (tests, measurements). */
+    evaluations:0,
+    sample(elevation:number,out:Float64Array,v=0){
+      if(v!==version){version=v;ea=eb=NaN;}
+      if(!(elevation>=ea&&elevation<=eb)){
+        const up=!(elevation<last);
+        if(up&&elevation>eb&&elevation-eb<=step(eb)&&Number.isFinite(eb)){[a,b]=[b,a];ea=eb;eb=ea+step(ea);evaluate(eb,b);this.evaluations++;}
+        else if(!up&&elevation<ea&&ea-elevation<=step(ea)&&Number.isFinite(ea)){[a,b]=[b,a];eb=ea;ea=eb-step(eb);evaluate(ea,a);this.evaluations++;}
+        else{
+          // Asked for somewhere new (the first call, a jump of the clock): sample a pair that starts or ends here, by the way the sun is going.
+          if(up){ea=elevation;eb=ea+step(ea);}else{eb=elevation;ea=eb-step(eb);}
+          evaluate(ea,a);evaluate(eb,b);this.evaluations+=2;
+        }
+      }
+      last=elevation;
+      const t=(elevation-ea)/(eb-ea);
+      for(let i=0;i<size;i++)out[i]=a[i]+(b[i]-a[i])*t;
+    },
+  };
 }
 
 /** Uniform solid-angle points avoid equirectangular pixel streaks at the poles.
@@ -64,7 +106,7 @@ function cloudNoiseTexture(){
  */
 export function createSky(renderer:THREE.WebGLRenderer,scene:THREE.Scene,sun:THREE.DirectionalLight,hemi:THREE.HemisphereLight) {
   const placeholder=new THREE.DataTexture(new Uint8Array([120,158,198,255]),1,1);placeholder.needsUpdate=true;
-  const lut=createSkyLut(renderer);
+  const lut=createSkyLut(renderer,()=>perfOn('skyLutSmooth'));
   const cloudTexture=cloudNoiseTexture(),cloudUniform={uCloudNoise:{value:cloudTexture},uCloudTime:{value:0},uCloudEye:{value:new THREE.Vector3()}};
   const uniform={...cloudUniform,skyLut:{value:lut.texture},nightMap:{value:placeholder as THREE.Texture},ready:{value:0},nightAmount:{value:0},sunDirection:{value:solarDirection(6.4)},starRotation:{value:0},
     sunRadiance:{value:new THREE.Color()},cloudSun:{value:new THREE.Color()},cloudSky:{value:new THREE.Color()},moonRadiance:{value:.02},starScale:{value:.0055}};
@@ -171,7 +213,7 @@ export function createSky(renderer:THREE.WebGLRenderer,scene:THREE.Scene,sun:THR
         gl_FragColor=vec4(tint*brightness*profile*amount*starScale*extinction*cloudTransmission(cloudField(normalize(vStarRay)).x),1.);
       }`});
   const starPoints=new THREE.Points(starGeometry,starMaterial);starPoints.name='Resolved stellar points';starPoints.frustumCulled=false;starPoints.renderOrder=-999;starPoints.layers.enable(3);scene.add(starPoints);
-  // Light colours from the model, refreshed when the sun has moved a little (each is a few hundred small CPU evaluations).
+  // Light colours from the model, sampled on a grid of elevations and blended between samples (see lightKeys below).
   // The forest's haze by day: droplets and pollen lit by sun and sky together and scattered many times over, so it reads near
   // white and a touch warm, not the blue of the open sky that a single scattering of sky light gives. MIST_NEUTRAL of its colour
   // takes WARM_WHITE at the sky light's own brightness, by night too.
@@ -180,10 +222,43 @@ export function createSky(renderer:THREE.WebGLRenderer,scene:THREE.Scene,sun:THR
   const MIST_NEUTRAL=.45,WARM_WHITE=new THREE.Color(1.04,1,.9),warmMist=new THREE.Color(),warmSky=new THREE.Color();
   // By day both are 0: the user chose the cooler day of before (2026-11-13, the w0 stills) over the warmed one (.5 and .65).
   const SKY_NEUTRAL_DAY=0,SKY_NEUTRAL_NIGHT=.85,ENV_NEUTRAL=0;
-  const mist=new THREE.Color(),groundBounce=new THREE.Color(),sunColor=new THREE.Color(),skyE=new THREE.Color(),moonSkyE=new THREE.Color(),horizon=new THREE.Color(),moonHorizon=new THREE.Color(),fog=new THREE.Color();
-  const groundTint=new THREE.Color(.82,.9,.62),grade:Grade=gradeFor(1),side=new THREE.Vector3(),moonDir=new THREE.Vector3();
+  const mist=new THREE.Color(),groundBounce=new THREE.Color(),sunColor=new THREE.Color(),skyE=new THREE.Color(),moonSkyE=new THREE.Color(),fog=new THREE.Color();
+  const groundTint=new THREE.Color(.82,.9,.62),grade:Grade=gradeFor(1),moonDir=new THREE.Vector3(),keyDirection=new THREE.Vector3(),sampled=new Float64Array(6),sunAzimuth=new THREE.Vector2(1,0);
   const noonSky=skyIrradiance(new THREE.Vector3(0,.8,.6).normalize(),SUN_ILLUMINANCE),noonLuminance=noonSky.r*.2126+noonSky.g*.7152+noonSky.b*.0722;
-  let lastElevation=Infinity,tuned=-1;
+  // The two lights the sun's elevation sets, evaluated by the sky model (about 110 us a call: 40 sky samples of 8 steps, twice, and the
+  // sun's path). Recomputed only when the sun had moved .0015 in elevation, the colours stepped: at 1.9 steps a second the sun's
+  // colour jumped by 1 to 5 % at each (up to 48 % at the horizon, where the disc fades) and the sky's by up to 15 % at twilight, a
+  // flicker in everything the sun lights. They are now sampled on a grid of elevations that gets finer towards the horizon (relative
+  // change under 6 % a step) and every frame is a blend of the two samples round the sun, so the light moves as smoothly as the sun does.
+  const evaluate=(elevation:number,out:Float64Array)=>{
+    const flat=Math.sqrt(Math.max(1-elevation*elevation,0));keyDirection.set(sunAzimuth.x*flat,elevation,sunAzimuth.y*flat);
+    // The sun as it reaches the ground: the air's transmittance along its path, faded over the half-degree disc at the horizon.
+    transmittance(elevation,sunColor);
+    sunColor.multiplyScalar(THREE.MathUtils.smoothstep(elevation,-.006,.012));
+    moonDir.copy(keyDirection).negate();
+    skyIrradiance(keyDirection,SUN_ILLUMINANCE,skyE);skyIrradiance(moonDir,MOON_ILLUMINANCE,moonSkyE);skyE.add(moonSkyE);
+    // A floor of airglow and starlight (the sky model's night term, over the hemisphere), lifted a little over the sky's own
+    // so a moonless wood keeps the shapes of its nearest trunks and floor instead of pure black (night probe, work/gfx/torch-probe.js).
+    // Its colour is a warm white, not the blue it was: the night sky's own glow is green and red airglow and sun-like starlight,
+    // and the blue floor made every night frame 2.2 times bluer than red (the user wants the night air neutral and warm).
+    // Lifted four times (3.4 to 14): the moon now lights the open ground itself, and where it does not (a trunk's shadow, under
+    // the canopy) the floor keeps the ground readable, a quarter of the moonlit ground's light, instead of the near black it was.
+    const floor=Math.PI*14*LIGHT_TUNING.night;skyE.r+=.000085*floor;skyE.g+=.000081*floor;skyE.b+=.000073*floor;
+    // Under the canopy the sky's light reaches the ground through leaves and off trunks and floor, many times scattered: not the
+    // open sky's blue. SKY_NEUTRAL of it takes a warm white at its own brightness, more at night, where a moonlit sky's blue
+    // (a single scattering of moonlight) tinted the whole wood.
+    const nightShare=1-THREE.MathUtils.smoothstep(elevation,-.1,.06),skyNeutral=SKY_NEUTRAL_DAY+(SKY_NEUTRAL_NIGHT-SKY_NEUTRAL_DAY)*nightShare;
+    skyE.lerp(warmSky.copy(WARM_WHITE).multiplyScalar(skyE.r*.2126+skyE.g*.7152+skyE.b*.0722),skyNeutral);
+    out[0]=sunColor.r;out[1]=sunColor.g;out[2]=sunColor.b;out[3]=skyE.r;out[4]=skyE.g;out[5]=skyE.b;
+  };
+  const lightKeys=elevationKeyframes(6,evaluate);let steppedAt=Infinity,steppedVersion=-1;
+  // Moonlight. The moon stands opposite the sun (sky dome), and once the sun's own light is gone (6 thousandths below the horizon)
+  // it is the key light: the same directional light and the same shadow maps, from the moon, a neutral white a touch cool, rising
+  // with it. A fiftieth of the sun: far above a real full moon (a 400,000th), as games and films light a moonlit night, so the
+  // open ground reads at about a tenth of white at the night's exposure and every trunk throws a moon shadow. Before it the night
+  // had no key light at all: only the sky's dim floor, the ground near black and every lamp a blinding contrast against it.
+  // (A sixtieth since the first look: at a fiftieth moonlit sand read nearly white.)
+  const MOON_KEY=SUN_ILLUMINANCE/60,MOON_COLOUR=new THREE.Color(.93,.96,1),key=new THREE.Vector3(),scatter=new THREE.Color();
   scene.userData.grade=grade;
   // The mist's weather (sim/world/weather.ts) runs on the game's own hours, counted across midnight.
   const gameClock=createGameClock();
@@ -197,55 +272,44 @@ export function createSky(renderer:THREE.WebGLRenderer,scene:THREE.Scene,sun:THR
       starPoints.visible=darkness>.015;
       uniform.sunDirection.value.copy(direction);uniform.nightAmount.value=Math.pow(darkness,2.2);uniform.starRotation.value=(hours-18)*Math.PI/12;
       lut.update(direction);
-      if(Math.abs(elevation-lastElevation)>.0015||tuned!==lightTuningVersion){
-        lastElevation=elevation;tuned=lightTuningVersion;
-        // The sun as it reaches the ground: the air's transmittance along its path, faded over the half-degree disc at the horizon.
-        transmittance(elevation,sunColor);
-        const disc=THREE.MathUtils.smoothstep(elevation,-.006,.012);
-        sunColor.multiplyScalar(disc);
-        moonDir.copy(direction).negate();
-        skyIrradiance(direction,SUN_ILLUMINANCE,skyE);skyIrradiance(moonDir,MOON_ILLUMINANCE,moonSkyE);skyE.add(moonSkyE);
-        // A floor of airglow and starlight (the sky model's night term, over the hemisphere), lifted a little over the sky's own
-        // so a moonless wood keeps the shapes of its nearest trunks and floor instead of pure black (night probe, work/gfx/torch-probe.js).
-        // Its colour is a warm white, not the blue it was: the night sky's own glow is green and red airglow and sun-like starlight,
-        // and the blue floor made every night frame 2.2 times bluer than red (the user wants the night air neutral and warm).
-        const floor=Math.PI*3.4*LIGHT_TUNING.night;skyE.r+=.000085*floor;skyE.g+=.000081*floor;skyE.b+=.000073*floor;
-        // Under the canopy the sky's light reaches the ground through leaves and off trunks and floor, many times scattered: not the
-        // open sky's blue. SKY_NEUTRAL of it takes a warm white at its own brightness, more at night, where a moonlit sky's blue
-        // (a single scattering of moonlight) tinted the whole wood.
-        const nightShare=1-THREE.MathUtils.smoothstep(elevation,-.1,.06),skyNeutral=SKY_NEUTRAL_DAY+(SKY_NEUTRAL_NIGHT-SKY_NEUTRAL_DAY)*nightShare;
-        skyE.lerp(warmSky.copy(WARM_WHITE).multiplyScalar(skyE.r*.2126+skyE.g*.7152+skyE.b*.0722),skyNeutral);
-        side.set(Math.cos(Math.atan2(direction.z,direction.x)+Math.PI/2),.06,Math.sin(Math.atan2(direction.z,direction.x)+Math.PI/2)).normalize();
-        skyRadiance(side,direction,SUN_ILLUMINANCE,horizon);skyRadiance(side,moonDir,MOON_ILLUMINANCE,moonHorizon);horizon.add(moonHorizon);
-        const fogAmbient=.8;
-        // Mist: lit from every side by the sky above and the dim ground below (isotropic scattering sees the average).
-        mist.copy(skyE).multiplyScalar(1/Math.PI).add(groundBounce.copy(skyE).multiplyScalar(.04));
-        // The same warm white day and night: the mist used to fade back to the sky's blue below the horizon, and the night read blue.
-        const neutral=MIST_NEUTRAL;
-        mist.lerp(warmMist.copy(WARM_WHITE).multiplyScalar(mist.r*.2126+mist.g*.7152+mist.b*.0722),neutral);
-        // The long-range air takes the sky's true horizon colour (atmosphere.ts), not the mist's whitened one.
-        scene.userData.hazeNeutral=0;
-        fog.copy(mist);
-        scene.userData.fogAmbient=fogAmbient;
-        gradeFor(elevation,grade);
-        uniform.sunRadiance.value.copy(sunColor).multiplyScalar(40);
-        uniform.cloudSun.value.copy(sunColor).multiplyScalar(SUN_ILLUMINANCE/Math.PI*.9);
-        uniform.cloudSky.value.copy(skyE).multiplyScalar(.9/Math.PI);
-        const moonUp=THREE.MathUtils.smoothstep(-elevation,-.02,.1);
-        uniform.moonRadiance.value=.03*moonUp;
-      }
+      // The sun's colour and the sky's light, blended between the two samples of the model that bracket the sun's elevation.
+      sunAzimuth.set(direction.x,direction.z).normalize();
+      if(perfOn('sunSmooth'))lightKeys.sample(elevation,sampled,lightTuningVersion);
+      else if(Math.abs(elevation-steppedAt)>.0015||steppedVersion!==lightTuningVersion){steppedAt=elevation;steppedVersion=lightTuningVersion;evaluate(elevation,sampled);}   // the stepped light of before, for A/B
+      sunColor.setRGB(sampled[0],sampled[1],sampled[2]);skyE.setRGB(sampled[3],sampled[4],sampled[5]);
+      // Mist: lit from every side by the sky above and the dim ground below (isotropic scattering sees the average).
+      mist.copy(skyE).multiplyScalar(1/Math.PI).add(groundBounce.copy(skyE).multiplyScalar(.04));
+      // The same warm white day and night: the mist used to fade back to the sky's blue below the horizon, and the night read blue.
+      mist.lerp(warmMist.copy(WARM_WHITE).multiplyScalar(mist.r*.2126+mist.g*.7152+mist.b*.0722),MIST_NEUTRAL);
+      // The long-range air takes the sky's true horizon colour (atmosphere.ts), not the mist's whitened one.
+      scene.userData.hazeNeutral=0;
+      fog.copy(mist);
+      scene.userData.fogAmbient=.8;
+      gradeFor(elevation,grade);
+      uniform.sunRadiance.value.copy(sunColor).multiplyScalar(40);
+      uniform.cloudSun.value.copy(sunColor).multiplyScalar(SUN_ILLUMINANCE/Math.PI*.9);
+      uniform.cloudSky.value.copy(skyE).multiplyScalar(.9/Math.PI);
+      uniform.moonRadiance.value=.03*THREE.MathUtils.smoothstep(-elevation,-.02,.1);
       // The hour's mist times the weather's: a clear night, a thick one, mist lifting through the morning.
       const weather=mistWeather(gameClock(hours));scene.userData.mistWeather=weather;
       scene.userData.fogDensity=fogDensityFor(elevation)*LIGHT_TUNING.haze*weather;
-      sun.color.copy(sunColor);sun.intensity=SUN_ILLUMINANCE*LIGHT_TUNING.sun;
+      const moonUp=elevation<-.006,moonLight=moonUp?MOON_KEY*THREE.MathUtils.smoothstep(-elevation,0,.15):0;
+      if(moonUp){key.copy(direction).negate();sun.color.copy(MOON_COLOUR);sun.intensity=moonLight*LIGHT_TUNING.sun;}
+      else{key.copy(direction);sun.color.copy(sunColor);sun.intensity=SUN_ILLUMINANCE*LIGHT_TUNING.sun;}
+      // The key light's colour with its strength against the sun's in it, as the water and the mist's shafts read it (they scale it
+      // by the sun's illuminance): the moon's colour alone, at the sun's strength, lit the night sea a glowing daylight cyan.
+      scatter.copy(sun.color).multiplyScalar(moonUp?moonLight/SUN_ILLUMINANCE:1);
       hemi.color.copy(skyE);hemi.intensity=LIGHT_TUNING.sky;
       // The ground's bounce from below: a dark, green-brown forest floor lit by the sun and sky together.
       hemi.groundColor.copy(sunColor).multiplyScalar(SUN_ILLUMINANCE*Math.max(elevation,0)).add(skyE).multiply(groundTint).multiplyScalar(.11);
       const skyLuminance=skyE.r*.2126+skyE.g*.7152+skyE.b*.0722;
       scene.environmentIntensity=.185*Math.min(1.4,skyLuminance/noonLuminance);
-      scene.userData.fogColor=fog;scene.userData.mistColor=mist;scene.userData.skyColor=fog;scene.userData.sunDirection=direction;scene.userData.sunScatterColor=sun.color;
+      // Everything lit by the key light takes its direction (the sun's by day, the moon's by night): shadows, horizons, water.
+      scene.userData.fogColor=fog;scene.userData.mistColor=mist;scene.userData.skyColor=fog;scene.userData.sunDirection=key;scene.userData.sunScatterColor=scatter;
+      // The sun's own height, for what follows the time of day rather than the light (the wind over water).
+      scene.userData.solarElevation=elevation;
       scene.userData.sunLevel=Math.min(1,(sunColor.r*.2126+sunColor.g*.7152+sunColor.b*.0722)/.8);
-      return {darkness,sunDirection:direction,sunElevation:elevation,daylight};
+      return {darkness,sunDirection:key,sunElevation:elevation,daylight,moonLight};
     },
     dispose(){disposed=true;scene.remove(dome,starPoints);starGeometry.dispose();starMaterial.dispose();dome.geometry.dispose();material.dispose();placeholder.dispose();cloudTexture.dispose();dayTexture?.dispose();nightTexture?.dispose();environment?.dispose();generator.dispose();lut.dispose();if(scene.environment===environment?.texture)scene.environment=null;delete scene.userData.hasSky;delete scene.userData.sunDirection;delete scene.userData.fogColor;delete scene.userData.sunScatterColor;delete scene.userData.skyLut;delete scene.userData.grade;}
   };

@@ -39,40 +39,19 @@
    }
   },
   {
-   "layer": "face",
-   "asset": "rock_face_03",
-   "name": "Rock Face 03",
+   "layer": "crag",
+   "asset": "mountainside",
+   "name": "Mountainside",
    "provider": "Poly Haven",
-   "source": "https://polyhaven.com/a/rock_face_03",
+   "source": "https://polyhaven.com/a/mountainside",
    "license": "CC0-1.0",
    "license_url": "https://polyhaven.com/license",
    "authors": [
     "Dario Barresi",
     "Rico Cilliers"
    ],
-   "physical_width_m": 2.7,
-   "maps": {
-    "Diffuse": {
-     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/rock_face_03/rock_face_03_diff_2k.jpg",
-     "md5": "657add9e8a8dffaeed19bdfc58078b59"
-    },
-    "nor_gl": {
-     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/rock_face_03/rock_face_03_nor_gl_2k.jpg",
-     "md5": "279b33e71ae6275cafa24e6597024c98"
-    },
-    "Rough": {
-     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/rock_face_03/rock_face_03_rough_2k.jpg",
-     "md5": "8895a8b199487fd6cfeed2fed1fb39b4"
-    },
-    "Displacement": {
-     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/rock_face_03/rock_face_03_disp_2k.jpg",
-     "md5": "e7629af66fe9420fe3e73b937f3eba40"
-    },
-    "AO": {
-     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/rock_face_03/rock_face_03_ao_2k.jpg",
-     "md5": "810c436dedec3e19b9a30e5d1db721f7"
-    }
-   }
+   "physical_width_m": 7.2,
+   "derivation": "A scanned 3D model (a shattered, layered mountainside), rendered flat in Blender (tools/assets/mountain/bake_faces.py) to albedo, height, normal and roughness, then tiled and taken towards neutral grey by tools/assets/mountain/pack_faces.py."
   },
   {
    "layer": "snow",
@@ -110,41 +89,19 @@
    }
   },
   {
-   "layer": "cliff",
-   "asset": "cliff_side",
-   "name": "Cliff Side",
+   "layer": "blocks",
+   "asset": "namaqualand_cliff_02",
+   "name": "Namaqualand Cliff 02",
    "provider": "Poly Haven",
-   "source": "https://polyhaven.com/a/cliff_side",
+   "source": "https://polyhaven.com/a/namaqualand_cliff_02",
    "license": "CC0-1.0",
    "license_url": "https://polyhaven.com/license",
    "authors": [
-    "James Ray Cock",
-    "Jenelle van Heerden",
-    "Dario Barresi"
+    "Dario Barresi",
+    "Rico Cilliers"
    ],
-   "physical_width_m": 1.83,
-   "maps": {
-    "Diffuse": {
-     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/cliff_side/cliff_side_diff_2k.jpg",
-     "md5": "6d129836144e271b30071281241e237d"
-    },
-    "nor_gl": {
-     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/cliff_side/cliff_side_nor_gl_2k.jpg",
-     "md5": "8209033c3ad15185977d91c92cf5866f"
-    },
-    "Rough": {
-     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/cliff_side/cliff_side_rough_2k.jpg",
-     "md5": "44abb195b6c4c7b6da902e97e5bbbef2"
-    },
-    "Displacement": {
-     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/cliff_side/cliff_side_disp_2k.jpg",
-     "md5": "0cff18e450837d68f545e011aa8a84fa"
-    },
-    "AO": {
-     "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/cliff_side/cliff_side_ao_2k.jpg",
-     "md5": "2872dca209647f5723418eddbf63e059"
-    }
-   }
+   "physical_width_m": 6.5,
+   "derivation": "A scanned 3D model (jointed granite blocks), rendered flat in Blender (tools/assets/mountain/bake_faces.py) to albedo, height, normal and roughness, then tiled and taken towards neutral grey by tools/assets/mountain/pack_faces.py."
   }
  ]
 }

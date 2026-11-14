@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { farShadowGLSL, type FarShadow } from '../world/far-shadow';
 import { createMeshSurface } from '../world/surface-support';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import type { SolidCollider } from '../../sim/world/collision';
@@ -11,6 +12,7 @@ import type { DoorSpec } from './doors';
 import type { GpuWarmup } from '../gpu/gpu-warmup';
 import { perfOn } from '../../core/perf-flags';
 import { dressProp } from './prop-materials';
+import propLods from '../../data/prop-lod.json';
 
 /** Model-local footprint (Y up, metres, Y=0 is the ground), as written by the Blender export. */
 export type ModelCollider = ({ kind: 'box'; x: number; z: number; halfX: number; halfZ: number; yaw?: number } |
@@ -32,9 +34,62 @@ export type PoiOptions = {
   load?: (url: string) => Promise<{ scene: THREE.Object3D }>;
   /** Seat every placement on the terrain under its whole footprint (see seatPlacement). Defaults to WORLD_V2; off, Y is the terrain at the origin. */
   seat?: boolean;
+  /** Metres of draw distance per metre of an asset's radius (PIXEL_RANGE); 0 keeps each placement's own distance (tests). */
+  pixelRange?: number;
+  /** The island-wide sun shadow (far-shadow.ts), which props take past the sun's own 72 m map. */
+  farShadow?: FarShadow;
+  /** Radians a screen pixel spans (the view's height over its rows): picks each prop's mesh level of detail. None draws every prop whole. */
+  pixelAngle?: () => number;
+  /** The mesh levels (tools/assets/prop-lod.mjs); defaults to game/data/prop-lod.json when the GLBs come from the real loader. */
+  lods?: Record<string, PropLod>;
 };
+/** A prop's mesh levels: per level its error in metres and, per primitive in load order, where its index list sits in the file. */
+export type PropLod = { url: string; prims: { vertices: number; indices: number }[]; levels: { error: number; triangles: number; prims: { offset: number; count: number; wide: boolean }[] }[] };
+/**
+ * A level is chosen where its error is under half a pixel at the prop's nearest surface, so the change cannot be seen; it goes
+ * back to the finer one only past LOD_BACK of that, so standing at a boundary never flickers between them.
+ */
+const LOD_PIXELS = .5, LOD_BACK = 1.25;
 
 const DEFAULT_DRAW = 150, LOAD_MARGIN = 60, HIDE_MARGIN = 12, SCATTER_STEP = 1.5;
+/**
+ * How far a thing is drawn: its own placement's distance, or out to where it is about a pixel across (330 m per metre of its radius
+ * at 1080 lines and the game's 69 degree view), up to the whole island (1200 m). A fixed 150 m, as before, had the cabin, the
+ * chapel and the huts appear out of nothing as one walked towards them; now a building is there from anywhere it can be seen.
+ * Over the last quarter of that distance it dissolves (PROP_FADE below), so it is gone before it is switched off.
+ */
+const PIXEL_RANGE = 330, ISLAND_RANGE = 1200;
+const PROP_FADE = `
+  float propFadeHash(vec2 c){return fract(52.9829189*fract(dot(c,vec2(.06711056,.00583715))));}`;
+/** A model's materials dissolve by a screen-space dither between uPropFade.x and .y metres from the eye, by its origin. */
+function fadeMaterial(material: THREE.Material, fade: { value: THREE.Vector2 }, farShadow?: FarShadow) {
+  const compile = material.onBeforeCompile, key = material.customProgramCacheKey();
+  material.onBeforeCompile = (shader, renderer) => {
+    compile.call(material, shader, renderer);
+    shader.uniforms.uPropFade = fade;
+    if (farShadow) Object.assign(shader.uniforms, farShadow.uniforms);
+    shader.vertexShader = `uniform vec2 uPropFade;varying float vPropFade;varying vec3 vPropFarWorld;\n${shader.vertexShader}`.replace('#include <begin_vertex>', `#include <begin_vertex>
+      {
+        vec4 propOrigin=vec4(0.,0.,0.,1.);
+        #ifdef USE_INSTANCING
+          propOrigin=instanceMatrix*propOrigin;
+        #endif
+        propOrigin=modelMatrix*propOrigin;
+        vPropFade=1.-smoothstep(uPropFade.x,uPropFade.y,distance(propOrigin.xz,cameraPosition.xz));
+        vec4 propPoint=vec4(transformed,1.);
+        #ifdef USE_INSTANCING
+          propPoint=instanceMatrix*propPoint;
+        #endif
+        vPropFarWorld=(modelMatrix*propPoint).xyz;
+      }`);
+    shader.fragmentShader = `varying float vPropFade;varying vec3 vPropFarWorld;${PROP_FADE}\n${farShadow ? farShadowGLSL : 'float farShadow(vec3 p,float b){return 1.;}'}\n${shader.fragmentShader}`.replace('#include <clipping_planes_fragment>',
+      '#include <clipping_planes_fragment>\n  if(vPropFade<1.&&vPropFade<propFadeHash(floor(gl_FragCoord.xy)))discard;')
+      // Past the sun's own 72 m map (shadows.ts) the island-wide one carries the shadows of the trees and the land on a building.
+      .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\n  {float w=smoothstep(26.,34.,distance(vPropFarWorld.xz,cameraPosition.xz));if(w>0.){float far=mix(1.,farShadow(vPropFarWorld,.6),w);reflectedLight.directDiffuse*=far;reflectedLight.directSpecular*=far;}}');
+  };
+  material.customProgramCacheKey = () => `${key}-fade${farShadow ? '-far' : ''}`;
+  material.needsUpdate = true;
+}
 
 /**
  * A model-local (x, z) in world metres: exactly where a THREE.Object3D at (p.x, ·, p.z)
@@ -197,14 +252,20 @@ type Entry = {
   /** The placement as it stands (a tilted prop has its extra yaw), `ground` its origin height and `quaternion` its tilt, if any. */
   p: Placement; model: Model; ground: number; quaternion?: THREE.Quaternion; draw: number; shown: boolean; scatter: boolean;
   colliders: SolidCollider[]; enabled: boolean; matrix: THREE.Matrix4; hooks: Map<string, THREE.Vector3>; object?: THREE.Object3D;
+  /** The placed model's meshes in load order, and the mesh level it shows (-1 whole). */
+  lodMeshes?: THREE.Mesh[]; lod?: number;
 };
 type Model = {
   name: string; def: PoiAsset; entries: Entry[]; status: 'idle' | 'loading' | 'ready' | 'failed';
-  scene?: THREE.Object3D; prims: { mesh: THREE.InstancedMesh; rel: THREE.Matrix4 }[]; scatterX: number; scatterZ: number; repack: boolean;
+  scene?: THREE.Object3D; scatterX: number; scatterZ: number; repack: boolean;
+  /** Per primitive of a scattered model: its instanced mesh, the same at each mesh level (index i is level i), and its place in the model. */
+  prims: { mesh: THREE.InstancedMesh; levels: THREE.InstancedMesh[]; rel: THREE.Matrix4 }[];
   /** True while the GPU warm-up (game/render/gpu/gpu-warmup.ts) is still bringing this model's textures in; nothing of it is drawn until then. */
   warming?: boolean;
   /** Settles once `warming` has ended (undefined without the warm-up). */
   ready?: Promise<void>;
+  /** Its whole meshes' geometries in load order, and per level the same with fewer triangles (the same vertex buffers). */
+  base?: THREE.BufferGeometry[]; lods?: { error: number; geometries: THREE.BufferGeometry[] }[];
   /** Settles once the GLB is in (the shared source scene) or has failed (undefined); set when loading begins. */
   done?: Promise<THREE.Object3D | undefined>;
 };
@@ -221,6 +282,8 @@ export type PoiSeat = { id: string; asset: string; def: PoiAsset; placement: Pla
 export function createPois(scene: THREE.Scene, heightAt: (x: number, z: number) => number,
   collisions?: { replace: (name: string, colliders: SolidCollider[]) => void }, options: PoiOptions = {}) {
   const assets = options.assets ?? worldAssets as unknown as Record<string, PoiAsset>;
+  // Mesh levels only for the real GLBs (an injected loader's models are not the ones the levels were made from).
+  const lodTable: Record<string, PropLod> = options.lods ?? (options.load ? {} : propLods as unknown as Record<string, PropLod>);
   const root = new THREE.Group(); root.name = 'World POIs'; scene.add(root);
   // Thin, double-sided cloth and plank faces need slope-aware shadow depth.
   // PolygonOffset alone does not change the RGBA-packed depth Three samples.
@@ -247,7 +310,8 @@ export function createPois(scene: THREE.Scene, heightAt: (x: number, z: number) 
     const seat: Seat = p.y !== undefined ? { ground: p.y, placement: p } : (options.seat ?? WORLD_V2) ? seatPlacement(def, p, heightAt) : { ground: heightAt(p.x, p.z), placement: p };
     const { ground, quaternion } = seat, placed = seat.placement, s = p.scale ?? 1, hooks = new Map<string, THREE.Vector3>();
     for (const name of Object.keys(def.hooks ?? {})) { const v = worldHook(def, placed, ground, name, quaternion); if (v) hooks.set(name, v); }
-    const entry: Entry = { p: placed, model, ground, quaternion, draw: p.draw ?? DEFAULT_DRAW, shown: false, scatter, enabled: true, hooks,
+    const draw = Math.max(p.draw ?? DEFAULT_DRAW, Math.min(ISLAND_RANGE, (def.radius ?? 6) * s * (options.pixelRange ?? PIXEL_RANGE)));
+    const entry: Entry = { p: placed, model, ground, quaternion, draw, shown: false, scatter, enabled: true, hooks,
       colliders: worldColliders(def, placed, ground, quaternion), object: undefined,
       matrix: new THREE.Matrix4().compose(new THREE.Vector3(p.x, ground, p.z), quaternion ?? new THREE.Quaternion().setFromAxisAngle(THREE.Object3D.DEFAULT_UP, p.yaw), new THREE.Vector3(s, s, s)) };
     model.entries.push(entry); entries.set(p.id, entry);
@@ -266,7 +330,40 @@ export function createPois(scene: THREE.Scene, heightAt: (x: number, z: number) 
   // Distances are to the placement's centre; the asset radius turns that into distance to its nearest surface.
   const within = (e: Entry, x: number, z: number, margin: number) => { const r = e.draw + margin + radiusOf(e); return (e.p.x - x) ** 2 + (e.p.z - z) ** 2 < r * r; };
 
-  function finish(model: Model, gltf: { scene: THREE.Object3D }) {
+  /** The model's mesh levels over its own vertex buffers, if the level file matches the GLB (counts per primitive). */
+  function levels(model: Model, meshes: THREE.Mesh[], data: ArrayBuffer | undefined) {
+    const lod = lodTable[model.name];
+    if (!lod || !data) return;
+    const fits = meshes.length === lod.prims.length && meshes.every((m, i) => m.geometry.getAttribute('position').count === lod.prims[i].vertices && m.geometry.index?.count === lod.prims[i].indices);
+    if (!fits) { warnOnce(`lod:${model.name}`, `"${model.name}" has changed since its mesh levels were made (node tools/assets/prop-lod.mjs ${model.name}); it is drawn whole.`); return; }
+    model.base = meshes.map(m => m.geometry);
+    model.lods = lod.levels.map(level => ({ error: level.error, geometries: meshes.map((mesh, i) => {
+      const source = mesh.geometry, at = level.prims[i], g = new THREE.BufferGeometry();
+      // The same attribute objects, so the same buffers on the GPU: only the index list is new.
+      for (const [name, attribute] of Object.entries(source.attributes)) g.setAttribute(name, attribute);
+      g.setIndex(new THREE.BufferAttribute(at.wide ? new Uint32Array(data, at.offset, at.count) : new Uint16Array(data, at.offset, at.count), 1));
+      if (!source.boundingSphere) source.computeBoundingSphere();
+      g.boundingSphere = source.boundingSphere; g.boundingBox = source.boundingBox; g.name = `${source.name} (within ${level.error} m)`;
+      return g;
+    }) }));
+  }
+
+  /** Each shown placement of a model with mesh levels takes the coarsest whose error is under half a pixel at its nearest surface. */
+  function chooseLevels(model: Model, x: number, z: number, angle: number) {
+    const lods = model.lods!;
+    for (const e of model.entries) {
+      if (!e.shown || !e.lodMeshes) continue;
+      const s = e.p.scale ?? 1, near = Math.max(1, Math.hypot(e.p.x - x, e.p.z - z) - radiusOf(e) * s), pixel = near * angle / s;
+      let level = -1;
+      for (let i = 0; i < lods.length; i++) if (lods[i].error < pixel * LOD_PIXELS * (i <= (e.lod ?? -1) ? LOD_BACK : 1)) level = i;
+      if (level === e.lod) continue;
+      e.lod = level;
+      const geometries = level < 0 ? model.base! : lods[level].geometries;
+      e.lodMeshes.forEach((mesh, i) => { mesh.geometry = geometries[i]; });
+    }
+  }
+
+  function finish(model: Model, gltf: { scene: THREE.Object3D }, lodData?: ArrayBuffer) {
     const source = gltf.scene;
     if (disposed) { disposeTree(source); return; }
     // An exported lamp or camera would otherwise be cloned into every placement and cost a light each.
@@ -278,6 +375,12 @@ export function createPois(scene: THREE.Scene, heightAt: (x: number, z: number) 
     model.scene = source; model.status = 'ready';
     const inverse = new THREE.Matrix4().copy(source.matrixWorld).invert();
     const meshes: THREE.Mesh[] = []; source.traverse(o => { if (o instanceof THREE.Mesh && !(o as THREE.SkinnedMesh).isSkinnedMesh) meshes.push(o); });
+    levels(model, meshes, lodData);
+    // Its materials dissolve over the last quarter of its farthest placement's distance (fadeMaterial).
+    {
+      const end = Math.max(...model.entries.map(e => e.draw + radiusOf(e))), fade = { value: new THREE.Vector2(end * .75, end) }, done = new Set<THREE.Material>();
+      for (const mesh of meshes) for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) if (!done.has(m)) { done.add(m); fadeMaterial(m, fade, options.farShadow); }
+    }
     // Shared geometry, lazy triangle grids: precise supports without per-frame raycasts.
     for (const e of model.entries) {
       if (!e.colliders.some(c => c.tag === 'rock') && !['cabin','chapel','hut'].includes(model.name)) continue;
@@ -292,13 +395,19 @@ export function createPois(scene: THREE.Scene, heightAt: (x: number, z: number) 
       }
     }
     const scattered = model.entries.filter(e => e.scatter);
-    if (scattered.length) for (const mesh of meshes) {
-      const instanced = new THREE.InstancedMesh(mesh.geometry, mesh.material, scattered.length);
+    // Scattered copies share one instanced mesh per primitive, and one more per mesh level: each copy goes to the level its own
+    // distance picks (repack), so a far power pole or boulder is drawn with fewer triangles of the same mesh, as a placed prop is.
+    const instancedOf = (geometry: THREE.BufferGeometry, mesh: THREE.Mesh, label: string) => {
+      const instanced = new THREE.InstancedMesh(geometry, mesh.material, scattered.length);
       if (!model.name.startsWith('rock_') && model.name !== 'minerock') instanced.customDepthMaterial = propDepth;
-      instanced.name = `Scatter ${model.name}`; instanced.castShadow = true; instanced.receiveShadow = true; instanced.count = 0;
+      instanced.name = label; instanced.castShadow = true; instanced.receiveShadow = true; instanced.count = 0; instanced.visible = false;
       instanced.instanceMatrix.setUsage(THREE.DynamicDrawUsage); root.add(instanced);
-      model.prims.push({ mesh: instanced, rel: new THREE.Matrix4().multiplyMatrices(inverse, mesh.matrixWorld) });
-    }
+      return instanced;
+    };
+    if (scattered.length) meshes.forEach((mesh, i) => {
+      model.prims.push({ mesh: instancedOf(mesh.geometry, mesh, `Scatter ${model.name}`), levels: (model.lods ?? []).map(l => instancedOf(l.geometries[i], mesh, `Scatter ${model.name} (within ${l.error} m)`)),
+        rel: new THREE.Matrix4().multiplyMatrices(inverse, mesh.matrixWorld) });
+    });
     for (const e of model.entries) {
       if (e.scatter) continue;
       const object = source.clone(true); object.name = `POI ${e.p.id}`;
@@ -308,6 +417,7 @@ export function createPois(scene: THREE.Scene, heightAt: (x: number, z: number) 
       // Placed once and never moved: stop three re-deriving every node's matrix each frame.
       object.traverse(o => { if (o instanceof THREE.Mesh && !model.name.startsWith('rock_') && model.name !== 'minerock') o.customDepthMaterial = propDepth; o.updateMatrix(); o.matrixAutoUpdate = false; });
       object.updateMatrixWorld(true);
+      if (model.lods) { const list: THREE.Mesh[] = []; object.traverse(o => { if (o instanceof THREE.Mesh && !(o as THREE.SkinnedMesh).isSkinnedMesh) list.push(o); }); e.lodMeshes = list; e.lod = -1; }
     }
     commit();
     model.repack = true; dirty = true;
@@ -322,7 +432,7 @@ export function createPois(scene: THREE.Scene, heightAt: (x: number, z: number) 
       model.warming = true; model.ready = new Promise<void>(resolve => { release = resolve; });
       const done = () => { model.warming = false; model.repack = true; dirty = true; release(); };
       warm.add({ label: model.name, textures, object: source, urgent, cancelled, onDone: done });
-      for (const prim of model.prims) warm.add({ label: `${model.name} (scatter)`, textures: [], object: prim.mesh, urgent, cancelled });
+      for (const prim of model.prims) for (const object of [prim.mesh, ...prim.levels]) warm.add({ label: `${model.name} (scatter)`, textures: [], object, urgent, cancelled });
     }
   }
 
@@ -333,27 +443,37 @@ export function createPois(scene: THREE.Scene, heightAt: (x: number, z: number) 
     try { request = options.load ? options.load(model.def.url) : (loader ??= new GLTFLoader()).loadAsync(model.def.url); } catch (error) { request = Promise.reject(error); }
     // `done` settles when the model can be shown: loaded, and (when the GPU warm-up is on) its textures built.
     // Library-textured props (tiled.py) get their shared maps before anything is shown or warmed.
-    model.done = request.then(async gltf => { await dressProp(gltf.scene); finish(model, gltf); await model.ready; return model.scene; }).catch(error => { fail(error); return undefined; });
+    // Its mesh levels come with it (a small file of index lists); a level file that cannot load leaves the prop whole.
+    const lod = lodTable[model.name], levels = lod ? fetch(lod.url).then(r => r.ok ? r.arrayBuffer() : undefined).catch(() => undefined) : Promise.resolve(undefined);
+    model.done = request.then(async gltf => { await dressProp(gltf.scene); finish(model, gltf, await levels); await model.ready; return model.scene; }).catch(error => { fail(error); return undefined; });
   }
 
   const tmp = new THREE.Matrix4();
   function repack(model: Model, x: number, z: number) {
-    let n = 0, changed = false;
+    let changed = false;
+    const lods = model.lods ?? [], counts = new Array(lods.length + 1).fill(0), angle = options.pixelAngle && perfOn('propLod') ? options.pixelAngle() : 0;
     for (const e of model.entries) {
       if (!e.scatter) continue;
       const shown = !model.warming && within(e, x, z, e.shown ? HIDE_MARGIN : 0);
       if (shown !== e.shown) { e.shown = shown; changed = true; }
       if (!shown) continue;
-      for (const prim of model.prims) prim.mesh.setMatrixAt(n, tmp.multiplyMatrices(e.matrix, prim.rel));
-      n++;
+      // The coarsest level whose error is under half a pixel at the copy's nearest surface (chooseLevels' rule).
+      let level = 0;
+      if (angle > 0) { const s = e.p.scale ?? 1, pixel = Math.max(1, Math.hypot(e.p.x - x, e.p.z - z) - radiusOf(e) * s) * angle / s; for (let i = 0; i < lods.length; i++) if (lods[i].error < pixel * LOD_PIXELS) level = i + 1; }
+      for (const prim of model.prims) (level ? prim.levels[level - 1] : prim.mesh).setMatrixAt(counts[level], tmp.multiplyMatrices(e.matrix, prim.rel));
+      counts[level]++;
     }
-    for (const prim of model.prims) { prim.mesh.count = n; prim.mesh.instanceMatrix.needsUpdate = true; if (n) prim.mesh.computeBoundingSphere(); prim.mesh.visible = n > 0; }
+    for (const prim of model.prims) [prim.mesh, ...prim.levels].forEach((mesh, level) => {
+      const n = counts[level]; mesh.count = n; mesh.instanceMatrix.needsUpdate = true; if (n) mesh.computeBoundingSphere(); mesh.visible = n > 0;
+    });
     model.scatterX = x; model.scatterZ = z; model.repack = false;
     return changed;
   }
 
   return {
     solidColliders,
+    /** The group every placed model hangs in: it casts into the island-wide sun shadow (far-shadow.ts) as well as the near one. */
+    root,
     /** Every ladder of every placement, in world space. Fixed once the placements are. */
     ladders,
     /** Changes whenever the collider list does; the engine re-registers it then. */
@@ -362,7 +482,7 @@ export function createPois(scene: THREE.Scene, heightAt: (x: number, z: number) 
     update(player: THREE.Vector3) {
       updated = true;
       let changed = dirty; dirty = false;
-      const x = player.x, z = player.z; lastX = x; lastZ = z;
+      const x = player.x, z = player.z, angle = options.pixelAngle?.() ?? 0; lastX = x; lastZ = z;
       for (const model of models.values()) {
         if (model.status === 'idle' && model.entries.some(e => within(e, x, z, LOAD_MARGIN))) begin(model);
         if (model.status !== 'ready') continue;
@@ -373,6 +493,8 @@ export function createPois(scene: THREE.Scene, heightAt: (x: number, z: number) 
           if (shown !== e.shown) { e.shown = e.object.visible = shown; changed = true; }
         }
         if (model.prims.length && (model.repack || Math.hypot(x - model.scatterX, z - model.scatterZ) > SCATTER_STEP) && repack(model, x, z)) changed = true;
+        // (perf A/B: with 'propLod' off every prop goes back to whole.)
+        if (model.lods && angle > 0) chooseLevels(model, x, z, perfOn('propLod') ? angle : 1e-12);
       }
       return changed;
     },
@@ -414,11 +536,11 @@ export function createPois(scene: THREE.Scene, heightAt: (x: number, z: number) 
     stats() {
       const count = (status: Model['status']) => [...models.values()].filter(m => m.status === status).length;
       return { placements: entries.size, models: models.size, loading: count('loading'), loaded: count('ready'), failed: count('failed'),
-        colliders: solidColliders.length, visible: [...entries.values()].filter(e => e.shown).length, instances: [...models.values()].reduce((n, m) => n + (m.prims[0]?.mesh.count ?? 0), 0) };
+        colliders: solidColliders.length, visible: [...entries.values()].filter(e => e.shown).length, instances: [...models.values()].reduce((n, m) => n + (m.prims[0] ? m.prims[0].mesh.count + m.prims[0].levels.reduce((k, l) => k + l.count, 0) : 0), 0) };
     },
     dispose() {
       disposed = true; scene.remove(root); collisions?.replace('pois', []);
-      for (const m of models.values()) { for (const prim of m.prims) prim.mesh.dispose(); if (m.scene) disposeTree(m.scene); }
+      for (const m of models.values()) { for (const prim of m.prims) { prim.mesh.dispose(); for (const l of prim.levels) l.dispose(); } if (m.scene) disposeTree(m.scene); for (const l of m.lods ?? []) for (const g of l.geometries) g.dispose(); }
       propDepth.dispose(); models.clear(); entries.clear();
     },
   };

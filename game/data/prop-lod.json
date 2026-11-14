@@ -1,0 +1,1320 @@
+{
+ "cabin": {
+  "url": "/world/lod/cabin.bin",
+  "prims": [
+   {
+    "vertices": 4473,
+    "indices": 13524
+   },
+   {
+    "vertices": 675,
+    "indices": 3744
+   },
+   {
+    "vertices": 862,
+    "indices": 4680
+   },
+   {
+    "vertices": 420,
+    "indices": 960
+   },
+   {
+    "vertices": 8531,
+    "indices": 22434
+   },
+   {
+    "vertices": 4,
+    "indices": 6
+   },
+   {
+    "vertices": 5888,
+    "indices": 16548
+   },
+   {
+    "vertices": 90,
+    "indices": 420
+   },
+   {
+    "vertices": 114,
+    "indices": 540
+   },
+   {
+    "vertices": 48185,
+    "indices": 234168
+   },
+   {
+    "vertices": 3396,
+    "indices": 11736
+   },
+   {
+    "vertices": 102,
+    "indices": 252
+   },
+   {
+    "vertices": 27016,
+    "indices": 149676
+   },
+   {
+    "vertices": 1712,
+    "indices": 9396
+   },
+   {
+    "vertices": 41961,
+    "indices": 223140
+   },
+   {
+    "vertices": 7151,
+    "indices": 20964
+   },
+   {
+    "vertices": 4585,
+    "indices": 13356
+   },
+   {
+    "vertices": 1730,
+    "indices": 2628
+   },
+   {
+    "vertices": 377,
+    "indices": 927
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.01,
+    "triangles": 119343,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 4071,
+      "wide": false
+     },
+     {
+      "offset": 8144,
+      "count": 153,
+      "wide": false
+     },
+     {
+      "offset": 8452,
+      "count": 267,
+      "wide": false
+     },
+     {
+      "offset": 8988,
+      "count": 402,
+      "wide": false
+     },
+     {
+      "offset": 9792,
+      "count": 7503,
+      "wide": false
+     },
+     {
+      "offset": 24800,
+      "count": 6,
+      "wide": false
+     },
+     {
+      "offset": 24812,
+      "count": 11226,
+      "wide": false
+     },
+     {
+      "offset": 47264,
+      "count": 324,
+      "wide": false
+     },
+     {
+      "offset": 47912,
+      "count": 255,
+      "wide": false
+     },
+     {
+      "offset": 48424,
+      "count": 64428,
+      "wide": false
+     },
+     {
+      "offset": 177280,
+      "count": 2262,
+      "wide": false
+     },
+     {
+      "offset": 181804,
+      "count": 240,
+      "wide": false
+     },
+     {
+      "offset": 182284,
+      "count": 31638,
+      "wide": false
+     },
+     {
+      "offset": 245560,
+      "count": 1278,
+      "wide": false
+     },
+     {
+      "offset": 248116,
+      "count": 212184,
+      "wide": false
+     },
+     {
+      "offset": 672484,
+      "count": 10146,
+      "wide": false
+     },
+     {
+      "offset": 692776,
+      "count": 8493,
+      "wide": false
+     },
+     {
+      "offset": 709764,
+      "count": 2592,
+      "wide": false
+     },
+     {
+      "offset": 714948,
+      "count": 561,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "mine": {
+  "url": "/world/lod/mine.bin",
+  "prims": [
+   {
+    "vertices": 18187,
+    "indices": 66246
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.01,
+    "triangles": 17312,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 51936,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "camp": {
+  "url": "/world/lod/camp.bin",
+  "prims": [
+   {
+    "vertices": 7813,
+    "indices": 32394
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.01,
+    "triangles": 5667,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 17001,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "logstack": {
+  "url": "/world/lod/logstack.bin",
+  "prims": [
+   {
+    "vertices": 13048,
+    "indices": 54258
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.01,
+    "triangles": 14030,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 42090,
+      "wide": false
+     }
+    ]
+   },
+   {
+    "error": 0.03,
+    "triangles": 10816,
+    "prims": [
+     {
+      "offset": 84180,
+      "count": 32448,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "chapel": {
+  "url": "/world/lod/chapel.bin",
+  "prims": [
+   {
+    "vertices": 22413,
+    "indices": 63036
+   },
+   {
+    "vertices": 198,
+    "indices": 720
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.01,
+    "triangles": 13778,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 40938,
+      "wide": false
+     },
+     {
+      "offset": 81876,
+      "count": 396,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "minerock": {
+  "url": "/world/lod/minerock.bin",
+  "prims": [
+   {
+    "vertices": 19136,
+    "indices": 106980
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.01,
+    "triangles": 9288,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 27864,
+      "wide": false
+     }
+    ]
+   },
+   {
+    "error": 0.03,
+    "triangles": 3892,
+    "prims": [
+     {
+      "offset": 55728,
+      "count": 11676,
+      "wide": false
+     }
+    ]
+   },
+   {
+    "error": 0.1,
+    "triangles": 1960,
+    "prims": [
+     {
+      "offset": 79080,
+      "count": 5880,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "rock_c": {
+  "url": "/world/lod/rock_c.bin",
+  "prims": [
+   {
+    "vertices": 4798,
+    "indices": 24888
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.01,
+    "triangles": 3674,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 11022,
+      "wide": false
+     }
+    ]
+   },
+   {
+    "error": 0.03,
+    "triangles": 1942,
+    "prims": [
+     {
+      "offset": 22044,
+      "count": 5826,
+      "wide": false
+     }
+    ]
+   },
+   {
+    "error": 0.1,
+    "triangles": 930,
+    "prims": [
+     {
+      "offset": 33696,
+      "count": 2790,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "roadbridge": {
+  "url": "/world/lod/roadbridge.bin",
+  "prims": [
+   {
+    "vertices": 1084,
+    "indices": 4272
+   },
+   {
+    "vertices": 170,
+    "indices": 420
+   },
+   {
+    "vertices": 3152,
+    "indices": 11952
+   },
+   {
+    "vertices": 23752,
+    "indices": 63168
+   },
+   {
+    "vertices": 35920,
+    "indices": 148512
+   },
+   {
+    "vertices": 74088,
+    "indices": 427296
+   },
+   {
+    "vertices": 952,
+    "indices": 2352
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.01,
+    "triangles": 131454,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 4104,
+      "wide": false
+     },
+     {
+      "offset": 8208,
+      "count": 354,
+      "wide": false
+     },
+     {
+      "offset": 8916,
+      "count": 11031,
+      "wide": false
+     },
+     {
+      "offset": 30980,
+      "count": 52746,
+      "wide": false
+     },
+     {
+      "offset": 136472,
+      "count": 143742,
+      "wide": false
+     },
+     {
+      "offset": 423956,
+      "count": 181317,
+      "wide": true
+     },
+     {
+      "offset": 1149224,
+      "count": 1068,
+      "wide": false
+     }
+    ]
+   },
+   {
+    "error": 0.03,
+    "triangles": 88349,
+    "prims": [
+     {
+      "offset": 1151360,
+      "count": 3060,
+      "wide": false
+     },
+     {
+      "offset": 1157480,
+      "count": 300,
+      "wide": false
+     },
+     {
+      "offset": 1158080,
+      "count": 11022,
+      "wide": false
+     },
+     {
+      "offset": 1180124,
+      "count": 52932,
+      "wide": false
+     },
+     {
+      "offset": 1285988,
+      "count": 145560,
+      "wide": false
+     },
+     {
+      "offset": 1577108,
+      "count": 51165,
+      "wide": true
+     },
+     {
+      "offset": 1781768,
+      "count": 1008,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "ruin": {
+  "url": "/world/lod/ruin.bin",
+  "prims": [
+   {
+    "vertices": 14221,
+    "indices": 38712
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.03,
+    "triangles": 9188,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 27564,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "graves": {
+  "url": "/world/lod/graves.bin",
+  "prims": [
+   {
+    "vertices": 9639,
+    "indices": 28464
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.01,
+    "triangles": 6565,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 19695,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "shrine": {
+  "url": "/world/lod/shrine.bin",
+  "prims": [
+   {
+    "vertices": 7276,
+    "indices": 30192
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.01,
+    "triangles": 5365,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 16095,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "watertower": {
+  "url": "/world/lod/watertower.bin",
+  "prims": [
+   {
+    "vertices": 7717,
+    "indices": 26610
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.01,
+    "triangles": 6776,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 20328,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "tunnel": {
+  "url": "/world/lod/tunnel.bin",
+  "prims": [
+   {
+    "vertices": 9691,
+    "indices": 33708
+   },
+   {
+    "vertices": 66,
+    "indices": 240
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.03,
+    "triangles": 8568,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 25536,
+      "wide": false
+     },
+     {
+      "offset": 51072,
+      "count": 168,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "tunnelrock": {
+  "url": "/world/lod/tunnelrock.bin",
+  "prims": [
+   {
+    "vertices": 19424,
+    "indices": 107532
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.01,
+    "triangles": 13268,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 39804,
+      "wide": false
+     }
+    ]
+   },
+   {
+    "error": 0.03,
+    "triangles": 5242,
+    "prims": [
+     {
+      "offset": 79608,
+      "count": 15726,
+      "wide": false
+     }
+    ]
+   },
+   {
+    "error": 0.1,
+    "triangles": 2742,
+    "prims": [
+     {
+      "offset": 111060,
+      "count": 8226,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "hut": {
+  "url": "/world/lod/hut.bin",
+  "prims": [
+   {
+    "vertices": 3621,
+    "indices": 13446
+   },
+   {
+    "vertices": 34,
+    "indices": 84
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.01,
+    "triangles": 2504,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 7452,
+      "wide": false
+     },
+     {
+      "offset": 14904,
+      "count": 60,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "generator": {
+  "url": "/world/lod/generator.bin",
+  "prims": [
+   {
+    "vertices": 4221,
+    "indices": 14340
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.01,
+    "triangles": 3436,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 10308,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "deerstand": {
+  "url": "/world/lod/deerstand.bin",
+  "prims": [
+   {
+    "vertices": 4450,
+    "indices": 13776
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.01,
+    "triangles": 2396,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 7188,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "pole": {
+  "url": "/world/lod/pole.bin",
+  "prims": [
+   {
+    "vertices": 1990,
+    "indices": 8622
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.01,
+    "triangles": 1958,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 5874,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "jerrycan": {
+  "url": "/world/lod/jerrycan.bin",
+  "prims": [
+   {
+    "vertices": 2802,
+    "indices": 14868
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.01,
+    "triangles": 1229,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 3687,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "drum": {
+  "url": "/world/lod/drum.bin",
+  "prims": [
+   {
+    "vertices": 1284,
+    "indices": 6840
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.01,
+    "triangles": 465,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 1395,
+      "wide": false
+     }
+    ]
+   },
+   {
+    "error": 0.03,
+    "triangles": 303,
+    "prims": [
+     {
+      "offset": 2792,
+      "count": 909,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "tire": {
+  "url": "/world/lod/tire.bin",
+  "prims": [
+   {
+    "vertices": 1281,
+    "indices": 7200
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.01,
+    "triangles": 466,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 1398,
+      "wide": false
+     }
+    ]
+   },
+   {
+    "error": 0.03,
+    "triangles": 143,
+    "prims": [
+     {
+      "offset": 2796,
+      "count": 429,
+      "wide": false
+     }
+    ]
+   },
+   {
+    "error": 0.1,
+    "triangles": 111,
+    "prims": [
+     {
+      "offset": 3656,
+      "count": 333,
+      "wide": false
+     }
+    ]
+   },
+   {
+    "error": 0.3,
+    "triangles": 88,
+    "prims": [
+     {
+      "offset": 4324,
+      "count": 264,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "rock_a": {
+  "url": "/world/lod/rock_a.bin",
+  "prims": [
+   {
+    "vertices": 3131,
+    "indices": 14364
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.01,
+    "triangles": 2908,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 8724,
+      "wide": false
+     }
+    ]
+   },
+   {
+    "error": 0.03,
+    "triangles": 1778,
+    "prims": [
+     {
+      "offset": 17448,
+      "count": 5334,
+      "wide": false
+     }
+    ]
+   },
+   {
+    "error": 0.1,
+    "triangles": 838,
+    "prims": [
+     {
+      "offset": 28116,
+      "count": 2514,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "rock_b": {
+  "url": "/world/lod/rock_b.bin",
+  "prims": [
+   {
+    "vertices": 3739,
+    "indices": 18324
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.01,
+    "triangles": 3188,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 9564,
+      "wide": false
+     }
+    ]
+   },
+   {
+    "error": 0.03,
+    "triangles": 1804,
+    "prims": [
+     {
+      "offset": 19128,
+      "count": 5412,
+      "wide": false
+     }
+    ]
+   },
+   {
+    "error": 0.1,
+    "triangles": 872,
+    "prims": [
+     {
+      "offset": 29952,
+      "count": 2616,
+      "wide": false
+     }
+    ]
+   },
+   {
+    "error": 0.3,
+    "triangles": 674,
+    "prims": [
+     {
+      "offset": 35184,
+      "count": 2022,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "rock_d": {
+  "url": "/world/lod/rock_d.bin",
+  "prims": [
+   {
+    "vertices": 4207,
+    "indices": 22188
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.01,
+    "triangles": 2932,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 8796,
+      "wide": false
+     }
+    ]
+   },
+   {
+    "error": 0.03,
+    "triangles": 1434,
+    "prims": [
+     {
+      "offset": 17592,
+      "count": 4302,
+      "wide": false
+     }
+    ]
+   },
+   {
+    "error": 0.1,
+    "triangles": 672,
+    "prims": [
+     {
+      "offset": 26196,
+      "count": 2016,
+      "wide": false
+     }
+    ]
+   },
+   {
+    "error": 1,
+    "triangles": 504,
+    "prims": [
+     {
+      "offset": 30228,
+      "count": 1512,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "outhouse": {
+  "url": "/world/lod/outhouse.bin",
+  "prims": [
+   {
+    "vertices": 2949,
+    "indices": 7980
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.01,
+    "triangles": 1716,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 5148,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "wheelbarrow": {
+  "url": "/world/lod/wheelbarrow.bin",
+  "prims": [
+   {
+    "vertices": 1821,
+    "indices": 7248
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.01,
+    "triangles": 1286,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 3858,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "cans": {
+  "url": "/world/lod/cans.bin",
+  "prims": [
+   {
+    "vertices": 2473,
+    "indices": 13068
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.01,
+    "triangles": 1392,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 4176,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "canline": {
+  "url": "/world/lod/canline.bin",
+  "prims": [
+   {
+    "vertices": 1618,
+    "indices": 7116
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.01,
+    "triangles": 1502,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 4506,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "totem": {
+  "url": "/world/lod/totem.bin",
+  "prims": [
+   {
+    "vertices": 2276,
+    "indices": 7254
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.01,
+    "triangles": 1480,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 4440,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "cairn": {
+  "url": "/world/lod/cairn.bin",
+  "prims": [
+   {
+    "vertices": 1323,
+    "indices": 6720
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.01,
+    "triangles": 1066,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 3198,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "firewood": {
+  "url": "/world/lod/firewood.bin",
+  "prims": [
+   {
+    "vertices": 2073,
+    "indices": 6444
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.01,
+    "triangles": 1426,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 4278,
+      "wide": false
+     }
+    ]
+   },
+   {
+    "error": 0.03,
+    "triangles": 892,
+    "prims": [
+     {
+      "offset": 8556,
+      "count": 2676,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "stump_axe": {
+  "url": "/world/lod/stump_axe.bin",
+  "prims": [
+   {
+    "vertices": 1686,
+    "indices": 7260
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.01,
+    "triangles": 1093,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 3279,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "well": {
+  "url": "/world/lod/well.bin",
+  "prims": [
+   {
+    "vertices": 3721,
+    "indices": 11076
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.01,
+    "triangles": 2885,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 8655,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "busstop": {
+  "url": "/world/lod/busstop.bin",
+  "prims": [
+   {
+    "vertices": 4311,
+    "indices": 14406
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.01,
+    "triangles": 2693,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 8079,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "effigy": {
+  "url": "/world/lod/effigy.bin",
+  "prims": [
+   {
+    "vertices": 1650,
+    "indices": 6162
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.01,
+    "triangles": 1084,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 3252,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "wall": {
+  "url": "/world/lod/wall.bin",
+  "prims": [
+   {
+    "vertices": 4896,
+    "indices": 12096
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.03,
+    "triangles": 2626,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 7878,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ },
+ "wall_gap": {
+  "url": "/world/lod/wall_gap.bin",
+  "prims": [
+   {
+    "vertices": 4250,
+    "indices": 10500
+   }
+  ],
+  "levels": [
+   {
+    "error": 0.03,
+    "triangles": 2352,
+    "prims": [
+     {
+      "offset": 0,
+      "count": 7056,
+      "wide": false
+     }
+    ]
+   }
+  ]
+ }
+}

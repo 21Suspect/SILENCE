@@ -1,6 +1,8 @@
 import { WORLD_V2 } from '../../sim/world/world-flags';
 import * as THREE from 'three';
 import { createUndergrowth } from './undergrowth';
+import { farShadowGLSL, type FarShadow } from './far-shadow';
+import { lodDitherGLSL } from './lod-dither';
 import { createRockGeometry, createRockMaterial } from './surfaces';
 import { varyDirectionalTexture } from './texture-variation';
 import { WORLD_RADIUS, biomeAt, groundMasks, riverX, riverPresence, roadZ, structureClearance } from '../../sim/world/world';
@@ -26,7 +28,13 @@ const VARIANTS = 4;
 // Trees are placed out to TREE_RANGE+FOREST_BUFFER round the point the forest was last rebuilt at and faded by distance from the eye in
 // the shader, so the placement stays valid until the player is FOREST_BUFFER from that point. A rebuild starts every FOREST_STEP and
 // is spread over a few frames; the 1.5 m between the two is the room it has to finish in.
-const FOREST_STEP=6, FOREST_BUFFER=FOREST_STEP+1.5, TREE_RANGE=98, TREE_COLLISION_RANGE=94, TRUNK_DETAIL_END=43, CROWN_DETAIL_START=22, CROWN_DETAIL_END=30;
+// Dev: ?tree-range=N draws the streamed trees out to N m, so they can be set beside their impostors (?impostor-ab) at the distances
+// where the impostors really stand in for them.
+const DEV_TREE_RANGE=(import.meta as {env?:{DEV?:boolean}}).env?.DEV&&typeof location!=='undefined'?Number(new URLSearchParams(location.search).get('tree-range'))||0:0;
+// Dev: ?tree-hand=N moves the whole hand-over to N m: the streamed trees end there and their impostors (far-forest.ts) begin, to
+// measure and judge a nearer hand-over.
+const DEV_TREE_HAND=(import.meta as {env?:{DEV?:boolean}}).env?.DEV&&typeof location!=='undefined'?Number(new URLSearchParams(location.search).get('tree-hand'))||0:0;
+const FOREST_STEP=6, FOREST_BUFFER=FOREST_STEP+1.5, TREE_RANGE=DEV_TREE_RANGE||DEV_TREE_HAND||98, TREE_FADE=TREE_RANGE-15, TREE_COLLISION_RANGE=94, TRUNK_DETAIL_END=43, CROWN_DETAIL_START=22, CROWN_DETAIL_END=30;
 // The crown band is a uniform (dev: __SILENCE__.perf.crownBand()), so other bands can be measured and compared live; both crowns
 // are placed over CROWN_PLACE_*, so widen that to try a band outside it. 22/30 m against the earlier 30/40 (2026-11-12, 1920x1080,
 // interleaved A/B): -0.1 ms at the canopy, -0.4 at spawn, -0.44 at dusk; judged in play to look the same.
@@ -160,7 +168,7 @@ const ROOT_SHADER_DEFORM = `
   transformed.y += rootShift * (1.0 - smoothstep(0.0, 2.0, max(position.y, 0.0)));
 `;
 
-export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number) => number, exclusion: (x: number, z: number) => number, spawn: THREE.Vector3) {
+export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number) => number, exclusion: (x: number, z: number) => number, spawn: THREE.Vector3, farShadow?: FarShadow) {
   const group = new THREE.Group(); group.name = 'Forest — grounded trunks, pine crowns, deadfall and litter'; scene.add(group);
   const layout=naturalLayout({heightAt,exclusion,biomeAt,riverX,riverPresence,roadZ,radius:WORLD_RADIUS});
   const undergrowth = createUndergrowth(scene, heightAt, exclusion, (cx, cz) => layout.cell(cx, cz));
@@ -201,12 +209,13 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
     const compile=material.onBeforeCompile,cacheKey=material.customProgramCacheKey();
     // One fade works in the main view, reflections and shadow maps.
     material.alphaHash=true;
-    material.customProgramCacheKey=()=>`${cacheKey}-stream-${from}-${to}-${kind??''}-${cull?.join(',')??''}`;
+    material.customProgramCacheKey=()=>`${cacheKey}-stream-${from}-${to}-${kind??''}-${cull?.join(',')??''}${farShadow?'-far':''}`;
     material.onBeforeCompile=(shader,renderer)=>{
       compile.call(material,shader,renderer);
       shader.uniforms.uForestEye=forestEye;shader.uniforms.uInstanceCull=instanceCullSwitch;shader.uniforms.uCrownBand=crownBand;
-      shader.vertexShader=`${INSTANCE_CULL_HEADER}uniform vec3 uForestEye;uniform vec2 uCrownBand;varying float vForestCoverage;${kind==='trunk'?'attribute float streamDetail;':kind==='crown'?'attribute float crownLod;':''}\n${shader.vertexShader}`.replace(/void main\s*\(\s*\)\s*\{/,`void main(){
-        vForestCoverage=1.;
+      if(farShadow)Object.assign(shader.uniforms,farShadow.uniforms);
+      shader.vertexShader=`${INSTANCE_CULL_HEADER}uniform vec3 uForestEye;uniform vec2 uCrownBand;varying float vForestCoverage,vForestIn;varying vec3 vForestFarWorld;${kind==='trunk'?'attribute float streamDetail;':kind==='crown'?'attribute float crownLod;':''}\n${shader.vertexShader}`.replace(/void main\s*\(\s*\)\s*\{/,`void main(){
+        vForestCoverage=1.;vForestIn=1.;
         #ifdef USE_INSTANCING
           vec2 eyeOffset=instanceMatrix[3].xz-uForestEye.xz;
           ${kind==='branch'?'eyeOffset-=instanceMatrix[1].xz*.52;':''}
@@ -217,14 +226,28 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
           // The full crown thins out across the band as the light one fills in under it: a dissolve from one to the
           // other over ${CROWN_DETAIL_END-CROWN_DETAIL_START} m of walking, never a switch.
           float lodBlend=smoothstep(uCrownBand.x*uCrownBand.x,uCrownBand.y*uCrownBand.y,distanceSquared);
-          vForestCoverage*=mix(1.-lodBlend,lodBlend,crownLod);`:''}
-          if(vForestCoverage<=0.){gl_Position=vec4(2.,2.,2.,1.);return;}
+          if(crownLod<.5)vForestCoverage*=1.-lodBlend;else vForestIn=lodBlend;`:''}
+          if(vForestCoverage<=0.||vForestIn<=0.){gl_Position=vec4(2.,2.,2.,1.);return;}
         #endif
         ${cull?instanceCullGLSL(...cull):''}
       `);
-      shader.fragmentShader=`varying float vForestCoverage;\n${shader.fragmentShader}`.replace('#include <alphahash_fragment>',`
-        if(vForestCoverage<1.&&vForestCoverage<getAlphaHashThreshold(vPosition))discard;
-      `);
+      shader.vertexShader=shader.vertexShader.replace('#include <project_vertex>',`#include <project_vertex>
+        {vec4 farPoint=vec4(transformed,1.);
+        #ifdef USE_INSTANCING
+          farPoint=instanceMatrix*farPoint;
+        #endif
+        vForestFarWorld=(modelMatrix*farPoint).xyz;}`);
+      // Every hand-over is a complementary dither on one screen-space pattern (lodDitherGLSL): what fades out keeps the pixels whose
+      // value is under its weight, what fades in (the light crown here, the impostors past 83 m, impostors.ts) exactly the others.
+      // The object-space alpha hash this used could not be shared with an impostor: two unrelated patterns left a quarter of every
+      // tree's pixels empty mid-band and doubled another quarter.
+      shader.fragmentShader=`varying float vForestCoverage,vForestIn;varying vec3 vForestFarWorld;\n${lodDitherGLSL}\n${farShadow?farShadowGLSL:'float farShadow(vec3 p,float b){return 1.;}'}\n${shader.fragmentShader}`.replace('#include <alphahash_fragment>',`
+        if(lodFadeDiscard(vForestIn,vForestCoverage))discard;
+      `)
+        // Past the sun's own 72 m map (shadows.ts) the trees take the island-wide one (far-shadow.ts): their neighbours' shade.
+        // Read only where it counts (past 26 m): mixed away to nothing nearer, its eight texture reads were still paid on every pixel.
+        .replace('#include <lights_fragment_end>',`#include <lights_fragment_end>
+        {float w=smoothstep(26.,34.,distance(vForestFarWorld.xz,cameraPosition.xz));if(w>0.){float far=mix(1.,farShadow(vForestFarWorld,2.5),w);reflectedLight.directDiffuse*=far;reflectedLight.directSpecular*=far;}}`);
     };
   }
   const foliageWind=(shader:THREE.WebGLProgramParametersWithUniforms) => {
@@ -264,11 +287,11 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
   varyDirectionalTexture(logBark);
   // Cull bounds per species (model units, the tree is 31 tall): a conifer's limbs and crown reach about 6.5 from its axis, a
   // birch's 8.5, an oak's 17 (broadleaf.ts budgets). The shadow materials serve every species, so they take the oak's.
-  fadeInstances(bark,83,TREE_RANGE,'trunk');
-  for(const m of [pineBark,spruceBark])fadeInstances(m,83,TREE_RANGE,'trunk',[-1,33,6.5]);
-  fadeInstances(birchBark,83,TREE_RANGE,'trunk',[-1,33,8.5]);
-  for(const m of [oakBark,rootDepth,rootDistance])fadeInstances(m,83,TREE_RANGE,'trunk',[-1,36,17]);
-  for(const m of [pineNeedles,spruceNeedles])fadeInstances(m,83,TREE_RANGE,'crown',[0,32.5,6.5]);
+  fadeInstances(bark,TREE_FADE,TREE_RANGE,'trunk');
+  for(const m of [pineBark,spruceBark])fadeInstances(m,TREE_FADE,TREE_RANGE,'trunk',[-1,33,6.5]);
+  fadeInstances(birchBark,TREE_FADE,TREE_RANGE,'trunk',[-1,33,8.5]);
+  for(const m of [oakBark,rootDepth,rootDistance])fadeInstances(m,TREE_FADE,TREE_RANGE,'trunk',[-1,36,17]);
+  for(const m of [pineNeedles,spruceNeedles])fadeInstances(m,TREE_FADE,TREE_RANGE,'crown',[0,32.5,6.5]);
   const stoneMaterials=[createRockMaterial(false),createRockMaterial(false),createRockMaterial(false)];
   for(let i=1;i<3;i++){
     const m=stoneMaterials[i],prefix=i===1?'granite':'slate';
@@ -285,7 +308,7 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
     const m=new THREE.MeshStandardMaterial({map:texture(`/world/trees/${folder}/spray-color.jpg`,true,false),alphaMap:texture(`/world/trees/${folder}/spray-alpha.png`,false,false),
       normalMap:texture(`/world/trees/${folder}/spray-normal.jpg`,false,false),normalScale:new THREE.Vector2(.7,.7),alphaTest:.3,alphaToCoverage:true,side:THREE.DoubleSide,
       roughness:.74,vertexColors:true,color});
-    m.name=name;m.onBeforeCompile=foliageWind;fadeInstances(m,83,TREE_RANGE,'crown',cull);
+    m.name=name;m.onBeforeCompile=foliageWind;fadeInstances(m,TREE_FADE,TREE_RANGE,'crown',cull);
     return m;
   };
   const oakLeaves=broadleafLeaves('oak','Composed oak sprays',0x7f9070,[4,36,17]),birchLeaves=broadleafLeaves('birch','Composed birch sprays',0xa8b494,[6,32.5,8.5]);
@@ -386,7 +409,14 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
   // instead. three.js draws a shadow caster wherever it draws the object, so the stand-in's material sends every vertex
   // outside the view (nothing is rasterised). The shadow pass takes its alpha map, cut-off and side (three.js copies them
   // from the object's material into the depth material), so it carries the crown's: the sprays cast sprays, not cards.
-  const crownCasters=new Map<THREE.Material,THREE.MeshBasicMaterial>();
+  const crownCasters=new Map<THREE.Material,THREE.MeshBasicMaterial>(),casterGeometries:THREE.BufferGeometry[]=[];
+  // The vertex shader alone still ran for every stand-in vertex in the view's pass and the water's reflection (100 to 160 thousand
+  // triangles at a forest station) to send them nowhere. Each stand-in has a geometry of its own over the light crown's buffers;
+  // its material empties its draw range just before each draw of a view (material.onBeforeRender, which the shadow pass does not
+  // call), and every render starts by restoring it (scene.onBeforeRender), so the shadow pass, which three runs first, draws it whole.
+  const castNothing=(_r:THREE.WebGLRenderer,_s:THREE.Scene,_c:THREE.Camera,geometry:THREE.BufferGeometry)=>{if(perfOn('casterRange'))geometry.drawRange.count=0;};
+  const renderStart=scene.onBeforeRender;
+  scene.onBeforeRender=function(...args){renderStart.apply(this,args);for(const g of casterGeometries)g.drawRange.count=Infinity;};
   const crownShadows=farCrowns.map((far,m)=>{
     const visible=crownMaterial(kindOfModel(m)) as THREE.MeshStandardMaterial;
     let caster=crownCasters.get(visible);
@@ -394,9 +424,13 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
       caster=new THREE.MeshBasicMaterial({alphaMap:visible.alphaMap,alphaTest:.3,side:THREE.DoubleSide});caster.shadowSide=THREE.DoubleSide;caster.name=`${visible.name} (shadow only)`;
       caster.onBeforeCompile=shader=>{shader.vertexShader=shader.vertexShader.replace('#include <project_vertex>','#include <project_vertex>\ngl_Position=vec4(2.,2.,2.,1.);');};
       caster.customProgramCacheKey=()=>'silence-shadow-only';
+      caster.onBeforeRender=castNothing;
       crownCasters.set(visible,caster);
     }
-    const definition=instances(far.definition.geometry,caster,512,true,`${far.definition.name} shadow`);
+    const source=far.definition.geometry,only=new THREE.BufferGeometry();
+    for(const [name,attribute] of Object.entries(source.attributes))only.setAttribute(name,attribute);
+    only.setIndex(source.index);only.boundingBox=source.boundingBox;only.boundingSphere=source.boundingSphere;casterGeometries.push(only);
+    const definition=instances(only,caster,512,true,`${far.definition.name} shadow`);
     definition.sectorSize=56;
     return definition;
   });
@@ -756,6 +790,25 @@ export function createForest(scene: THREE.Scene, heightAt: (x: number, z: number
   let disposed = false;
   return {
     colliders,solidColliders,get collisionVersion(){return collisionVersion;},
+    /** What the distant forest (far-forest.ts) draws its trees from: every model's trunk and full crown with their materials
+     *  (the light crown's sprays left a third of an impostor's crown open and its limbs showing), and a tree's width. */
+    impostorSource:{
+      models:models.map((model,m)=>{const kind=kindOfModel(m);return {trunk:model.farTrunk,crown:model.farCrown,bark:kind<2?pineBark:kind<4?spruceBark:kind<6?birchBark:oakBark,leaves:crownMaterial(kind)};}),
+      modelOf:(kind:number,seed:number)=>modelOf({kind,seed} as Tree),
+      girth:(kind:number,height:number,width:number)=>girth({kind,height,width} as Tree),
+      textures,
+      /** The undergrowth's plants for the far plants (far-plants.ts), once loaded. */
+      get plants(){return undergrowth.impostorSource;},
+      /** The forest floor's other things, once the scans are in: the very pieces and materials drawn near, and how an item picks
+       *  its piece (far-scatter.ts places them as below). */
+      get scatter(){
+        if(!scanned)return undefined;
+        const piece=(s:Scanned)=>({geometry:s.variant.geometry,material:s.definition.material as THREE.Material,foot:s.foot,size:s.variant.size});
+        const proc=(d:VegetationBatchDefinition)=>({geometry:d.geometry,material:d.material as THREE.Material|THREE.Material[],foot:-.3,size:new THREE.Vector3(1,1,1)});
+        return {rocks:scanned.rocks[0].map(piece),stones:stones.slice(6,9).map(proc),stumps:[piece(scanned.stumps[0]),proc(stumps[1]),piece(scanned.stumps[1])],
+          trunk:piece(scanned.trunk),branches:scanned.branches.map(piece),pick:(count:number,variant:number,yaw:number)=>Math.floor((((variant%1)*7.31+yaw*.913)%1)*count)%count};
+      },
+    },
     /** Dev: the near-to-light crown band in metres (x start, y end), live. */
     crownBand:crownBand.value,
     warmupTextures(renderer: THREE.WebGLRenderer) {

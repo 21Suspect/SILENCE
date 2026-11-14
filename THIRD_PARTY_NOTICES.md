@@ -26,3 +26,16 @@ The files in `public/audio/ambience/` are field recordings by Joseph Sardin from
 [bigsoundbank.com](https://bigsoundbank.com) (sounds 2749, 1348, 0110, 0555, 0904 and 0429), released under
 CC0 1.0 (public domain). They were trimmed, levelled and looped for the game by
 `tools/assets/audio/ambience.py`. Details are in `public/audio/attribution.json`.
+
+## Terrain erosion filter (MPL-2.0)
+
+`game/sim/world/erosion-filter.ts` is a TypeScript port of Rune Skovbo Johansen's Advanced Terrain Erosion Filter ("Fast and
+Gorgeous Erosion Filter", blog.runevision.com; Shadertoy wXcfWn; copyright 2025 Rune Skovbo Johansen), made from the Rust CPU
+mirror in bevy_erosion_filter 0.1.1 (src/cpu.rs). Both are under the Mozilla Public License 2.0, and so is that file (file-level
+copyleft: https://mozilla.org/MPL/2.0/). The gradient noise it carries (Inigo Quilez's `noised`) is MIT. The rest of SILENCE stays
+under its MIT license.
+
+## Mountain rock scans
+
+`public/textures/mountain/` packs CC0-1.0 Poly Haven scans (two textures and two scanned rock models rendered flat); sources,
+authors and how each was made are in `public/textures/mountain/attribution.json`.

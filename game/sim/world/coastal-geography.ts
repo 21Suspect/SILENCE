@@ -2,7 +2,7 @@
  * +Z is inland: alpine headwaters feed a lake, whose outlet reaches the southern sea.
  */
 import { noise, fbm, riverX, waterHeightAt, smooth } from './world-noise';
-import { gradientNoise, erosionFilter } from './mountain-noise';
+import { gradientNoise, erodeMetres, EROSION_DEFAULTS, type ErosionResult } from './mountain-noise';
 
 export const SEA_LEVEL = -5.2;
 export const LAKE_LEVEL = .6;
@@ -121,6 +121,23 @@ function massifs(x:number,z:number){
   // Broad, uneven summits rather than sharp crest lines: a smooth swell, not ridged noise (whose crests the gullies cut into combs).
   return Math.max(0,h*(1+.14*warp(x/260+3,z/260-1,3)));
 }
+// The island's erosion (erosion-filter.ts), run in kilometres: the widest gullies ISLAND_EROSION.scale km apart.
+const ISLAND_UNIT=1000,ISLAND_ONSET=130;
+const ISLAND_EROSION={...EROSION_DEFAULTS,scale:.16,strength:.12,gain:.45,rounding:[.3,.05,.3,2] as const,octaves:5};
+/**
+ * A real massif's profile is concave at its foot: an apron of talus and soil at 20 to 35 degrees, where the forest stands, under
+ * faces that steepen as they rise. Bells carved by the filter rose from the plain at 40 to 50 degrees and held no forest, so the
+ * height is remapped: h - c(1 - e^(-h/c)) has no slope at the foot and the full slope from about 2c up, scaled back to keep the
+ * summits (APRON.c 55 m: a 25 m point keeps 46% of its slope, 50 m 75%, the faces above 120 m 110 to 125%).
+ */
+const APRON={c:55,scale:1.25};
+const apron=(h:number)=>(h-APRON.c*(1-Math.exp(-h/APRON.c)))*APRON.scale;
+/** Valley (-1) to peak (+1) for a massif height: the filter eases flat ground towards it, so summits stay whole and pointed. */
+const ISLAND_FADE=(h:number)=>Math.min(.5,Math.max(-1,(h-90)/70));
+const eroded:ErosionResult={height:0,slopeX:0,slopeY:0,magnitude:0,ridge:0};
+let lastRidge=0;
+/** The ridge map of the island's range at (x, z): -1 on gully lines .. +1 on ridge lines, 0 off the massifs (for the shading's bake). */
+export function mountainRidge(x:number,z:number){lastRidge=0;mountainRelief(x,z);return lastRidge;}
 /** Rugged asymmetric ranges. Steep lower scarps are actual impassable terrain. */
 export function mountainRelief(x: number, z: number) {
   const foot = mountainFoot(x), north = smooth(z, foot - 65, foot + 105) ** 2;
@@ -132,8 +149,16 @@ export function mountainRelief(x: number, z: number) {
   // ran into vertical cuttings that high (fins from across the lake). Their feet now start 30 m north of the foot.
   const rise=(z2:number)=>smooth(z2-foot,30,200);
   const lifted=(x2:number,z2:number)=>massifs(x2,z2)*rise(z2);
-  const base=lifted(x,z),e=2,sx=(lifted(x+e,z)-lifted(x-e,z))/(2*e),sz=(lifted(x,z+e)-lifted(x,z-e))/(2*e);
-  const peak=Math.max(0,base+erosionFilter(x,z,sx,sz,190,24*Math.min(1,base/110),3));
+  const base=lifted(x,z);
+  let peak=0;
+  if(base>.01){
+    const e=2,sx=(lifted(x+e,z)-lifted(x-e,z))/(2*e),sz=(lifted(x,z+e)-lifted(x,z-e))/(2*e);
+    erodeMetres(x,z,base,sx,sz,ISLAND_FADE(base),ISLAND_UNIT,ISLAND_EROSION,eroded);
+    // The foot is left as it was (the road's mouths, the cascade and the grading are cut into it): the filter comes in over
+    // the first ISLAND_ONSET metres of the massifs' rise.
+    peak=apron(Math.max(0,base+eroded.height*smooth(base,4,ISLAND_ONSET)));
+    lastRidge=eroded.ridge*smooth(base,4,ISLAND_ONSET);
+  }else lastRidge=0;
   const range=scarp+peak*north;
   const valleyDistance=Math.abs(x-riverX(z));
   const valleyWidth=34+13*Math.sin(z*.019)+8*Math.sin(z*.047);

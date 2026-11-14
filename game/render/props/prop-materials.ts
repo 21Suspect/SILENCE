@@ -39,15 +39,15 @@ const MOSS = new THREE.Color(.075, .095, .03);
 /**
  * The lamps baked into tiled props (tiled.py bake_lamps): their light is a map of irradiance per candela on the prop's own atlas,
  * turned into light here as `map x candela x colour x albedo / pi`, so one number sets how bright every baked lamp is. Kerosene
- * flame, about 1900 K. In the game's units (the sun is 1.62, the torch 14, a street lamp 16) 2.5 lights the cabin's room to
- * about half the shade outside by day and reads as a warm, steady lantern at night.
+ * flame, about 1900 K. In the game's units (the sun is 1.62, the moon 1/50 of it, the torch 14, a street lamp 10).
  */
 /** Luminance of a lamp's lit globe per candela of the lamp (its glass is about 0.015 m2 seen from the side). */
 const GLOW_PER_CANDELA = 60;
 const glows = new Set<THREE.MeshStandardMaterial>();
 // The uniform reads its value as it is uploaded, so the developer tab's lamp knob (core/light-tuning.ts) applies at once; the
 // globes' glow follows it the first frame they are drawn after a change.
-let lampCandela = 2.5, glowVersion = -1;
+// 1.4 (it was 2.5): against moonlight the lantern-lit room was the brightest thing in the night by far and its open door a glare.
+let lampCandela = 1.4, glowVersion = -1;
 export const PROP_LAMP = {
   candela: { get value() {
     if (glowVersion !== lightTuningVersion) { glowVersion = lightTuningVersion; for (const m of glows) m.emissiveIntensity = lampCandela * LIGHT_TUNING.lamps * GLOW_PER_CANDELA; }

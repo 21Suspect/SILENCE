@@ -138,9 +138,9 @@ const spec = { asset: 'door', hinge: [0, 0, 0], yaw: 0, swing: -Math.PI / 2, wid
 const hut = { url: '/world/hut.glb', radius: 5, colliders: [], doors: [spec] };
 
 /** A building with doors, built as the game builds one: real pois, real collision world, a recording stand-in for the prompt registry. */
-function rig({ assets = { hut, door: leaf }, placements = [{ id: 'b', asset: 'hut', x: 0, z: 0, yaw: 0 }], scatter = [], load, at = { x: 0, y: 0, z: -4 } } = {}) {
+function rig({ assets = { hut, door: leaf }, placements = [{ id: 'b', asset: 'hut', x: 0, z: 0, yaw: 0 }], scatter = [], load, at = { x: 0, y: 0, z: -4 }, pixelRange } = {}) {
   const loader = fakeLoader(), world = createCollisionWorld(), scene = new THREE.Scene();
-  const pois = createPois(scene, () => 0, world, { assets, placements, scatter, load: load ?? loader.load });
+  const pois = createPois(scene, () => 0, world, { assets, placements, scatter, load: load ?? loader.load, pixelRange });
   const items = [], noises = [];
   const interaction = { register(item) { items.push(item); return () => { const i = items.indexOf(item); if (i >= 0) items.splice(i, 1); }; } };
   const doors = createDoors({ pois, collisions: world, interaction, onNoise: e => noises.push(e) });
@@ -185,7 +185,7 @@ test('the leaf loads once the player is near, through the same loader as everyth
 });
 
 test('far doors cost nothing: not loaded out of range, hidden beyond the draw distance (with hysteresis), still colliding', async () => {
-  const r = rig({ placements: [{ id: 'b', asset: 'hut', x: 0, z: 0, yaw: 0, draw: 100 }], at: { x: 900, y: 0, z: 0 } });
+  const r = rig({ placements: [{ id: 'b', asset: 'hut', x: 0, z: 0, yaw: 0, draw: 100 }], at: { x: 900, y: 0, z: 0 }, pixelRange: 0 });
   assert.equal(r.run(1 / 60), false); await wait();
   assert.equal(r.loader.calls.length, 0);
   assert.equal(r.leaves().length, 1, 'the collider is there regardless');
@@ -447,7 +447,7 @@ test('dispose unregisters the prompts and the colliders and takes the leaves out
 test('pois.seats gives every placement as it stands; spawn hands out independent copies of a listed asset and tolerates the rest', async () => {
   const loader = fakeLoader(), scene = new THREE.Scene();
   const pois = createPois(scene, x => x * .01, undefined, { assets: { hut, door: leaf }, placements: [{ id: 'b', asset: 'hut', x: 20, z: 5, yaw: .4 }, { id: 'ghost', asset: 'unlisted', x: 0, z: 0, yaw: 0 }],
-    scatter: [{ id: 's', asset: 'hut', x: 1, z: 1, yaw: 0, scale: 2 }], load: loader.load });
+    scatter: [{ id: 's', asset: 'hut', x: 1, z: 1, yaw: 0, scale: 2 }], load: loader.load, pixelRange: 0 });
   const seats = pois.seats();
   assert.deepEqual(seats.map(s => s.id), ['b', 's']); assert.equal(seats[0].def, hut); assert.ok(near(seats[0].ground, .2)); assert.equal(seats[1].placement.scale, 2);
   assert.equal(seats[0].loadRange(20, 5), true); assert.equal(seats[0].loadRange(9999, 0), false);

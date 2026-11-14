@@ -1,5 +1,6 @@
 import { channelOffset, treeDensity } from '../../sim/world/world-noise';
 import * as THREE from 'three';
+import type { FarShadow } from '../world/far-shadow';
 import type { createCollisionWorld } from '../../sim/world/collision';
 import type { createFlashlight } from './flashlight';
 import { createPois } from './pois';
@@ -23,6 +24,8 @@ export type WorldV2Options = {
   interactKey?: () => string;
   scene: THREE.Scene; camera: THREE.PerspectiveCamera; container: HTMLElement;
   heightAt: (x: number, z: number) => number;
+  /** The island-wide sun shadow (far-shadow.ts), for the props past the sun's own map. */
+  farShadow?: FarShadow;
   collisions: ReturnType<typeof createCollisionWorld>;
   flashlight: ReturnType<typeof createFlashlight>;
   /** Drawing-buffer height in pixels, for sizing point sprites. */
@@ -82,7 +85,12 @@ export function cabinWakePoint() {
 export function createWorldV2(o: WorldV2Options) {
   // The engine owns registration: colliders go in now, before any GLB has loaded, and again whenever the version moves.
   const doorTest = doorTestPlacements(o.heightAt); // dev only: `?door-test` adds a pump house to try the doors on
-  const pois = createPois(o.scene, o.heightAt, undefined, doorTest.length ? { placements: [...POI_PLACEMENTS, ...doorTest] } : {});
+  const pois = createPois(o.scene, o.heightAt, undefined, { ...(doorTest.length ? { placements: [...POI_PLACEMENTS, ...doorTest] } : {}), farShadow: o.farShadow,
+    pixelAngle: () => 2 * Math.tan(THREE.MathUtils.degToRad(o.camera.fov) / 2) / Math.max(1, o.viewHeight()) });
+  // Buildings and props shade the land past the sun's own map too: a cabin's or the bridge's shadow does not stop where that map
+  // does. Something crossing its draw distance redraws the island's map, at most once a second (a depth pass of the island).
+  o.farShadow?.addCasterRoot(pois.root);
+  let farStale = false, farDrawn = -Infinity;
   const powerLines = createPowerLines(o.scene, o.heightAt);
   // Lamps along the road come on at dusk (game/render/world/street-lights.ts); none of them exist until the layout places `streetlight-*`.
   const streetLights = createStreetLights({ scene: o.scene, pois, placements: SCATTER_PLACEMENTS });
@@ -255,6 +263,8 @@ export function createWorldV2(o: WorldV2Options) {
       }
       spray.update(f.simulate ? f.dt : 0, f.darkness, o.viewHeight());
       let changed = pois.update(f.player);
+      if (changed) farStale = true;
+      if (farStale && o.farShadow && f.time - farDrawn > 1) { o.farShadow.invalidate(); farStale = false; farDrawn = f.time; }
       if (doors.update({ dt: f.simulate ? f.dt : 0, player: f.player })) changed = true;
       if (pois.collisionVersion !== poisVersion) { poisVersion = pois.collisionVersion; o.collisions.replace('pois', pois.solidColliders); }
       if (objectives.update(f.time)) changed = true;
@@ -281,7 +291,7 @@ export function createWorldV2(o: WorldV2Options) {
       startleCrows: () => ambient.startle(),
     },
     dispose() {
-      touchAction.remove(); spray.dispose(); powerLines.dispose(); streetLights.dispose(); unregisterTorch(); unregisterLadders.forEach(u => u()); doors.dispose(); objectives.dispose(); ambient.dispose(); interaction.dispose(); pois.dispose(); o.collisions.replace('pois', []);
+      touchAction.remove(); spray.dispose(); powerLines.dispose(); streetLights.dispose(); unregisterTorch(); unregisterLadders.forEach(u => u()); doors.dispose(); objectives.dispose(); ambient.dispose(); interaction.dispose(); o.farShadow?.removeCasterRoot(pois.root); pois.dispose(); o.collisions.replace('pois', []);
     },
   };
 }

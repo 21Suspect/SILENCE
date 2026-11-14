@@ -30,12 +30,27 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
   aaMaterial.uniforms.tDiffuse.value=resolvedTarget.texture;
   const waterResolution=new THREE.Vector2();
   water.bind(target.texture,target.depthTexture,waterResolution,camera.projectionMatrixInverse);
-  const uniforms={
+    // The mist's value noise as a table: noise() is a trilinear blend, with smoothstep weights, of hash() at the eight lattice corners
+  // round a point. A 3D texture of hash() at the lattice points, read with linear filtering at i + smoothstep(f), blends the same
+  // eight values with the same weights in one fetch, where the march paid eight hashes and seven blends, twice a step, 24 steps a
+  // fog pixel. The table is 128 lattice cells a side and repeats (every 1.5 km of the billows, 8 km of the banks), invisible in mist;
+  // hash() is evaluated in single precision as the GPU does, and stored in bytes (an error under 0.002 of the noise).
+  const NOISE_CELLS=128,noiseTable=(()=>{
+    const f=Math.fround,fr=(x:number)=>f(x-Math.floor(x)),data=new Uint8Array(NOISE_CELLS**3);
+    for(let z=0;z<NOISE_CELLS;z++)for(let y=0;y<NOISE_CELLS;y++)for(let x=0;x<NOISE_CELLS;x++){
+      const px=f(fr(f(f(x*.3183099)+.1))*17),py=f(fr(f(f(y*.3183099)+.2))*17),pz=f(fr(f(f(z*.3183099)+.3))*17);
+      data[(z*NOISE_CELLS+y)*NOISE_CELLS+x]=Math.min(255,Math.round(fr(f(f(f(px*py)*pz)*f(f(px+py)+pz)))*255));
+    }
+    const t=new THREE.Data3DTexture(data,NOISE_CELLS,NOISE_CELLS,NOISE_CELLS);
+    t.format=THREE.RedFormat;t.type=THREE.UnsignedByteType;t.minFilter=t.magFilter=THREE.LinearFilter;t.wrapS=t.wrapT=t.wrapR=THREE.RepeatWrapping;t.unpackAlignment=1;t.needsUpdate=true;
+    return t;
+  })();
+const uniforms={
     tColor:{value:target.texture},tDepth:{value:target.depthTexture},tWater:{value:waterTarget.texture},tWaterDepth:{value:waterTarget.depthTexture},
     tFog:{value:fogTarget.texture},hasWater:{value:false},fogEnabled:{value:true},fogSize:{value:new THREE.Vector2()},fogSteps:{value:24},
     inverseProjection:{value:new THREE.Matrix4()},cameraWorld:{value:camera.matrixWorld},cameraPositionWorld:{value:camera.position},
     terrainSun:{value:null as THREE.Texture|null},terrainSunMatrix:{value:new THREE.Matrix4()},terrainSunOn:{value:0},terrainSunBias:{value:new THREE.Vector2(.002,.001)},
-    time:{value:0},darkness:{value:0},fogColor:{value:new THREE.Color()},sunDirection:{value:new THREE.Vector3(25,37,-68).normalize()},sunScatterColor:{value:new THREE.Color(1,.81,.52)},
+    tNoise:{value:noiseTable as THREE.Texture},noiseTable:{value:1},time:{value:0},darkness:{value:0},fogColor:{value:new THREE.Color()},sunDirection:{value:new THREE.Vector3(25,37,-68).normalize()},sunScatterColor:{value:new THREE.Color(1,.81,.52)},
     flashShadow:{value:null as THREE.Texture|null},flashMatrix:{value:new THREE.Matrix4()},flashPosition:{value:new THREE.Vector3()},flashDirection:{value:new THREE.Vector3()},flashPower:{value:0},
     // Sun rays follow the sun's own direct light (0 with the sun down), and are shaded by the tree crowns overhead.
     sunLevel:{value:1},canopyCover:{value:null as THREE.Texture|null},canopyBox:{value:new THREE.Vector4(0,0,96,0)},canopyHeight:{value:12},
@@ -43,7 +58,7 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
     flashRange:{value:new THREE.Vector2(.06,48)},flashCone:{value:new THREE.Vector2(.866,.9945)},flashDecay:{value:1.35},flashCookie:{value:null as THREE.Texture|null},flashHasCookie:{value:0},
     // Ambient occlusion (post/ambient-occlusion.ts): r visibility, g direct-sun fraction, b linear depth, at aoSize.
     tAO:{value:null as THREE.Texture|null},aoSize:{value:new THREE.Vector2(1,1)},aoOn:{value:0},
-    sunShadow:{value:null as THREE.Texture|null},sunMatrix:{value:sun.shadow.matrix},shadowTexel:{value:1/sun.shadow.mapSize.x},
+    sunShadow:{value:null as THREE.Texture|null},sunMatrix:{value:new THREE.Matrix4().copy(sun.shadow.matrix)},sunAtlas:{value:new THREE.Vector2(0,1)},shadowTexel:{value:1/sun.shadow.mapSize.x},
     // The sky model's view table (game/render/world/sky-model.ts): the haze takes the sky's own colour towards the horizon.
     skyLut:{value:null as THREE.Texture|null},hazeNeutral:{value:0},fogAmbient:{value:.8},fogDensity:{value:1},aerialDensity:{value:1/11000},
     // The ground mist is lit by the whole sky dome (and the ground below it), not by the bright horizon: its colour comes from the sky model.
@@ -101,17 +116,19 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
     uniform mat4 flashMatrix;uniform vec3 flashPosition,flashDirection;uniform float flashPower;
     uniform sampler2D flashCookie;uniform vec2 flashRange,flashCone;uniform float flashDecay,flashHasCookie;
     uniform bool hasWater,fogEnabled;
-    uniform mat4 inverseProjection,cameraWorld,sunMatrix;
+    uniform mat4 inverseProjection,cameraWorld,sunMatrix;uniform vec2 sunAtlas;
     uniform vec3 cameraPositionWorld,fogColor,sunDirection,sunScatterColor;
     uniform vec2 fogSize;uniform float fogSteps;
     // The mist lies in the bottom few metres: its density falls by e every 14 m of height (it was 20). Inside the wood the eye and
     // the trunks are within those metres and see as much of it as before; a view rising over the lake to the hills and the far
     // range leaves it sooner, so they are not washed to one pale tone by the first 180 m of air.
     #define MIST_FALL .07
-    // How far along a ray the mist is gathered: 180 m at eye level, so the wood fades into it as before, but only 35 m for a ray
-    // rising 2 degrees or more. A ray that leaves the ground layer leaves the mist; gathered over a full 180 m it left the island's
-    // range and the far mountains 17 % of their own colour at noon, a pale cut-out on a pale sky.
-    float mistReach(vec3 ray){return 180.-145.*smoothstep(0.,.035,ray.y);}
+    // How far along a ray the mist is gathered: 180 m at eye level and for a ray climbing slowly, as long as it takes to rise
+    // about 45 m (three of the layer's e-folds) once it climbs faster, and never under 35 m. It was cut to 35 m at 2 degrees up
+    // (for the far range, gone since): the far trunks at eye level went white through 180 m of mist while the canopy just above
+    // them took 35 m and stayed clear, a pale stripe drawn along the horizon all round the wood. Now it falls off as 1/climb from
+    // 14 degrees, smoothly, so the mist thins with height the way the layer itself does.
+    float mistReach(vec3 ray){return clamp(45./max(ray.y,.001),35.,180.);}
     uniform float time,darkness,shadowTexel,sunLevel,fogDensity;
     uniform sampler2D skyLut;uniform float fogAmbient,aerialDensity,hazeNeutral;uniform vec3 mistColor;
     uniform sampler2D mistCover;
@@ -145,7 +162,7 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
       if(uv.z<0.||uv.z>1.||uv.x<0.||uv.x>1.||uv.y<0.||uv.y>1.)return 1.;
       float lit=0.;for(int s=0;s<2;s++){
         vec2 tap=vec2(s==0?-.75:.75)*shadowTexel;
-        float d=dot(texture2D(sunShadow,uv.xy+tap),vec4(255./256.,255./65536.,255./16777216.,1./16777216.));
+        float d=dot(texture2D(sunShadow,vec2(uv.x*sunAtlas.y+sunAtlas.x,uv.y)+tap),vec4(255./256.,255./65536.,255./16777216.,1./16777216.));
         lit+=smoothstep(uv.z-.0007,uv.z+.0007,d)*.5;
       }
       float border=min(min(uv.x,1.-uv.x),min(uv.y,1.-uv.y));
@@ -229,9 +246,13 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
       // air does (aerosol haze with a share of Rayleigh scattering: .82/1/1.32 per channel), so a far dark ridge goes blue and a far
       // snowfield keeps its white. 11 km to 1/e in green. The air thins with height (a scale height of 1.2 km): along a ray that
       // climbs dh the haze is that of H/dh*(1-exp(-dh/H)) of its length at the eye's level, so summits stand clear of it.
+      // Past the island the open sea's own haze: from 700 m (the island stays as clear as ever) the air thickens, 2.2 km to 1/e,
+      // so by 3 km the sea is two thirds haze and by 6 km nine tenths, and it meets the sky's horizon in its own colour instead
+      // of ending in a hard line (with the far range gone, the sea runs to the horizon all round).
       if(depth<.999999){
         float reach=length(view),climb=max(ray.y*reach,0.),thin=climb<1.?1.:1200./climb*(1.-exp(-climb/1200.));
-        vec3 through=exp(-reach*aerialDensity*thin*vec3(.82,1.,1.32));
+        float seaAir=max(reach-700.,0.)/2200.*thin;
+        vec3 through=exp(-reach*aerialDensity*thin*vec3(.82,1.,1.32)-seaAir*vec3(.9,1.,1.1));
         color=color*through+hazeColor(ray)*(1.-through);
       }
       // The HDR sky draws the moving solar disc, moon and stars before fog.
@@ -287,7 +308,8 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
     float rayStart(float u){return RAYS_NEAR+(RAYS_FAR-RAYS_NEAR)*u*u;}
   `;
   const fogMaterial2=new THREE.ShaderMaterial({uniforms,vertexShader,depthTest:false,depthWrite:false,fragmentShader:common+raysCommon+`
-    float noise(vec3 p){vec3 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z);}
+    uniform highp sampler3D tNoise;uniform float noiseTable;
+    float noise(vec3 p){vec3 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);if(noiseTable>.5)return texture(tNoise,(i+f+.5)/${NOISE_CELLS}.).r;return mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z);}
     uniform sampler2D terrainSun;uniform mat4 terrainSunMatrix;uniform float terrainSunOn;uniform vec2 terrainSunBias;
     // Is a hill between this point and the sun? The sun shadow map never contains terrain.
     float terrainSunlight(vec3 p){
@@ -322,7 +344,7 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
       if(inside<=0.)return 0.;
       float lit=0.;for(int s=0;s<2;s++){
         vec2 tap=vec2(s==0?-.75:.75)*shadowTexel;
-        float d=dot(texture2D(sunShadow,uv.xy+tap),vec4(255./256.,255./65536.,255./16777216.,1./16777216.));
+        float d=dot(texture2D(sunShadow,vec2(uv.x*sunAtlas.y+sunAtlas.x,uv.y)+tap),vec4(255./256.,255./65536.,255./16777216.,1./16777216.));
         lit+=smoothstep(uv.z-.0007,uv.z+.0007,d)*.5;
       }
       return lit;
@@ -506,6 +528,8 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
   let measureStage:((name:string,draw:()=>void)=>void)|undefined;
   const stage=(name:string,draw:()=>void)=>{if(measureStage)measureStage(name,draw);else draw();};
   return {
+    /** The scene's multisampled target, for measurement from the console (dev). */
+    get sceneTarget(){return target;},
     async measure(time:number,darkness:number){
       const gl=renderer.getContext() as WebGL2RenderingContext,result:Record<string,number>={};
       const extension=gl.getExtension('EXT_disjoint_timer_query_webgl2');
@@ -554,7 +578,7 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
       scene.userData.skyColor=uniforms.fogColor.value;
       uniforms.inverseProjection.value.copy(camera.projectionMatrixInverse);
       if(scene.userData.skyLut)uniforms.skyLut.value=scene.userData.skyLut as THREE.Texture;
-      uniforms.fogDensity.value=(scene.userData.fogDensity as number|undefined)??1;
+      uniforms.fogDensity.value=(scene.userData.fogDensity as number|undefined)??1;uniforms.noiseTable.value=perfOn('fogTable')?1:0;
       uniforms.fogAmbient.value=(scene.userData.fogAmbient as number|undefined)??.8;uniforms.hazeNeutral.value=(scene.userData.hazeNeutral as number|undefined)??0;
       if(scene.userData.mistColor)uniforms.mistColor.value.copy(scene.userData.mistColor as THREE.Color);
       water.prepare(camera);uniforms.hasWater.value=water.visible;
@@ -579,7 +603,9 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
         const cam=flash.shadow.camera as THREE.PerspectiveCamera;uniforms.flashRange.value.set(cam.near,cam.far);
         uniforms.flashCone.value.set(Math.cos(flash.angle),Math.cos(flash.angle*(1-flash.penumbra)));uniforms.flashDecay.value=flash.decay;
         uniforms.flashCookie.value=flash.map??null;uniforms.flashHasCookie.value=flash.map?1:0;}
-      uniforms.sunShadow.value=sun.shadow.map?.texture??null;uniforms.shadowTexel.value=1/sun.shadow.mapSize.x;
+      // The map that counts more at this moment of the sun's blend between two (shadows.ts); the shafts and the occlusion are too soft for the other to show.
+      const sunSlot=sun.userData.shadowSlot as {map:THREE.Texture|null,matrix:THREE.Matrix4,offset:number}|undefined;
+      uniforms.sunShadow.value=sunSlot?sunSlot.map:sun.shadow.map?.texture??null;uniforms.sunMatrix.value.copy(sunSlot?sunSlot.matrix:sun.shadow.matrix);uniforms.sunAtlas.value.set(sunSlot?sunSlot.offset:0,sunSlot?.5:1);uniforms.shadowTexel.value=1/sun.shadow.mapSize.x;
       uniforms.fogEnabled.value=!(import.meta.env.DEV&&scene.userData.profileSkipFog);
       uniforms.aoOn.value=aoQuality(aoLevel).on&&perfOn('ambientOcclusion')?1:0;
       if(uniforms.aoOn.value>.5)stage('ao',()=>ao.render());
@@ -601,6 +627,6 @@ export function createAtmosphere(renderer:THREE.WebGLRenderer,scene:THREE.Scene,
     resetExposure(){finalImage.resetExposure();},
     /** Dev: the eye's adapted state target (log2 of the metered luminance in .r), for reading back. */
     adaptedTarget(){return finalImage.debugTargets().adapted;},
-    dispose(){ao.dispose();canopy.dispose();resolvedTarget.dispose();hdrTarget.dispose();finalImage.dispose();aaMaterial.dispose();target.dispose();waterTarget.dispose();fogTarget.dispose();fogBlurTarget.dispose();terrainSun?.dispose();fogMaterial.dispose();fogMaterial2.dispose();fogBlurMaterial.dispose();resolveMaterial.dispose();resolveMaterial2.dispose();quad.geometry.dispose();}
+    dispose(){ao.dispose();canopy.dispose();noiseTable.dispose();resolvedTarget.dispose();hdrTarget.dispose();finalImage.dispose();aaMaterial.dispose();target.dispose();waterTarget.dispose();fogTarget.dispose();fogBlurTarget.dispose();terrainSun?.dispose();fogMaterial.dispose();fogMaterial2.dispose();fogBlurMaterial.dispose();resolveMaterial.dispose();resolveMaterial2.dispose();quad.geometry.dispose();}
   };
 }

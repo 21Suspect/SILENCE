@@ -10,7 +10,7 @@ import { WORLD_SEED, channelOffset, sideChannelOffset, hash, noise, pathX, river
 import { landform, landSlope } from './world-landform';
 import { waterHeightAt } from './world-noise';
 import worldAssets from '../../data/world-assets.json';
-import { lakeDistance, coastDistance, beachWidth, coastZ, mountainFoot, LAKE_CENTER } from './coastal-geography';
+import { lakeDistance, coastDistance, beachWidth, coastZ, mountainFoot, LAKE_CENTER, SEA_LEVEL } from './coastal-geography';
 import { roadPortals } from './road-grade';
 import { ROAD } from './road-profile';
 import { roadGap, roadBeside, roadFrameAt, roadArc, roadXAtArc, faceRoadYaw } from './road-geometry';
@@ -292,6 +292,14 @@ export const ROAD_CROSSING = (() => {
 const levelled: GroundPad[] = [];
 export const POI_PLACEMENTS: PoiPlacement[] = generate();
 POI_PLACEMENTS.push({ id: 'road-bridge', asset: 'roadbridge', x: ROAD_CROSSING.x, z: ROAD_CROSSING.z, yaw: ROAD_CROSSING.yaw, y: ROAD_CROSSING.level, clearing: 28, draw: 300 });
+// Three rock islets off the south coast, 130 to 280 m out where the shelf is 20 to 40 m deep: the scanned boulders at three to
+// four and a half times their size (45 to 50 m across, 20 m out of the water), sunk 4 m so they rise out of the sea rather than
+// sit on it, near enough the beach for the water to carry their reflections (river.ts, 320 m).
+POI_PLACEMENTS.push(
+  { id: 'sea-rock-west', asset: 'minerock', x: -220, z: -560, yaw: 2.1, scale: 2.8, y: SEA_LEVEL - 4, draw: 1200 },
+  { id: 'sea-rock-south', asset: 'rock_d', x: 70, z: -610, yaw: .6, scale: 4.5, y: SEA_LEVEL - 4, draw: 1200 },
+  { id: 'sea-rock-east', asset: 'rock_c', x: 310, z: -540, yaw: -1.2, scale: 4.5, y: SEA_LEVEL - 4, draw: 1200 },
+);
 for (const side of [-1, 1]) levelled.push({ x: ROAD_CROSSING.x + side * 24, z: roadZ(ROAD_CROSSING.x + side * 24), radius: 10, falloff: 16, level: ROAD_CROSSING.level });
 /** Patches of ground levelled for something: the bridge approaches, then each small building. */
 export const GROUND_PADS = levelled;

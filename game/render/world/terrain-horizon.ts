@@ -51,9 +51,10 @@ export const horizonGLSL = `
     float h=mix(horizonAt(i),horizonAt(i+1.),k-i);
     return smoothstep(h-.035,h+.035,sun.y);
   }
-  // How much of the sky the point sees: 1 on a crest, about .6 deep in a gully.
+  // How much of the sky the point sees: 1 on a crest, about .4 deep in a gully (at .6 the gullies held as much sky light as the
+  // ribs and the range lit flat wherever the sun did not reach).
   float horizonSky(){
     float m=dot(vHorizonA,vec4(.125))+dot(vHorizonB,vec4(.125));
-    return clamp(1.-m*1.1,.25,1.);
+    return clamp(1.-m*1.7,.2,1.);
   }
 `;

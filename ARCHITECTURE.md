@@ -22,8 +22,11 @@ game/                 all game code
     world/            terrain (+ terrain-worker), forest, undergrowth, vegetation batches, river, sky, atmosphere (fog and
                       post chain), sun shadows, street lights, power lines, materials (texture-variation.ts patches;
                       bark-relief.ts gives trunks parallax, sun self-shadow and cavity; relief-math.ts mirrors the ground's
-                      relief march and patch height blend), ambient life
-    props/            POIs (streamed GLB props), doors, the rebuilt world's assembly (world-v2.ts), story props,
+                      relief march and patch height blend), ambient life; the far levels of detail: impostors.ts (the
+                      world's own models photographed into atlases), far-forest / far-scatter / far-plants (the same
+                      layout and ecology over the whole island, far-forest-bake and far-plants-worker off the main
+                      thread), far-shadow.ts (the island-wide sun shadow), lod-dither.ts (the shared hand-over dither)
+    props/            POIs (streamed GLB props, mesh levels of detail from tools/assets/prop-lod.mjs), doors, the rebuilt world's assembly (world-v2.ts), story props,
                       interaction prompts, objective props, the flashlight
     creature/         encounters.ts (hosts the brain in the scene), the Listener's model, rig and gait, tree crawl
     gpu/              warm-up queue, tiled texture uploads, shadow programs, unlit-light guards
