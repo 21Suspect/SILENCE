@@ -557,7 +557,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
     [GROUND_FAR,`float distantBlend=smoothstep(max(uNearCoverage*.65,uNearCoverage-${TRANSITION_WIDTH}.),uNearCoverage,detailDistance);`,'float distantBlend=0.;'],
   ];
   const groundVariants=new Map<number,THREE.MeshStandardMaterial>();
-  /** The ground's material with only `keep` left in: one of the GROUND_ features or none, with or without GROUND_FAR. */
+  /** The ground's material with only `keep` left in: any of the GROUND_ features or none, with or without GROUND_FAR. */
   const groundVariant=(keep:number)=>{
     let variant=groundVariants.get(keep);
     if(!variant){
@@ -586,10 +586,11 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
     variantsWarmed=true;
     const stand=new THREE.PlaneGeometry(1,1),group=new THREE.Group();
     stand.setAttribute('treeGround',new THREE.BufferAttribute(new Float32Array(4),1));stand.setAttribute('biome',new THREE.BufferAttribute(new Float32Array(16),4));stand.setAttribute('horizonY',new THREE.BufferAttribute(new Float32Array(4),1));
-    for(const keep of [0,GROUND_ROAD,GROUND_BANK,GROUND_MOUNTAIN])for(const far of [0,GROUND_FAR]){const mesh=new THREE.Mesh(stand,groundVariant(keep|far));mesh.receiveShadow=true;group.add(mesh);}
+    for(let keep=0;keep<(GROUND_ROAD|GROUND_BANK|GROUND_MOUNTAIN);keep++)for(const far of [0,GROUND_FAR]){const mesh=new THREE.Mesh(stand,groundVariant(keep|far));mesh.receiveShadow=true;group.add(mesh);}
     warm.add({label:'ground variants',textures:[],object:group});
   };
-  // `keep`: the one feature the tile's program keeps (0 none), or -1 for the whole shader (a tile with two of them: a bridge, a tunnel's mouth).
+  // `keep`: the features the tile's program keeps (0 none), or -1 for the whole shader (a tile with all three). A tile with two
+  // (a river in the mountains, a tunnel's mouth) drew with the whole shader at first: nine such tiles were 2 ms of a frame by the river.
   const terrainChunks=new Map<string,{tile:TerrainTile;mesh:THREE.Mesh;keep:number}>();
   // The low-detail distant surface preserves the mountain silhouette and covers
   // teleports while near chunks stream. It is below the exact walkable surface.
@@ -676,7 +677,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
     // canopy station, -0.45 ms at spawn (interleaved A/B, work/perf/ov.js).
     if(perfOn('terrainLast'))mesh.renderOrder=1;
     const features=groundTileFeatures(tile.x,tile.z);
-    scene.add(mesh);terrainChunks.set(tileKey(tile),{tile,mesh,keep:features===0||features===GROUND_ROAD||features===GROUND_BANK||features===GROUND_MOUNTAIN?features:-1});
+    scene.add(mesh);terrainChunks.set(tileKey(tile),{tile,mesh,keep:features===(GROUND_ROAD|GROUND_BANK|GROUND_MOUNTAIN)?-1:features});
   }
   function stopWorker(){
     worker?.terminate();worker=undefined;requested=undefined;prepared=undefined;

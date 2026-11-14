@@ -558,8 +558,9 @@ export function createRiver(scene:THREE.Scene, riverX:(z:number)=>number, height
         }
       },
       begin(renderer:THREE.WebGLRenderer,body:number){
-        // A stalled driver must not pile queries up: with twelve unanswered the water counts as seen and nothing more is asked.
-        if(active||body<0)return;if(pending.length>=12){seenAt.fill(performance.now());return;}
+        // A stalled driver must not pile queries up: with thirty unanswered (ten frames of all three bodies; in play they are
+        // answered within two or three) the water counts as seen and nothing more is asked.
+        if(active||body<0)return;if(pending.length>=30){seenAt.fill(performance.now());return;}
         const gl=context(renderer),query=spare.pop()??gl.createQuery();if(!query)return;
         gl.beginQuery(gl.ANY_SAMPLES_PASSED,query);active={query,body};
       },
