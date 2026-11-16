@@ -95,6 +95,15 @@ test('the warm-up does one piece per update and survives a failing compile', () 
   } finally { console.warn = warn; }
 });
 
+test('last names the piece that ran most recently, for the loading corner', () => {
+  let t = 0;
+  const w = createGpuWarmup({ states: 1, minGap: 0, idlePause: 0, clock: () => (t += 1), upload: () => 'done', compile: () => {} });
+  assert.equal(w.last, undefined, 'nothing has run yet');
+  w.add({ label: 'cabin', textures: [tex('x')], object: {} });
+  w.update(); assert.deepEqual(w.last, { label: 'cabin', kind: 'texture' });
+  w.update(); assert.deepEqual(w.last, { label: 'cabin', kind: 'compile' });
+});
+
 test('drain runs everything without pauses within its budget, and stops when something must wait', () => {
   let t = 0, waits = 0;
   const w = createGpuWarmup({

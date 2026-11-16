@@ -31,7 +31,8 @@ game/                 all game code
     creature/         encounters.ts (hosts the brain in the scene), the Listener's model, rig and gait, tree crawl
     gpu/              warm-up queue, tiled texture uploads, shadow programs, unlit-light guards
   audio/              Web Audio: ambience, creature sounds, footsteps, breathing
-  ui/                 pause menu (admin.ts), objective and stamina HUD, performance overlay and its statistics
+  ui/                 pause menu (admin.ts), objective and stamina HUD, performance overlay and its statistics, the loading
+                      corner on the black veil (loading-hud.ts; loading-progress.ts works out its words and bar)
   dev/                development only: perf probe, spider lab (?spider-lab), door test (?door-test), telemetry
   data/               world-assets.json (props: URLs, colliders, doors, ladders) and spider-rig.json, both written by
                       tools/assets

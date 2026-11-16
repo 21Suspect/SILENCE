@@ -94,7 +94,9 @@ export type GpuWarmupOptions = WarmQueueOptions & {
 export function createGpuWarmup(options: GpuWarmupOptions) {
   const clock = options.clock ?? (() => performance.now()), queue = createWarmQueue(options);
   const log: { label: string; kind: string; ms: number; status?: string }[] = [];
+  let last: { label: string; kind: string } | undefined;
   const run = (item: NonNullable<ReturnType<WarmQueue['next']>>) => {
+    last = { label: item.label, kind: item.step.kind };
     const start = clock();
     let status: PieceStatus = 'done';
     try {
@@ -112,6 +114,8 @@ export function createGpuWarmup(options: GpuWarmupOptions) {
   return {
     add: (task: WarmTask) => queue.add(task),
     get pending() { return queue.pending; },
+    /** The piece it worked on last (the loading corner names it); unlike `log` it costs nothing to read every frame. */
+    get last() { return last; },
     /** Call once a frame; does at most one piece of work. Returns what it did (for diagnostics). */
     update() { const item = queue.next(clock()); return item ? run(item) : undefined; },
     /** Loading only, while a veil covers the screen: run everything now, without the pauses, for at most `budgetMs`. */

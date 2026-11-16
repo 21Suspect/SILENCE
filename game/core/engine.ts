@@ -41,6 +41,8 @@ import { createTextureSlicer } from '../render/gpu/texture-slicer';
 import { createShadowProgramWarmer } from '../render/gpu/shadow-programs';
 import { createStamina, gaitSpeed, sprintFov } from '../sim/player/stamina';
 import { createStaminaHud } from '../ui/stamina-hud';
+import { createLoadingHud, type LoadingHud } from '../ui/loading-hud';
+import { createLoadingProgress } from '../ui/loading-progress';
 import { waterDepthAt, wadeSpeedFactor, limitWading } from '../sim/world/water-depth';
 import { eyeExposure, type Grade } from '../render/post/final-image';
 
@@ -51,13 +53,16 @@ const movementGround=(x:number,z:number)=>{
   return water!==undefined?Math.max(bed,water-.95):bed;
 };
 
-export function createGame(container:HTMLElement) {
+/** `hud` is the loading corner main.ts made before this chunk arrived; without one (tools, tests) the game makes its own. */
+export function createGame(container:HTMLElement,hud?:LoadingHud) {
   let saved:string|null=null;try{saved=localStorage.getItem('silence-settings');}catch{}
   const settings=readSettings(saved);
   const veil=document.createElement('div');veil.style.cssText='position:absolute;inset:0;background:#000;z-index:100;pointer-events:none;opacity:1';container.appendChild(veil);
   let loading=true,loadCompleteAt=Infinity,pendingAssets=0,lastAsset=performance.now(),texturesDirty=true;
+  // The corner on the veil that says what is loading and how far along it is (ui/loading-hud.ts); it is fed from the counts below.
+  const loadingHud=hud??createLoadingHud(container),loadingProgress=createLoadingProgress();
   const manager=THREE.DefaultLoadingManager,oldStart=manager.onStart,oldLoad=manager.onLoad,oldProgress=manager.onProgress;
-  manager.onStart=()=>{pendingAssets++;lastAsset=performance.now();};manager.onLoad=()=>{pendingAssets=0;lastAsset=performance.now();};manager.onProgress=()=>{lastAsset=performance.now();texturesDirty=true;};
+  manager.onStart=()=>{pendingAssets++;lastAsset=performance.now();};manager.onLoad=()=>{pendingAssets=0;lastAsset=performance.now();};manager.onProgress=(url,loaded,total)=>{lastAsset=performance.now();texturesDirty=true;loadingProgress.asset(url,loaded,total);};
   const scene = new THREE.Scene();
   // The far plane reaches the sea's horizon: the island stands alone in open water, the sea drawn out to 16 km (river.ts). Depth
   // precision near the eye is set by the near plane alone (1/z), so this costs the near ground nothing.
@@ -785,6 +790,9 @@ export function createGame(container:HTMLElement) {
     if(texturesDirty){filterTextures();texturesDirty=false;}
     // While the veil is up the queue is emptied without pauses, so nothing near the start is half built when it lifts.
     const warming=loading&&perfOn('streamWarmup')?gpuWarmup.drain(24):0;
+    // Said before the draw below: the whole-scene warm-up draws each block this frame for seconds on a first load, and the page only paints
+    // once they return, so the words for a draw have to be on screen from the frames before it (the 900 ms the files must stay quiet).
+    if(loading)loadingHud.update(loadingProgress.update({assetsPending:pendingAssets>0,queuePending:gpuWarmup.pending,queueLast:gpuWarmup.last,warmupDraws,warmupTotal:warmupTotal(),quiet:pendingAssets===0&&warming===0&&frame>8&&now-lastAsset>300}),now);
     const startRender=performance.now(),loadingQuiet=loading&&pendingAssets===0&&now-lastAsset>900&&frame>8&&warming===0;
     if(probe){probe.marks.render0=startRender;probe.beginRender();}
     perfOverlay.setVisible(settings.perfOverlay);perfOverlay.beginGpu();
@@ -793,12 +801,12 @@ export function createGame(container:HTMLElement) {
       atmosphere.render(elapsed,darkness);
       if(loadingQuiet&&(!warmupFence||gl.clientWaitSync(warmupFence,0,0)!==gl.TIMEOUT_EXPIRED)){
         if(warmupFence){gl.deleteSync(warmupFence);warmupFence=null;}
-        loading=false;loadCompleteAt=now;
+        loading=false;loadCompleteAt=now;loadingHud.update(loadingProgress.finish(),now);loadingHud.finish();
       }
     }
     perfOverlay.endGpu();
     if(probe)probe.marks.render1=performance.now();
-    if(!loading&&veil.isConnected){veil.style.opacity=String(1-THREE.MathUtils.smoothstep((now-loadCompleteAt)/1000,0,2.8));if(now-loadCompleteAt>3300)veil.remove();}
+    if(!loading&&veil.isConnected){veil.style.opacity=String(1-THREE.MathUtils.smoothstep((now-loadCompleteAt)/1000,0,2.8));if(now-loadCompleteAt>3300){veil.remove();loadingHud.dispose();}}
     if(profile)profileRows.push({frame:frameDuration,update:startRender-startCPU,forest:endForest-startForest,terrain:startForest-startTerrain,encounter:encounterCost,submit:performance.now()-startRender,calls:renderer.info.render.calls,triangles:renderer.info.render.triangles,sunShadow:drawSun,creature:creature.visible});
     if(!loading&&perfOn('streamWarmup'))gpuWarmup.update();
     if(probe)probe.endFrame(frameDuration,drawSun);
@@ -811,7 +819,7 @@ export function createGame(container:HTMLElement) {
   }
   raf=requestAnimationFrame(animate);
   return ()=>{
-    disposed=true;veil.remove();if(warmupFence)gl.deleteSync(warmupFence);manager.onStart=oldStart;manager.onLoad=oldLoad;manager.onProgress=oldProgress;cancelAnimationFrame(raf);if(document.pointerLockElement===renderer.domElement)document.exitPointerLock();
+    disposed=true;veil.remove();loadingHud.dispose();if(warmupFence)gl.deleteSync(warmupFence);manager.onStart=oldStart;manager.onLoad=oldLoad;manager.onProgress=oldProgress;cancelAnimationFrame(raf);if(document.pointerLockElement===renderer.domElement)document.exitPointerLock();
     window.removeEventListener('mouseup',mouseUp);window.removeEventListener('mousemove',mouseMove);window.removeEventListener('keydown',keyDown);window.removeEventListener('keyup',keyUp);window.removeEventListener('blur',blur);window.removeEventListener('focus',focus);window.removeEventListener('resize',resize);window.visualViewport?.removeEventListener('resize',resize);densityQuery?.removeEventListener('change',densityChanged);window.removeEventListener('orientationchange',clearInput);
     document.removeEventListener('pointerlockchange',lockChange);document.removeEventListener('pointerlockerror',lockError);document.removeEventListener('visibilitychange',visibilityChange);
     renderer.domElement.removeEventListener('mousedown',mouseDown);renderer.domElement.removeEventListener('touchstart',touchStart);renderer.domElement.removeEventListener('touchmove',touchUpdate);renderer.domElement.removeEventListener('touchend',touchEnd);renderer.domElement.removeEventListener('touchcancel',touchEnd);
