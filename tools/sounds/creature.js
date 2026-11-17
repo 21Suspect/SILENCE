@@ -3,6 +3,7 @@
 import { footfallPlan, buildFootfall, buildCreak, buildScratch, buildCrash, creakPlan, bedName, BEDS, createBrush } from '/game/audio/creature-steps.ts';
 import { synthesizeEngine, engineHearing, engineRate, engineFlutter } from '/game/audio/engines.ts';
 import { createBicycleAudio } from '/game/audio/bicycle-audio.ts';
+import { BICYCLE } from '/game/sim/player/bicycle.ts';
 import { gaitTiming, legShift, createRhythmWander, LEGS } from '/game/render/creature/spider-rhythm.ts';
 import { createScuttle } from '/game/sim/creature/scuttle.ts';
 
@@ -154,10 +155,27 @@ section('Machines', 'A running engine is one steady sound for as long as it runs
 
 // The bicycle, through its own module (bicycle-audio.ts).
 const bike = createBicycleAudio();
-function ride(surface, speed) { bike.attach(c, master); const t0 = performance.now(); (function go() { const t = (performance.now() - t0) / 1000; bike.roll(t < 4 ? speed * Math.min(1, t / .6) : 0, surface); if (t < 4.6) requestAnimationFrame(go); })(); }
-section('Bicycle', 'The bell (the island\'s best lure) and the tyres rolling for four seconds.',
+/**
+ * A ride as the game drives it (sim/player/bicycle.ts): pedal away up to the ground's top speed, cruise, coast on the freewheel, brake
+ * to a stop. Eight seconds: hear the whir rev up, the freewheel take over, and the whole of it wind down.
+ */
+function ride(surface) {
+  bike.attach(c, master);
+  const top = surface === 'road' ? BICYCLE.roadSpeed : surface === 'path' ? BICYCLE.pathSpeed : BICYCLE.roughSpeed;
+  let speed = 0, last = performance.now();
+  const t0 = last;
+  (function go() {
+    const now = performance.now(), t = (now - t0) / 1000, dt = Math.min(.05, (now - last) / 1000); last = now;
+    const pedal = t < 4.5, brake = t > 7;
+    if (pedal) speed = Math.min(top, speed + BICYCLE.accel * dt);
+    else speed = Math.max(0, speed - (brake ? BICYCLE.brakeDecel + BICYCLE.coastDrag : BICYCLE.coastDrag) * dt);
+    bike.roll(speed, surface, pedal ? 1 : 0);
+    if (t < 8.5) requestAnimationFrame(go); else bike.roll(0, surface, 0);
+  })();
+}
+section('Bicycle', 'The bell (the island\'s best lure), and a ride as the game drives it: pedalling away (the chain whirs up), cruising, coasting on the freewheel, braking to a stop.',
   [['Bell', [['ring', () => { bike.attach(c, master); bike.bell(); }]]],
-   ['Rolling', [['road, cruising', () => ride('road', 5.4)], ['forest path', () => ride('path', 4)], ['off the path', () => ride('forest', 2.2)]]]]);
+   ['A ride (pedal, coast, brake)', [['on the road', () => ride('road')], ['on a path', () => ride('path')], ['through the forest', () => ride('forest')]]]]);
 
 for (const { title, note, rows } of sections) {
   const s = document.createElement('section'), h = document.createElement('h2'); h.textContent = title; s.appendChild(h);

@@ -3,14 +3,29 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 const a = await import('../../game/audio/bicycle-audio.ts');
 
-test('the rolling is silent standing, grows with speed, and gravel is louder than tarmac', () => {
-  for (const surface of ['road', 'path', 'dirt', 'forest']) assert.equal(a.rollLevel(0, surface), 0);
-  assert.ok(a.rollLevel(5.4, 'road') > a.rollLevel(2.7, 'road'));
-  assert.ok(a.rollLevel(5.4, 'path') > a.rollLevel(5.4, 'road'));
-  assert.ok(a.rollLevel(5.4, 'dirt') > a.rollLevel(5.4, 'road'));
-  assert.equal(a.rollLevel(5.4, 'water'), 0);
-  assert.ok(a.rollBrightness(5.4, 'road') > a.rollBrightness(1, 'road'), 'brighter the faster it goes');
+test('the rolling is one sound that revs with speed: silent standing, louder and higher the faster, gravel louder than tarmac', () => {
+  for (const surface of ['road', 'path', 'dirt', 'forest']) {
+    const m = a.rollMix(0, surface, 1);
+    assert.equal(m.tyre + m.grit + m.rumble + m.chain + m.ratchet, 0, `${surface} standing`);
+  }
+  const slow = a.rollMix(3, 'road', 1), fast = a.rollMix(8.4, 'road', 1);
+  assert.ok(fast.tyre > slow.tyre && fast.chain > slow.chain && fast.chainHz > slow.chainHz && fast.hum > slow.hum, 'revs up with speed');
+  const loud = m => m.tyre + m.grit + m.rumble;
+  assert.ok(loud(a.rollMix(7, 'path', 1)) > loud(a.rollMix(7, 'road', 1)), 'gravel crunches louder than tarmac hums');
+  assert.ok(a.rollMix(6, 'forest', 1).bumps > a.rollMix(6, 'road', 1).bumps, 'the rough rattles the rack');
+  const w = a.rollMix(6, 'water', 1); assert.equal(w.tyre + w.grit + w.rumble, 0);
   assert.ok(Math.abs(a.wheelHz(2 * Math.PI * .355) - 1) < 1e-9);
+});
+
+test('the chain whirs at the rate its links meet the teeth while pedalling; coasting, the freewheel ticks instead', () => {
+  // 46/18 gearing: the chain runs 18 links past for every wheel turn.
+  assert.ok(Math.abs(a.chainHz(2 * Math.PI * .355) - 18) < 1e-9);
+  const cruise = a.chainHz(8.4); assert.ok(cruise > 60 && cruise < 75, `a buzz at a cruise (${cruise.toFixed(0)} Hz)`);
+  assert.ok(a.chainHz(1.6) < 15, 'a flutter at a walking pace');
+  const pedal = a.rollMix(6, 'road', 1), coast = a.rollMix(6, 'road', 0);
+  assert.ok(pedal.chain > 0 && pedal.ratchet === 0, 'pedalling: the chain');
+  assert.ok(coast.chain === 0 && coast.ratchet > 0, 'coasting: the freewheel');
+  assert.ok(coast.ratchetHz > coast.chainHz, 'its clicks come quicker than the links');
 });
 
 test('the bell has two inharmonic partials near 2.4 and 3.6 kHz that differ a little each ring', () => {

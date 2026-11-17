@@ -23,8 +23,9 @@ import { NOISE } from '../noise/noise-scale';
 import type { Surface } from '../world/surface';
 
 export type BicycleTuning = {
-  /** Top speed (m/s) on road and path, and off them. */
+  /** Top speed (m/s) on the road, on a path, and off them. */
   roadSpeed: number;
+  pathSpeed: number;
   roughSpeed: number;
   /** Speed multiplier with a heavy part strapped on. */
   loadedFactor: number;
@@ -42,10 +43,14 @@ export type BicycleTuning = {
 };
 
 export const BICYCLE: Readonly<BicycleTuning> = {
-  roadSpeed: 3 * STAMINA.walkSpeed,
-  roughSpeed: 2.2,
+  // Faster than running everywhere it can go, or there is no reason to fetch it: in play the first numbers (5.4 on tracks, 2.2 off
+  // them) were slower than a sprint (5.6). On the road it is half again a sprint (30 km/h), on a path a little less, and through the
+  // trees just over a sprint (and it costs no stamina). The Listener's charge (twice a sprint, 11.2) still outruns it.
+  roadSpeed: 1.5 * STAMINA.sprintSpeed,
+  pathSpeed: 1.25 * STAMINA.sprintSpeed,
+  roughSpeed: 1.04 * STAMINA.sprintSpeed,
   loadedFactor: .8,
-  accel: 2, coastDrag: 1.2, brakeDecel: 6, excessDecel: 5,
+  accel: 2.6, coastDrag: 1.2, brakeDecel: 8.5, excessDecel: 5,
   turnRate: 2.2, turnSlowing: .49,
   steerSpeed: .8,
   movingSpeed: .5,
@@ -78,7 +83,7 @@ export function createBicycle(home: Point, tuning: BicycleTuning = BICYCLE) {
   let mounted = false, speed = 0, heading = 0, rollTimer = 0, bellWait = 0, load: string | null = null;
   const pos = { x: home.x, z: home.z };
   const homePos = { x: home.x, z: home.z };
-  const topSpeed = (surface: Surface) => (onTrack(surface) ? tuning.roadSpeed : tuning.roughSpeed) * (load ? tuning.loadedFactor : 1);
+  const topSpeed = (surface: Surface) => (surface === 'road' ? tuning.roadSpeed : surface === 'path' ? tuning.pathSpeed : tuning.roughSpeed) * (load ? tuning.loadedFactor : 1);
   const rolling = (surface: Surface) => {
     if (!mounted || speed < tuning.movingSpeed) return 0;
     if (onTrack(surface)) return load ? NOISE.loadedBicyclePath : NOISE.bicyclePath;

@@ -15,9 +15,11 @@ const run = (b, seconds, input, surface, dt = 1 / 60) => {
   return { r, noises };
 };
 
-test('top speeds: three times walking on roads and paths, slow elsewhere', () => {
-  assert.equal(BICYCLE.roadSpeed, 3 * STAMINA.walkSpeed);
-  for (const [surface, v] of [['road', 5.4], ['path', 5.4], ['forest', 2.2], ['dirt', 2.2], ['beach', 2.2]]) {
+test('top speeds: faster than a sprint everywhere it can be ridden, fastest on the road, and never as fast as the Listener', () => {
+  const { roadSpeed: ROAD, pathSpeed: PATH, roughSpeed: ROUGH } = BICYCLE;
+  assert.ok(ROAD > PATH && PATH > ROUGH && ROUGH > STAMINA.sprintSpeed, `${ROAD} ${PATH} ${ROUGH} against a sprint of ${STAMINA.sprintSpeed}`);
+  assert.ok(ROAD < 2 * STAMINA.sprintSpeed, 'its charge still outruns a bicycle');
+  for (const [surface, v] of [['road', ROAD], ['path', PATH], ['forest', ROUGH], ['dirt', ROUGH], ['beach', ROUGH]]) {
     const { r } = run(ridden(), 8, GO, surface);
     assert.ok(Math.abs(r.speed - v) < 1e-9, `${surface}: ${r.speed}`);
   }
@@ -26,10 +28,10 @@ test('top speeds: three times walking on roads and paths, slow elsewhere', () =>
 test('a heavy part strapped on: x0.8, and one rack only', () => {
   const b = ridden();
   assert.equal(b.strap('motor'), true); assert.equal(b.strap('battery'), false);
-  assert.ok(Math.abs(run(b, 8, GO, 'road').r.speed - 5.4 * .8) < 1e-9);
-  assert.ok(Math.abs(run(b, 8, GO, 'forest').r.speed - 2.2 * .8) < 1e-9);
+  assert.ok(Math.abs(run(b, 8, GO, 'road').r.speed - BICYCLE.roadSpeed * .8) < 1e-9);
+  assert.ok(Math.abs(run(b, 8, GO, 'forest').r.speed - BICYCLE.roughSpeed * .8) < 1e-9);
   assert.equal(b.unstrap(), 'motor'); assert.equal(b.unstrap(), null);
-  assert.ok(Math.abs(run(b, 8, GO, 'road').r.speed - 5.4) < 1e-9);
+  assert.ok(Math.abs(run(b, 8, GO, 'road').r.speed - BICYCLE.roadSpeed) < 1e-9);
 });
 
 test('speed eases: not instant up, braking is quicker than coasting, and leaving the road sheds the extra', () => {
@@ -41,7 +43,7 @@ test('speed eases: not instant up, braking is quicker than coasting, and leaving
   assert.ok(c > 3 && k === 0, `coasted to ${c}, braked to ${k}`);
   const fast = ridden(); run(fast, 8, GO, 'road');
   const off = run(fast, 1 / 60, GO, 'forest').r.speed; assert.ok(off > 5, 'not snapped');
-  assert.ok(Math.abs(run(fast, 2, GO, 'forest').r.speed - 2.2) < 1e-9);
+  assert.ok(Math.abs(run(fast, 2, GO, 'forest').r.speed - BICYCLE.roughSpeed) < 1e-9);
 });
 
 test('steering turns slowly at speed and not at all standing still', () => {
@@ -137,8 +139,8 @@ test('a zero step changes nothing', () => {
 test('limitSpeed: a blocked bicycle cannot keep its speed, and an open one is not slowed', () => {
   const b = ridden();
   run(b, 4, GO, 'road');
-  assert.ok(Math.abs(b.speed - 5.4) < 1e-9);
-  b.limitSpeed(9); assert.ok(Math.abs(b.speed - 5.4) < 1e-9);
+  assert.ok(Math.abs(b.speed - BICYCLE.roadSpeed) < 1e-9);
+  b.limitSpeed(9); assert.ok(Math.abs(b.speed - BICYCLE.roadSpeed) < 1e-9);
   b.limitSpeed(1.5); assert.equal(b.speed, 1.5);
   b.limitSpeed(-3); assert.equal(b.speed, 0);
   assert.equal(b.heading, 0);

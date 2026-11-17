@@ -1110,7 +1110,7 @@ export async function createGame(container:HTMLElement,hud?:LoadingHud):Promise<
     shadowDirty=false;
     if(probe)probe.marks.shadow1=performance.now();
     audio.update(dt,{position:camera.position,direction:forward,speed:active&&!bike.mounted&&!airborne&&!flying&&!climb&&!swimming?speed:0,sprinting:active&&run.sprinting,stamina:run.value,winded:run.exhausted,breathHeld:bh.held,darkness,surface:inWater?'water':world2?.indoors(player)?'wood':(WORLD_V2?roadDistance(player.x,player.z)<ROAD.footstep:Math.abs(player.z-roadZ(player.x))<2.7)?'road':'dirt',riverDistance:waterDistance});
-    if(bikeView){bikeAudio.attach(audio['context'],audio['master']);const rolling=bike.mounted&&active&&!grab;if(rolling||wasRolling)bikeAudio.roll(rolling?rideSpeed:0,bikeSurface());wasRolling=rolling;}
+    if(bikeView){bikeAudio.attach(audio['context'],audio['master']);const rolling=bike.mounted&&active&&!grab;if(rolling||wasRolling)bikeAudio.roll(rolling?rideSpeed:0,bikeSurface(),rideInput.throttle>0?1:0);wasRolling=rolling;}
     if(probe)probe.marks.audio1=performance.now();
     renderer.info.reset();
     if(texturesDirty){filterTextures();texturesDirty=false;}
