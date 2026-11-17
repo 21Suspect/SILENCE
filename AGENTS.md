@@ -32,6 +32,13 @@ on them in game/render/props/prop-materials.ts. Detailed parts (round logs, disp
 firewood) are in parts_hq.py. Every build prints a support audit (support.py: `SUPPORT ... N FLOATING`, details in
 work/gfx/audit): nothing may float, so get it to 0 before showing a prop.
 
+The creature (the Listener): `blender --background --factory-startup --python tools/assets/creature-v2/build.py` (add
+`-- --fast` for a quick look at half resolution, about 5 minutes; the full build needs about 12 GB of memory) writes
+public/creature/silence-creature-v2.glb, its two atlases' material masks beside it (skin-face-mask.png, skin-mask.png),
+game/data/spider-rig.json and assets/creature-v2/; commit them together. Its skin is layered like the buildings: scanned skin,
+raw tissue, leg hide and bone over the baked atlas (game/render/creature/creature-skin.ts), packed by
+`python3 tools/assets/creature-v2/layers.py fetch` then `pack [--skin <Megascans set>]` into public/creature/layers.
+
 In-game stills in one command: `node tools/shots/shoot.mjs --module work/gfx/cabin-shots.js --ids front,inside --tag t1` drives
 Google Chrome headless (its own profile, kept running, its frame loop parked between calls; `--reload` after rebuilding a GLB, `--stop` to
 close it) and writes work/gfx/shots/<tag>-<id>.png, HUD included. A shot module exports `prepare(id)`, which poses the game.

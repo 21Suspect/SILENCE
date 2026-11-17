@@ -1,5 +1,7 @@
 """Texel-exact PBR bake. Every texel finds the true sculpt surface, reads its
 normal and anatomy tags, and builds colour from 3D procedural layers."""
+import os
+
 import numpy as np
 
 import anatomy as A
@@ -19,18 +21,26 @@ def linear_to_srgb(c):
     return np.where(c <= 0.0031308, c * 12.92, 1.055 * c ** (1 / 2.4) - 0.055).astype(F)
 
 
-# The original's palette: pale bone crests, dark mottled rot, warm tendon.
-BONE = srgb(198, 188, 160)
-PALE = srgb(164, 156, 134)
-GREY = srgb(102, 104, 90)
-ROT = srgb(36, 40, 36)
-BRUISE = srgb(66, 48, 58)
-TENDON = srgb(122, 56, 44)
-BLOOD = srgb(52, 16, 16)
-GUM = srgb(112, 44, 42)
+# Grey flesh. The beige of the first palette (bone 198,188,160, skin 164,156,134) made the creature read as plaster: now cold
+# grey skin over darker grey rot and paler grey bone, and the only colour left is old blood, gums and torn muscle, all muted.
+BONE = srgb(160, 160, 155)
+PALE = srgb(120, 122, 121)
+GREY = srgb(78, 81, 83)
+ROT = srgb(24, 26, 27)
+BRUISE = srgb(52, 48, 57)
+TENDON = srgb(84, 46, 43)
+BLOOD = srgb(40, 14, 14)
+GUM = srgb(72, 32, 33)
 BLACK = srgb(9, 8, 9)
-TOOTH = srgb(214, 198, 158)
-TOOTH_ROOT = srgb(96, 70, 44)
+TOOTH = srgb(178, 166, 134)
+TOOTH_ROOT = srgb(74, 56, 38)
+
+
+# The fine grain is not baked any more. The atlas is one to two millimetres a texel: enough for folds, veins and creases, not for
+# pores. Those come from scanned materials the game lays over the atlas at four thousand texels a metre, one per kind of tissue
+# (game/render/creature/creature-skin.ts, packed by tools/assets/creature-v2/layers.py): skin, raw tissue, dead hide and bone.
+# The bake says which is where, in a mask per atlas (MASK_* below): one scan over everything read as a film on top.
+MASK_TISSUE, MASK_HIDE, MASK_BONE = 0, 1, 2
 
 
 def mix(a, b, t):
@@ -68,49 +78,73 @@ def rasterize(uv, tex):
     return (np.concatenate(xs), np.concatenate(ys), np.concatenate(tri), np.concatenate(b1s).astype(F), np.concatenate(b2s).astype(F))
 
 
-def height_detail(part, p):
-    """Fine height added on top of the sculpt: creases, pores, cracks, furrows."""
+def veins_at(p):
+    """Veins: warped ridged noise that only surfaces in patches (0..1). The same in the colour and the relief."""
+    x, y, z = p[:, 0], p[:, 1], p[:, 2]
+    macro = fbm(x * 3.1 + 11, y * 3.6, z * 3.1, 4) * 1.6 + 0.5
+    wx, wy, wz = x + fbm(x * 8, y * 8, z * 8, 2) * 0.05, y + fbm(x * 8 + 9, y * 8, z * 8, 2) * 0.05, z + fbm(x * 8, y * 8, z * 8 + 5, 2) * 0.05
+    vein_raw = 1 - np.abs(perlin(wx * 16, wy * 16, wz * 16)) * 7
+    return np.clip(vein_raw, 0, 1) ** 2 * smoothstep(0.45, 0.72, macro)
+
+
+def sores_at(p):
+    """Open sores on the body: a few ragged pits (about 1 % of the skin) and the swollen rim round each, both 0..1."""
+    x, y, z = p[:, 0], p[:, 1], p[:, 2]
+    n = fbm(x * 6.5 + 3.1, y * 6.5 - 7.7, z * 6.5 + 1.3, 3) * 1.6 + 0.5 + perlin(x * 40, y * 40, z * 40) * 0.25
+    pit = smoothstep(0.95, 1.0, n)
+    rim = smoothstep(0.88, 0.95, n) * (1 - pit)
+    return pit, rim
+
+
+def height_detail(part, p, n=None):
+    """Height (m) added to the sculpt at the atlas's scale: creases, slack folds, veins standing under the skin, the legs' furrows
+    and cracks. The pores and the grain below a couple of millimetres are the game's scanned layers (creature-skin.ts)."""
     x, y, z = p[:, 0], p[:, 1], p[:, 2]
     kind = part["kind"]
     if kind == "teeth":
         return perlin(x * 400, y * 60, z * 400) * 0.00018
     if kind == "leg":
-        # Dry, furrowed hide running with the bone, like dead bark.
+        # Dry, furrowed hide running with the bone, split by cracks, like dead bark.
         furrow = perlin(x * 62, y * 6.5, z * 62) * 0.0028
         crack = np.clip(1 - np.abs(perlin(x * 96, y * 8, z * 96)) * 2.4, 0, 1) ** 12
-        grit = fbm(x * 210, y * 70, z * 210, 3) * 0.0011
-        return furrow - crack * 0.0034 + grit + perlin(x * 560, y * 560, z * 560) * 0.00026
-    # Skin: stretched creases, slack folds, grain and pores.
+        split = np.clip(1 - np.abs(perlin(x * 210, y * 22, z * 210)) * 3.0, 0, 1) ** 10
+        return furrow - crack * 0.0034 - split * 0.0011 + fbm(x * 210, y * 70, z * 210, 3) * 0.0008
+    # Skin: stretched creases and slack folds, fine wrinkles cut across them, and the veins raised a millimetre.
     crease = perlin(x * 48, y * 15, z * 48) * 0.0018 + perlin(x * 22, y * 70, z * 22) * 0.0009
-    grain = fbm(x * 190, y * 190, z * 190, 3) * 0.0008
-    pores = perlin(x * 640, y * 640, z * 640) * 0.0003
-    return crease + grain + pores
+    wrinkle = np.clip(1 - np.abs(perlin(x * 34, y * 150, z * 34)) * 2.2, 0, 1) ** 6 * smoothstep(0.35, 0.75, fbm(x * 9, y * 9, z * 9, 2) * 1.6 + 0.5)
+    sag = fbm(x * 90, y * 90, z * 90, 3) * 0.0005
+    skin = crease - wrinkle * 0.0007 + veins_at(p) * 0.0011 + sag
+    if kind == "torso":
+        pit, rim = sores_at(p)
+        skin = skin - pit * 0.0045 + rim * 0.0014
+    return skin
 
 
 def shade(part, field, p, n, ao_small, ao_large):
-    """Albedo and roughness in linear space."""
+    """Albedo and roughness in linear space, and the scanned-material mask (MASK_*)."""
     x, y, z = p[:, 0], p[:, 1], p[:, 2]
     kind = part["kind"]
     macro = fbm(x * 3.1 + 11, y * 3.6, z * 3.1, 4) * 1.6 + 0.5
     mid = fbm(x * 12, y * 12, z * 12, 4) * 1.5 + 0.5
     fine = fbm(x * 70, y * 70, z * 70, 3) * 1.5 + 0.5
     speck = perlin(x * 240, y * 240, z * 240) * 2.0 + 0.5
-    # Veins: warped ridged noise that only surfaces in patches.
-    wx, wy, wz = x + fbm(x * 8, y * 8, z * 8, 2) * 0.05, y + fbm(x * 8 + 9, y * 8, z * 8, 2) * 0.05, z + fbm(x * 8, y * 8, z * 8 + 5, 2) * 0.05
-    vein_raw = 1 - np.abs(perlin(wx * 16, wy * 16, wz * 16)) * 7
-    veins = np.clip(vein_raw, 0, 1) ** 2 * smoothstep(0.45, 0.72, macro)
+    veins = veins_at(p)
+    # Which scanned material each point is (tissue, hide, bone; the rest is skin): see MASK_*.
+    mask = np.zeros((len(p), 3), F)
 
     if kind == "teeth" and part.get("wide"):
         bite, half = H.wide_mouth(x)
         rootward = np.abs(y - bite) / np.maximum(half, 0.012)
         c = np.tile(TOOTH * 0.88, (len(p), 1))
-        c = mix(c, TOOTH_ROOT, smoothstep(0.32, 0.8, mid) * 0.34)
-        c = mix(c, TOOTH_ROOT * 0.42, smoothstep(0.62, 1.0, rootward) * 0.92)
+        c = mix(c, TOOTH_ROOT, smoothstep(0.28, 0.8, mid) * 0.5)
+        c = mix(c, TOOTH_ROOT * 0.42, smoothstep(0.5, 0.95, rootward) * 0.95)
+        c = mix(c, ROT, smoothstep(0.82, 1.0, rootward) * 0.6)
         streak_t = perlin(x * 210, y * 16, z * 210) * 2.0 + 0.5
-        c = mix(c, TOOTH_ROOT * 0.5, smoothstep(0.6, 0.86, streak_t) * 0.5)
-        c = mix(c, BLACK, (1 - ao_small) * 0.9)
+        c = mix(c, TOOTH_ROOT * 0.5, smoothstep(0.55, 0.86, streak_t) * 0.62)
+        c = mix(c, BLACK, np.clip((1 - ao_small) * 1.3, 0, 1) * 0.92)
         c *= (0.76 + 0.34 * fine)[..., None]
-        return c, np.clip(0.34 + (mid - 0.5) * 0.3, 0.2, 0.7).astype(F)
+        mask[:, MASK_BONE] = 1
+        return c, np.clip(0.34 + (mid - 0.5) * 0.3, 0.2, 0.7).astype(F), mask
 
     if kind == "teeth":
         place = part.get("place")
@@ -120,7 +154,8 @@ def shade(part, field, p, n, ao_small, ao_large):
         rim = np.sqrt((x / A.MOUTH_A) ** 2 + ((y - A.MOUTH_Y) / A.MOUTH_B) ** 2)
         c = mix(c, TOOTH_ROOT * 0.5, smoothstep(0.82, 1.0, rim) * 0.9)
         c *= (0.75 + 0.3 * fine)[..., None]
-        return c, np.full(len(p), 0.3, F)
+        mask[:, MASK_BONE] = 1
+        return c, np.full(len(p), 0.3, F), mask
 
     streak_fall = fbm(x * 42, y * 3.2, z * 42, 3) * 1.5 + 0.5
 
@@ -135,7 +170,9 @@ def shade(part, field, p, n, ao_small, ao_large):
         c = mix(c, BLACK * 1.4 + BLOOD * 0.3, nail)
         c *= (0.82 + 0.3 * fine)[..., None]
         rough = 0.6 - nail * 0.25
-        return c, rough.astype(F)
+        mask[:, MASK_BONE] = smoothstep(0.012, 0.0, tag_bone) * 0.4 * (1 - nail)
+        mask[:, MASK_HIDE] = nail
+        return c, rough.astype(F), mask
 
     if kind == "leg":
         seg = part["segment"]
@@ -160,7 +197,13 @@ def shade(part, field, p, n, ao_small, ao_large):
         c = mix(c, ROT * 0.32, (1 - ao_small) * 0.95)
         c *= (0.8 + 0.34 * fine)[..., None] * (0.9 + 0.2 * speck)[..., None]
         rough = 0.74 - joint * 0.24 - strip * 0.34 + (fibre - 0.5) * 0.12
-        return c, np.clip(rough, 0.26, 0.95).astype(F)
+        # Dead hide down the leg; the femur's first stretch is still the body's skin (it is weighted to the torso, FEMUR_SPLIT).
+        skin_root = smoothstep(A.FEMUR_SPLIT + 0.05, A.FEMUR_SPLIT + 0.45, y) if seg == 0 else 1.0
+        bone_w = joint * (1 - char * 0.62)
+        mask[:, MASK_TISSUE] = strip
+        mask[:, MASK_BONE] = bone_w * (1 - strip)
+        mask[:, MASK_HIDE] = skin_root * (1 - strip) * (1 - bone_w)
+        return c, np.clip(rough, 0.26, 0.95).astype(F), mask
 
     if kind == "torso":
         tag_bone = field.sample(field.tags["bone"], p)
@@ -177,10 +220,17 @@ def shade(part, field, p, n, ao_small, ao_large):
         c = mix(c, TENDON * 0.62 * (0.7 + 0.8 * mid[..., None]), strip * 0.85)
         bone = smoothstep(0.018, 0.0, tag_bone)
         c = mix(c, BONE * (0.78 + 0.34 * fine[..., None]), bone * 0.68)
+        # Open sores: raw, wet tissue in a pit, the skin round it swollen and bruised.
+        pit, rim = sores_at(p)
+        c = mix(c, BRUISE * 0.6, rim * 0.7)
+        c = mix(c, mix(TENDON * 0.55, BLOOD * 0.8, smoothstep(0.3, 0.7, fine)), pit)
+        strip = np.maximum(strip, pit)
         c = mix(c, ROT * 0.3, (1 - ao_small) * 0.95)
         c *= (0.82 + 0.3 * fine)[..., None]
-        rough = 0.54 + (mid - 0.5) * 0.18 - bone * 0.12 - strip * 0.26
-        return c, np.clip(rough, 0.24, 0.95).astype(F)
+        rough = 0.54 + (mid - 0.5) * 0.18 - bone * 0.12 - strip * 0.26 - pit * 0.1
+        mask[:, MASK_TISSUE] = np.maximum(strip * 0.85, pit)
+        mask[:, MASK_BONE] = bone * 0.68 * (1 - strip * 0.85)
+        return c, np.clip(rough, 0.24, 0.95).astype(F), mask
 
     if part.get("wide"):
         socket = field.sample(field.tags["socket"], p)
@@ -207,7 +257,12 @@ def shade(part, field, p, n, ao_small, ao_large):
         rough = 0.5 + (mid - 0.5) * 0.18
         rough = rough * (1 - void) + void * 0.98
         rough = rough * (1 - in_gum) + in_gum * 0.3
-        return c, np.clip(rough, 0.2, 1.0).astype(F)
+        # Gums, the inside of the mouth and the bloodied rim of the grin are raw tissue; the black of the sockets is nothing.
+        lips = smoothstep(0.05, 0.0, mouth) * smoothstep(0.4, 0.72, stain) * 0.6
+        tissue = np.maximum(np.maximum(in_gum, in_mouth), lips) * (1 - void)
+        mask[:, MASK_TISSUE] = tissue
+        mask[:, MASK_BONE] = smoothstep(0.01, 0.0, bone) * 0.3 * (1 - tissue) * (1 - void)
+        return c, np.clip(rough, 0.2, 1.0).astype(F), mask
 
     if part.get("void"):
         socket = field.sample(field.tags["socket"], p)
@@ -222,7 +277,8 @@ def shade(part, field, p, n, ao_small, ao_large):
         c = mix(c, BLACK * 0.12, void)
         rough = 0.5 + (mid - 0.5) * 0.18
         rough = rough * (1 - void) + void
-        return c, np.clip(rough, 0.2, 1.0).astype(F)
+        mask[:, MASK_BONE] = smoothstep(0.01, 0.0, bone) * 0.3 * (1 - void)
+        return c, np.clip(rough, 0.2, 1.0).astype(F), mask
 
     # head
     socket = field.sample(field.tags["socket"], p)
@@ -253,10 +309,12 @@ def shade(part, field, p, n, ao_small, ao_large):
     c = mix(c, ROT * 0.4, (1 - ao_small) * 0.75 * (1 - in_mouth))
     c *= (0.78 + 0.34 * fine)[..., None] * (0.92 + 0.16 * speck)[..., None]
     rough = 0.5 + (mid - 0.5) * 0.18 - in_mouth * 0.28 + in_socket * 0.3
-    return c, np.clip(rough, 0.18, 0.95).astype(F)
+    mask[:, MASK_TISSUE] = in_mouth
+    mask[:, MASK_BONE] = smoothstep(0.01, 0.0, bone) * 0.32 * (1 - in_mouth)
+    return c, np.clip(rough, 0.18, 0.95).astype(F), mask
 
 
-def bake_part(part, field, uv, p_local, n_local, tex, colour, normal_map, rough, written):
+def bake_part(part, field, uv, p_local, n_local, tex, colour, normal_map, rough, written, mask_map=None):
     xs, ys, tri, b1, b2 = rasterize(uv, tex)
     b0 = 1 - b1 - b2
     p = p_local[tri, 0] * b0[:, None] + p_local[tri, 1] * b1[:, None] + p_local[tri, 2] * b2[:, None]
@@ -282,12 +340,12 @@ def bake_part(part, field, uv, p_local, n_local, tex, colour, normal_map, rough,
 
     # Add micro detail by perturbing the gradient.
     step = max(0.0005, field.h * 0.5)
-    base = height_detail(part, p)
+    base = height_detail(part, p, surface_n)
     grad = np.empty_like(surface_n)
     for axis in range(3):
         offset = np.zeros(3)
         offset[axis] = step
-        grad[:, axis] = (height_detail(part, p + offset) - base) / step
+        grad[:, axis] = (height_detail(part, p + offset, surface_n) - base) / step
     detail_n = surface_n - (grad - surface_n * (grad * surface_n).sum(1, keepdims=True))
     detail_n /= np.maximum(np.linalg.norm(detail_n, axis=1, keepdims=True), 1e-8)
 
@@ -306,7 +364,7 @@ def bake_part(part, field, uv, p_local, n_local, tex, colour, normal_map, rough,
     # Where the field is flat its distance values collapse and small-scale occlusion
     # reads falsely black. Real crevices always show up at the larger scale too.
     ao_small = np.maximum(ao_small, smoothstep(0.6, 0.97, ao_large) * 0.82)
-    albedo, roughness = shade(part, field, p, surface_n, ao_small, ao_large)
+    albedo, roughness, mask = shade(part, field, p, surface_n, ao_small, ao_large)
     albedo = albedo * (0.5 + 0.5 * ao_large)[..., None]
 
     if part.get("void"):
@@ -336,10 +394,12 @@ def bake_part(part, field, uv, p_local, n_local, tex, colour, normal_map, rough,
     colour[ys, xs] = albedo
     normal_map[ys, xs] = encoded * 0.5 + 0.5
     rough[ys, xs] = roughness
+    if mask_map is not None:
+        mask_map[ys, xs] = mask
     written[ys, xs] = True
 
 
-def dilate(colour, normal_map, rough, written, iterations):
+def dilate(colour, normal_map, rough, written, iterations, extra=()):
     filled = written.copy()
     for _ in range(iterations):
         n = np.stack([np.roll(filled, s, axis=a) for s, a in ((1, 0), (-1, 0), (1, 1), (-1, 1))], axis=0)
@@ -347,7 +407,7 @@ def dilate(colour, normal_map, rough, written, iterations):
         grow = (~filled) & (count > 0)
         if not grow.any():
             break
-        for arr in (colour, normal_map):
+        for arr in (colour, normal_map, *extra):
             total = np.zeros_like(arr)
             for s, a in ((1, 0), (-1, 0), (1, 1), (-1, 1)):
                 shifted = np.roll(arr, s, axis=a) * np.roll(filled, s, axis=a)[..., None]

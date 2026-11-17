@@ -56,6 +56,11 @@ def add(name, field, colour_fn, emission=None):
         node = nodes.new("ShaderNodeVertexColor")
         node.layer_name = "c"
         links.new(node.outputs["Color"], bsdf.inputs["Base Color"])
+    if emission == 0.0 and colour_fn is None:
+        # An extra with no glow is a pair of glossy black eyes (head_variants.wide).
+        bsdf.inputs["Base Color"].default_value = (0.0035, 0.0035, 0.004, 1)
+        bsdf.inputs["Roughness"].default_value = 0.07
+        bsdf.inputs["Coat Weight"].default_value = 1.0
     if emission:
         bsdf.inputs["Base Color"].default_value = (1, 1, 1, 1)
         bsdf.inputs["Emission Color"].default_value = (1, 1, 1, 1)
@@ -152,4 +157,7 @@ for concept in chosen:
     # Viewed from about a person's eye height, as a player would see it.
     shot(scene, f"{concept}_front", (0.0, -2.75, 1.48), (0, -0.8, 1.16), 78)
     shot(scene, f"{concept}_three", (1.25, -2.42, 1.4), (0, -0.8, 1.16), 78)
+    # The profile and from below, where the mouth's hollow and the teeth show their gaps.
+    shot(scene, f"{concept}_side", (1.9, -0.95, 1.18), (0, -0.85, 1.12), 78)
+    shot(scene, f"{concept}_below", (0.0, -2.2, 0.35), (0, -0.85, 1.1), 78)
     print("CONCEPT", concept, flush=True)

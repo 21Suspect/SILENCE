@@ -1,0 +1,144 @@
+{
+ "packing": "<layer>-a.jpg: R luminance ratio / 2, G height (high-passed, 0..1), B roughness. <layer>-b.jpg: R, G OpenGL normal x, y; B ambient occlusion. 1024 px, JPEG 4:4:4, tileable. Packed by tools/assets/creature-v2/layers.py.",
+ "layers": [
+  {
+   "layer": "skin",
+   "scan": "Animal Flesh",
+   "id": "rkqos3p0",
+   "provider": "Quixel Megascans",
+   "license": "Megascans / Fab Standard License (not CC0: may not be redistributed as a standalone texture)",
+   "physical_size_m": "0.25x0.25",
+   "maps": {
+    "color": "_BaseColor.jpg",
+    "normal": "_Normal.jpg",
+    "rough": "_Roughness.jpg",
+    "height": "_Displacement.jpg",
+    "ao": "_AO.jpg"
+   }
+  },
+  {
+   "layer": "tissue",
+   "scan": "leather_red_02",
+   "provider": "Poly Haven",
+   "source": "https://polyhaven.com/a/leather_red_02",
+   "license": "CC0-1.0",
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "dimensions": [
+    600.0000238418579,
+    600.0000238418579
+   ],
+   "maps": {
+    "color": {
+     "key": "coll1",
+     "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/leather_red_02/leather_red_02_coll1_2k.jpg",
+     "md5": "b027e31de9b4a08114e1e1a706810d2c"
+    },
+    "normal": {
+     "key": "nor_gl",
+     "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/leather_red_02/leather_red_02_nor_gl_2k.jpg",
+     "md5": "3e2a6f51a9eaee92ad7c7fdb4602b07b"
+    },
+    "rough": {
+     "key": "Rough",
+     "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/leather_red_02/leather_red_02_rough_2k.jpg",
+     "md5": "8da56e36883e3b81f5e440e0ae03054a"
+    },
+    "height": {
+     "key": "Displacement",
+     "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/leather_red_02/leather_red_02_disp_2k.jpg",
+     "md5": "6e11d6c01301cbf5e9b8761a150d183f"
+    },
+    "ao": {
+     "key": "AO",
+     "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/leather_red_02/leather_red_02_ao_2k.jpg",
+     "md5": "bfed2776b6e5ed9b9531cbdbb88b5904"
+    }
+   }
+  },
+  {
+   "layer": "hide",
+   "scan": "mud_cracked_dry_03",
+   "provider": "Poly Haven",
+   "source": "https://polyhaven.com/a/mud_cracked_dry_03",
+   "license": "CC0-1.0",
+   "authors": [
+    "Dario Barresi",
+    "Dimitrios Savva"
+   ],
+   "dimensions": [
+    1500,
+    1500.0001192092896
+   ],
+   "maps": {
+    "color": {
+     "key": "Diffuse",
+     "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/mud_cracked_dry_03/mud_cracked_dry_03_diff_2k.jpg",
+     "md5": "a9c41ff82bf62c58a91b6820d4439165"
+    },
+    "normal": {
+     "key": "nor_gl",
+     "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/mud_cracked_dry_03/mud_cracked_dry_03_nor_gl_2k.jpg",
+     "md5": "55afe4da72279ddd605bbd185931e799"
+    },
+    "rough": {
+     "key": "Rough",
+     "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/mud_cracked_dry_03/mud_cracked_dry_03_rough_2k.jpg",
+     "md5": "36d4f3636ba5ed4a12f6674b767adbfb"
+    },
+    "height": {
+     "key": "Displacement",
+     "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/mud_cracked_dry_03/mud_cracked_dry_03_disp_2k.jpg",
+     "md5": "88ff8bf067f2acd01510c55c9e571864"
+    },
+    "ao": {
+     "key": "AO",
+     "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/mud_cracked_dry_03/mud_cracked_dry_03_ao_2k.jpg",
+     "md5": "fb98c97fb742812aec9127dab638e406"
+    }
+   }
+  },
+  {
+   "layer": "bone",
+   "scan": "worn_cracked_plaster",
+   "provider": "Poly Haven",
+   "source": "https://polyhaven.com/a/worn_cracked_plaster",
+   "license": "CC0-1.0",
+   "authors": [
+    "Amal Kumar"
+   ],
+   "dimensions": [
+    1799.9999523162842,
+    1799.9999523162842
+   ],
+   "maps": {
+    "color": {
+     "key": "Diffuse",
+     "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/worn_cracked_plaster/worn_cracked_plaster_diff_2k.jpg",
+     "md5": "6f8be501897694a4d197b5f009e6e409"
+    },
+    "normal": {
+     "key": "nor_gl",
+     "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/worn_cracked_plaster/worn_cracked_plaster_nor_gl_2k.jpg",
+     "md5": "07789f3dd26dc666fb3a88ba32b6db6c"
+    },
+    "rough": {
+     "key": "Rough",
+     "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/worn_cracked_plaster/worn_cracked_plaster_rough_2k.jpg",
+     "md5": "08210a56823092284858b44375b8e3b1"
+    },
+    "height": {
+     "key": "Displacement",
+     "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/worn_cracked_plaster/worn_cracked_plaster_disp_2k.jpg",
+     "md5": "0cc4c028403df338bc215fd3f098e022"
+    },
+    "ao": {
+     "key": "AO",
+     "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/worn_cracked_plaster/worn_cracked_plaster_ao_2k.jpg",
+     "md5": "1639f66822935102d4130cffb4294294"
+    }
+   }
+  }
+ ]
+}

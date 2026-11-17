@@ -85,6 +85,41 @@ def teeth_box(f, centre, tangent, up, half, r, tag):
     f.union(fn, (c - reach, c + reach), 0.0009, tag)
 
 
+def organic_tooth(f, root, tip, flat, out, width, depth, tag, chip=(0.0, 0.0, 1.0), bow=0.05):
+    """A worn human tooth from root to tip, for The Wide. The old one was a thin rounded box (1 cm thick, up to 9 cm long) and
+    read as a plank from every side. This one is rounded all round, narrows to the root, bows a little outward over its
+    crown and has an uneven biting edge (chip: depth, offset across the tooth and width of one notch in it)."""
+    root, tip = np.asarray(root, float), np.asarray(tip, float)
+    axis = tip - root
+    length = float(np.linalg.norm(axis))
+    u = axis / length
+    t = np.asarray(flat, float) - u * np.dot(flat, u)
+    t /= np.linalg.norm(t)
+    o = np.cross(u, t)
+    if np.dot(o, out) < 0:
+        o = -o
+    chip_d, chip_x, chip_w = chip
+
+    def fn(p):
+        q = [p[i] - root[i] for i in range(3)]
+        ly = q[0] * u[0] + q[1] * u[1] + q[2] * u[2]
+        lx = q[0] * t[0] + q[1] * t[1] + q[2] * t[2]
+        lz = q[0] * o[0] + q[1] * o[1] + q[2] * o[2]
+        s = np.clip(ly / length, 0, 1)
+        lz = lz - bow * depth * 2.2 * np.sin(np.pi * s)
+        w = width * (0.6 + 0.4 * smoothstep(0.0, 0.55, s))
+        th = depth * (0.72 + 0.28 * smoothstep(0.0, 0.5, s))
+        top = length - chip_d * np.exp(-((lx - chip_x * width) / max(chip_w * width, 1e-4)) ** 2)
+        rr = np.minimum(th, w) * 0.86
+        qx, qz = np.abs(lx) - w + rr, np.abs(lz) - th + rr
+        qy = np.abs(ly - top * 0.5) - top * 0.5 + rr
+        outer = np.sqrt(np.maximum(qx, 0) ** 2 + np.maximum(qy, 0) ** 2 + np.maximum(qz, 0) ** 2)
+        return outer + np.minimum(np.maximum(np.maximum(qx, qy), qz), 0) - rr
+
+    reach = length + width + depth
+    f.union(fn, (np.minimum(root, tip) - reach * 0.6, np.maximum(root, tip) + reach * 0.6), 0.0012, tag)
+
+
 # ---------------------------------------------------------------------------
 # A: THE GRIN. Almost a person, until you see how far the smile goes.
 # ---------------------------------------------------------------------------
@@ -340,12 +375,13 @@ def wide_mouth(x):
 def wide(h, teeth_h):
     f = base(h, 1.12)
     flesh(f, 55, brow=0.0)
-    rings = []
+    rings, sockets = [], []
     for s, y, R in ((-1, 0.142, 0.056), (1, 0.136, 0.061)):
         c = np.array((s * 0.094, y, 0.2))
         f.cut_ellipsoid(tuple(c), (R, R * 0.94, 0.1), 0.007, "socket")
         f.cut_ellipsoid((c[0], y, 0.13), (R * 0.9, R * 0.86, 0.07), 0.012, "socket")
         rings.append(((c[0], y, 0.104), R * 0.62))
+        sockets.append((c[0], y, R))
     bump(f, (0, 0.05, 0.205), (0.016, 0.022, 0.02), 0.014)
     for s in (-1, 1):
         f.cut_ellipsoid((s * 0.011, 0.034, 0.222), (0.006, 0.0055, 0.022), 0.003, "socket")
@@ -359,8 +395,18 @@ def wide(h, teeth_h):
     out = np.stack([np.sin(phi), np.zeros_like(phi), np.cos(phi)], axis=1)
     half = 0.008 + 0.08 * np.cos(t * np.pi / 2) ** 0.85
     f.subtract(lambda p: _chain(p, surface, half), (surface.min(0) - 0.1, surface.max(0) + 0.1), 0.005, "mouth")
-    inner = surface - out * 0.04
-    f.subtract(lambda p: _chain(p, inner, half * 1.25), (inner.min(0) - 0.12, inner.max(0) + 0.12), 0.012, "mouth")
+    # The hollow behind the lips. It was cut 1.25 times as wide as the mouth and 4 cm in, and on this narrow lower head that
+    # went almost through: from the side the teeth hung in a gap you could see the background through, over a torn flap.
+    # It now stops at the lower gum line, so the jaw under the teeth keeps the head's own shape and is solid.
+    inner = surface - out * 0.034
+
+    def hollow(p):
+        bite, mouth_half = wide_mouth(p[0])
+        return np.maximum(_chain(p, inner, half * 1.04), bite - mouth_half * 1.05 - p[1])
+
+    f.subtract(hollow, (inner.min(0) - 0.1, inner.max(0) + 0.1), 0.012, "mouth")
+    # A back wall to the mouth: the throat, dark like the rest of the inside.
+    f.add_ellipsoid((0, -0.172, -0.035), (0.13, 0.11, 0.075), 0.03, "mouth")
     for s in (-1, 1):
         for dy in (0.0, 0.026, 0.05):
             ridge(f, [(s * 0.122, -0.05 + dy, 0.12), (s * 0.15, -0.0 + dy, 0.06), (s * 0.158, 0.03 + dy, -0.01)], 0.0044, -0.0042)
@@ -369,46 +415,53 @@ def wide(h, teeth_h):
     for (c, y, _z), R in rings:
         paint_black(f, (c, y), R * 1.7, R * 1.55, 0.012)
 
-    # Gums run the full length of both lips, so every tooth has flesh to sit in.
-    for sign in (1, -1):
-        line = surface - out * 0.019 + np.stack([np.zeros(n), sign * half * 1.03, np.zeros(n)], axis=1)
-        gum = (0.0035 + 0.0065 * np.cos(t * np.pi / 2) ** 0.7)
+    # Gums run the full length of both lips, round the base of each row of teeth (the same inset as the row, below), and are
+    # thick enough to hold the roots: a thin cord with roots buried 1.6 cm past it left the roots showing under it.
+    for sign, inset in ((1, 0.0125), (-1, 0.0185)):
+        line = surface - out * inset + np.stack([np.zeros(n), sign * (half * 1.03 + 0.003), np.zeros(n)], axis=1)
+        gum = (0.0052 + 0.0068 * np.cos(t * np.pi / 2) ** 0.7)
         f.union(lambda p, line=line, gum=gum: _chain(p, line, gum), (line.min(0) - 0.03, line.max(0) + 0.03), 0.006, "gum")
 
     teeth = Field((-0.22, -0.34, -0.2), (0.22, 0.06, 0.26), teeth_h, ("upper", "lower"))
     rng = np.random.default_rng(66)
     count = 19
-    for sign, row in ((1, 0.92), (-1, 0.8)):
+    # The length of the bite line, so each tooth is as wide as its share of it and neighbours meet: the old widths were drawn
+    # at random and left black holes between the teeth from the front and from below.
+    arc = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(surface, axis=0), axis=1))])
+    for sign, reach, inset in ((1, 1.0, 0.0115), (-1, 0.96, 0.0165)):
         for k in range(count):
-            u = (k + 0.5) / count + rng.normal(0, 0.006)
-            i = int(np.clip(u, 0, 1) * (n - 1))
-            tall = max(0.012, half[i] * row) * rng.uniform(0.74, 1.1)
-            bury = 0.014
-            root = surface[i] - out[i] * 0.014 + np.array((0, sign * (half[i] + bury * 0.5), 0))
-            tall += bury
-            centre = root - np.array((0, sign * tall * 0.5, 0)) + rng.normal(0, 0.0012, 3)
+            u = (k + 0.5) / count + rng.normal(0, 0.004)
+            a = np.clip(u, 0, 1) * arc[-1]
+            i = int(np.clip(np.searchsorted(arc, a), 1, n - 1))
+            # Upper teeth close a little outside and over the lower ones, as a bite does.
+            face_out = out[i] * (0.0 if sign > 0 else -0.004)
+            gum_line = surface[i] - out[i] * inset + face_out + np.array((0, sign * half[i] * 1.03, 0))
+            bite_point = surface[i] - out[i] * inset + face_out + np.array((0, -sign * (0.004 if sign > 0 else -0.001), 0))
+            tall = float(np.linalg.norm(gum_line - bite_point)) * reach * rng.uniform(0.94, 1.04)
+            if tall < 0.01:
+                continue
             flat = np.array((np.cos(phi[i]), 0.0, -np.sin(phi[i])))
-            # Crooked: leaning, turned, and overlapping their neighbours.
-            lean = rng.normal(0, 0.13)
-            twist = rng.normal(0, 0.2)
-            up = np.array((flat[0] * lean, 1.0, flat[2] * lean))
+            # Crooked, less than before: leaning and turned a little, so the row is uneven without opening gaps.
+            lean, twist = rng.normal(0, 0.07), rng.normal(0, 0.1)
+            down = np.array((flat[0] * lean, -sign * 1.0, flat[2] * lean))
+            down /= np.linalg.norm(down)
             flat2 = flat * np.cos(twist) + out[i] * np.sin(twist)
-            width = 0.0145 * (0.55 + 0.45 * np.cos((2 * np.clip(u, 0, 1) - 1) * np.pi / 2) ** 0.7) * rng.uniform(0.86, 1.14)
-            teeth_box(teeth, centre, flat2, up, (width, tall * 0.5, 0.0052), 0.0028, "upper" if sign > 0 else "lower")
+            # Each root goes 5 mm into the gum: in, but not out the other side of it.
+            root = gum_line - down * 0.005
+            tip = gum_line + down * tall
+            width = arc[-1] / count * 0.56 * (0.62 + 0.38 * np.cos((2 * np.clip(u, 0, 1) - 1) * np.pi / 2) ** 0.6) * rng.uniform(0.94, 1.08)
+            chip = (rng.uniform(0.0, 0.006) if rng.random() < 0.45 else 0.0, rng.uniform(-0.6, 0.6), rng.uniform(0.25, 0.5))
+            organic_tooth(teeth, root, tip, flat2, out[i], width, 0.0074, "upper" if sign > 0 else "lower", chip)
     teeth.place = translate(HEAD_CENTRE)
 
-    # Only the white is left of each eye: a ragged ring around pure black.
-    pale = Field((-0.2, 0.05, 0.07), (0.2, 0.24, 0.14), 0.0009, ())
-    rng = np.random.default_rng(71)
-    for centre, R in rings:
-        angles = np.linspace(-0.55, np.pi + 0.55, 44)
-        jitter = rng.normal(0, 0.0014, 44)
-        pts = [(centre[0] + np.cos(a) * (R * 1.3 + j), centre[1] + np.sin(a) * (R * 1.22 + j), centre[2]) for a, j in zip(angles, jitter)]
-        # Heaviest at the crown, tapering to a fine point at both tips.
-        rr = [max(0.0009, 0.0125 * np.sin(np.clip((a + 0.55) / (np.pi + 1.1), 0, 1) * np.pi) ** 1.5 + rng.normal(0, 0.0005)) for a in angles]
-        pale.add_tube(pts, rr, 0.0015, samples=88)
-    pale.place = translate(HEAD_CENTRE)
-    f.extras = [(pale, 3.0)]
+    # A spider's eyes: one glossy black dome in each socket, set back from the rim, nothing pale and nothing that glows (the
+    # pale crescents these replace were lit from inside). build.py gives them a wet black; the glow in extras is 0.
+    eyes = Field((-0.2, 0.05, 0.04), (0.2, 0.24, 0.2), 0.0008, ())
+    for cx, cy, R in sockets:
+        r = R * 0.8
+        eyes.add_ellipsoid((cx, cy, 0.118), (r, r, r * 0.82), 0.001)
+    eyes.place = translate(HEAD_CENTRE)
+    f.extras = [(eyes, 0.0)]
     return f, teeth, []
 
 

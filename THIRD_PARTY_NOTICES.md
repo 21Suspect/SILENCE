@@ -39,3 +39,13 @@ under its MIT license.
 
 `public/textures/mountain/` packs CC0-1.0 Poly Haven scans (two textures and two scanned rock models rendered flat); sources,
 authors and how each was made are in `public/textures/mountain/attribution.json`.
+
+## Creature skin layers
+
+`public/creature/layers/` holds the scans the game lays over the Listener's baked atlas (game/render/creature/creature-skin.ts),
+packed grey by `tools/assets/creature-v2/layers.py`; sources, authors and the packing are in
+`public/creature/layers/attribution.json`. The tissue, hide and bone layers are CC0-1.0 Poly Haven scans (leather_red_02,
+mud_cracked_dry_03, worn_cracked_plaster). The skin layer is packed from Quixel Megascans' "Animal Flesh" (rkqos3p0), which is
+not CC0 and is not covered by the MIT license: it is used under the Megascans/Fab license of the person who downloaded it, which
+does not allow redistributing it as a standalone texture. `layers.py pack` without `--skin` packs the CC0 Poly Haven
+brown_leather in its place.

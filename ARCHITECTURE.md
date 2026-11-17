@@ -29,7 +29,8 @@ game/                 all game code
                       thread), far-shadow.ts (the island-wide sun shadow), lod-dither.ts (the shared hand-over dither)
     props/            POIs (streamed GLB props, mesh levels of detail from tools/assets/prop-lod.mjs), doors, the rebuilt world's assembly (world-v2.ts), story props,
                       interaction prompts, objective props, the flashlight
-    creature/         encounters.ts (hosts the brain in the scene), the Listener's model, rig and gait, tree crawl
+    creature/         encounters.ts (hosts the brain in the scene), the Listener's model, rig and gait, tree crawl, its
+                      layered skin (creature-skin.ts: scanned skin, tissue, hide and bone over the baked atlas)
     gpu/              warm-up queue, tiled texture uploads, shadow programs, unlit-light guards
   audio/              Web Audio: ambience, creature sounds, footsteps, breathing
   ui/                 pause menu (admin.ts), objective and stamina HUD, performance overlay and its statistics, the loading

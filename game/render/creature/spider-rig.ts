@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import layout from '../../data/spider-rig.json';
+import { addCreatureSkin } from './creature-skin';
 
 export const SPIDER_MODEL_URL = '/creature/silence-creature-v2.glb';
 /** The sculpt is authored at full size. In-game it runs at this scale, so it
@@ -84,6 +85,7 @@ export function createSpiderRig(parent: THREE.Group) {
   const bindOf = new Map(layout.bones.map(b => [b.name, b]));
   let model: THREE.Group | undefined, disposed = false;
   let eyeMaterial: THREE.MeshStandardMaterial | undefined;
+  const skinDisposers: (() => void)[] = [];
   const tmpQ = new THREE.Quaternion(), tmpQ2 = new THREE.Quaternion(), tmpQ3 = new THREE.Quaternion(), tmpV = new THREE.Vector3(), tmpN = new THREE.Vector3(), tmpE = new THREE.Euler();
   const names = ['femur', 'tibia', 'meta', 'tarsus'];
 
@@ -103,11 +105,18 @@ export function createSpiderRig(parent: THREE.Group) {
         o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false;
         const m = o.material as THREE.MeshStandardMaterial;
         if (m.name === 'Dead white eyes') {
+          // An older build: the pale eyes lit from inside.
           eyeMaterial = m; m.color.set(0xd0ded4); m.emissive.set(0xc5ded6); m.emissiveIntensity = 2.1; m.roughness = .24;
           o.castShadow = false; o.receiveShadow = false;
+        } else if (m.name === 'Black eyes') {
+          // A spider's eyes: wet black and unlit. All that shows is what they reflect, the torch most of all.
+          m.color.setRGB(.0035, .0035, .004); m.emissive.set(0); m.roughness = .06; m.metalness = 0; m.envMapIntensity = 1.2;
+          o.castShadow = false;
         } else {
           m.vertexColors = false; m.envMapIntensity = .6; m.normalScale.set(1.15, 1.15);
           for (const map of [m.map, m.normalMap, m.roughnessMap]) if (map) map.anisotropy = 8;
+          // The face's atlas and the body's take the scanned skin, tissue, hide and bone (creature-skin.ts); the bristles keep their plain dark.
+          if (m.name.startsWith('Skin v2')) skinDisposers.push(addCreatureSkin(m));
         }
       }
     });
@@ -180,6 +189,7 @@ export function createSpiderRig(parent: THREE.Group) {
       tmpQ2.copy(r.bodyQuat).invert();
       return out.set(0, 0, 1).applyQuaternion(tmpQ.multiply(tmpQ2));
     },
+    /** The pale eyes' glow, on an older build; the black eyes have none. */
     eyes(intensity: number) { if (eyeMaterial) eyeMaterial.emissiveIntensity = intensity; },
     dispose() {
       disposed = true;
@@ -194,6 +204,7 @@ export function createSpiderRig(parent: THREE.Group) {
           }
         });
       }
+      for (const free of skinDisposers) free();
       rest.clear(); posed.clear();
     },
   };

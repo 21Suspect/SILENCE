@@ -58,15 +58,18 @@ def wide_head(q):
 
 # --- part list -------------------------------------------------------------
 def part_list():
+    # Triangle budgets, raised from 104,641 triangles in all to about 190,000: the rounded teeth and the face were losing their
+    # shape to the decimation, the body and the 5 m legs their silhouette (faceted thorns and knuckles). The surface detail
+    # itself is in the baked normals and the game's scanned layers, not the mesh.
     parts = [
-        dict(name="head", make=lambda q: wide_head(q)[0], budget=18500, density=2.5, kind="head", wide=True),
-        dict(name="teeth", make=lambda q: wide_head(q)[1], budget=7000, density=2.0, kind="teeth", wide=True),
-        dict(name="torso", make=lambda q: A.torso_field(0.004 * q), budget=26000, density=1.15, kind="torso"),
+        dict(name="head", make=lambda q: wide_head(q)[0], budget=30000, density=2.5, kind="head", wide=True),
+        dict(name="teeth", make=lambda q: wide_head(q)[1], budget=16000, density=2.0, kind="teeth", wide=True),
+        dict(name="torso", make=lambda q: A.torso_field(0.004 * q), budget=56000, density=1.15, kind="torso"),
     ]
     for s in (-1, 1):
         label = "L" if s < 0 else "R"
-        parts.append(dict(name="hand_" + label, make=(lambda s: lambda q: A.hand_field(s, 0.0011 * q))(s), budget=6500, density=2.2, kind="hand", side=s))
-    budgets = (1900, 1500, 1100, 550)
+        parts.append(dict(name="hand_" + label, make=(lambda s: lambda q: A.hand_field(s, 0.0011 * q))(s), budget=9000, density=2.2, kind="hand", side=s))
+    budgets = (3800, 3000, 2200, 1000)
     names = ("femur", "tibia", "meta", "tarsus")
     for leg in A.legs():
         joints = leg["joints"]
@@ -185,13 +188,12 @@ def bristles():
 
 hairs = bristles()
 
-# Tiny white dots: their own emissive material.
-# The Wide has no eyeballs: a crescent of white over each pit of black.
+# The eyes: a glossy black dome in each socket (head_variants.wide), their own material.
 field = A.close_edges(wide_head(Q)[0].extras[0][0])
 verts, quads = sdf.surface_nets(field.d, field.lo, field.h)
 place = field.place
 eyes = new_object("Eyes", to_blender((place[:3, :3] @ verts.T).T + place[:3, 3]), quads)
-decimate(eyes, 1400)
+decimate(eyes, 3000)
 del field
 
 
@@ -392,7 +394,12 @@ for part, obj in zip(parts, objects):
         assign(obj, weights)
     log("weights", part["name"])
 
-# Join everything sharing the atlas and pack it.
+# Join everything, then pack two atlases. One 4096 atlas for the whole 4 m creature, 41 % of it covered, left the skin at a
+# texel every 1 to 2 mm: too coarse for its folds and veins. The face (head, teeth, hands), closest to the player in
+# every encounter, now has an atlas of its own; the body and legs share the other. Concave packing fills more of each.
+FACE_KINDS = ("head", "teeth", "hand")
+ATLASES = ("face", "body")
+group_of = np.array([0 if part["kind"] in FACE_KINDS else 1 for part in parts], np.int32)
 bpy.ops.object.select_all(action="DESELECT")
 for obj in objects:
     obj.select_set(True)
@@ -401,15 +408,31 @@ bpy.ops.object.join()
 skin = bpy.context.object
 skin.name = "SILENCE v2 skin"
 select_only(skin)
-bpy.ops.object.mode_set(mode="EDIT")
-bpy.ops.mesh.select_all(action="SELECT")
-bpy.ops.uv.select_all(action="SELECT")
-bpy.ops.uv.pack_islands(scale=True, rotate=True, margin_method="ADD", margin=0.0035, shape_method="CONVEX")
-bpy.ops.object.mode_set(mode="OBJECT")
 mesh = skin.data
+part_ids = np.empty(len(mesh.polygons), np.int32)
+mesh.attributes["part"].data.foreach_get("value", part_ids)
+face_group = group_of[part_ids]
+# Each atlas packs only its own faces. The selection has to be made in edit mode (bmesh, flushed): face flags set from object
+# mode were overruled by the vertices' (all still selected), so both packs took every island and each atlas used only its own
+# share of one layout (8 % of the face atlas).
+bpy.context.scene.tool_settings.use_uv_select_sync = False
+bpy.ops.object.mode_set(mode="EDIT")
+bpy.ops.mesh.select_mode(type="FACE")
+for g in range(len(ATLASES)):
+    bpy.ops.mesh.select_all(action="DESELECT")
+    bm = bmesh.from_edit_mesh(mesh)
+    part_layer = bm.faces.layers.int.get("part")
+    for face in bm.faces:
+        if group_of[face[part_layer]] == g:
+            face.select_set(True)
+    bm.select_flush_mode()
+    bmesh.update_edit_mesh(mesh)
+    bpy.ops.uv.select_all(action="SELECT")
+    bpy.ops.uv.pack_islands(scale=True, rotate=True, margin_method="ADD", margin=0.002, shape_method="CONCAVE")
+bpy.ops.object.mode_set(mode="OBJECT")
 mesh.validate(clean_customdata=False)
 mesh.update()
-log("atlas packed; triangles", len(mesh.polygons))
+log("atlases packed; triangles", len(mesh.polygons))
 
 for poly in mesh.polygons:
     poly.use_smooth = True
@@ -430,28 +453,36 @@ normals = from_blender(normals.reshape(-1, 3)).reshape(-1, 3, 3)
 positions = from_blender(arrays(mesh))[face_vertices]
 part_ids = np.empty(len(mesh.polygons), np.int32)
 mesh.attributes["part"].data.foreach_get("value", part_ids)
-coverage = 0.0
+face_group = group_of[part_ids]   # again: validate() above can drop a few degenerate faces
 a, b = uv[:, 1] - uv[:, 0], uv[:, 2] - uv[:, 0]
-log("atlas coverage", float(np.abs(a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0]).sum() * 0.5))
+area = np.abs(a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0]) * 0.5
+for g, name in enumerate(ATLASES):
+    log(f"{name} atlas coverage", float(area[face_group == g].sum()))
 
-colour = np.zeros((TEX, TEX, 3), np.float32)
-normal_map = np.zeros((TEX, TEX, 3), np.float32)
-normal_map[..., 2] = 1
-rough = np.full((TEX, TEX), 0.8, np.float32)
-written = np.zeros((TEX, TEX), bool)
+colours, normal_maps, roughs, writtens, masks = [], [], [], [], []
+for _ in ATLASES:
+    masks.append(np.zeros((TEX, TEX, 3), np.float32))
+    colours.append(np.zeros((TEX, TEX, 3), np.float32))
+    nm_ = np.zeros((TEX, TEX, 3), np.float32)
+    nm_[..., 2] = 1
+    normal_maps.append(nm_)
+    roughs.append(np.full((TEX, TEX), 0.8, np.float32))
+    writtens.append(np.zeros((TEX, TEX), bool))
 
 for index, part in enumerate(parts):
     tris = np.nonzero(part_ids == index)[0]
+    g = group_of[index]
     field = part["make"](Q)
     place = part["place"]
     p_local = ((place[:3, :3].T @ (positions[tris].reshape(-1, 3) - place[:3, 3]).T).T).reshape(-1, 3, 3)
     n_local = ((place[:3, :3].T @ normals[tris].reshape(-1, 3).T).T).reshape(-1, 3, 3)
-    texturing.bake_part(part, field, uv[tris], p_local, n_local, TEX, colour, normal_map, rough, written)
-    log("baked", part["name"], int(written.sum()))
+    texturing.bake_part(part, field, uv[tris], p_local, n_local, TEX, colours[g], normal_maps[g], roughs[g], writtens[g], masks[g])
+    log("baked", part["name"], ATLASES[g], int(writtens[g].sum()))
     del field
 
 log("dilating")
-colour, normal_map, rough = texturing.dilate(colour, normal_map, rough, written, 24)
+for g in range(len(ATLASES)):
+    colours[g], normal_maps[g], roughs[g] = texturing.dilate(colours[g], normal_maps[g], roughs[g], writtens[g], 24, (masks[g],))
 
 
 def image(name, rgb, srgb):
@@ -465,45 +496,69 @@ def image(name, rgb, srgb):
     img.filepath_raw = os.path.join(SOURCE, name + ".png")
     img.file_format = "PNG"
     img.save()
-    img.pack()
     return img
 
 
-albedo_img = image("skin-color", texturing.linear_to_srgb(colour), True)
-normal_img = image("skin-normal", normal_map, False)
-rough_rgb = np.zeros((TEX, TEX, 3), np.float32)
-rough_rgb[..., 1] = rough
-rough_img = image("skin-rough", rough_rgb, False)
-log("textures saved")
+def save_mask(name, rgb):
+    """The scanned-material mask of an atlas (texturing.MASK_*), at half the atlas's size (it is smooth): a PNG beside the GLB
+    that the game reads on the atlas's UVs (game/render/creature/creature-skin.ts). Same orientation as the GLB's own images."""
+    half = (rgb[0::2, 0::2] + rgb[1::2, 0::2] + rgb[0::2, 1::2] + rgb[1::2, 1::2]) * 0.25
+    size = half.shape[0]
+    img = bpy.data.images.new(name, size, size, alpha=False, float_buffer=False)
+    img.colorspace_settings.name = "Non-Color"
+    rgba = np.ones((size, size, 4), np.float32)
+    rgba[..., :3] = np.clip(half, 0, 1)
+    img.pixels.foreach_set(rgba.ravel())
+    img.update()
+    img.filepath_raw = os.path.join(ROOT, "public/creature", name + ".png")
+    img.file_format = "PNG"
+    img.save()
+    bpy.data.images.remove(img)
+
 
 # --- materials -------------------------------------------------------------
-mat = bpy.data.materials.new("Skin v2")
-mat.use_nodes = True
-nodes, links = mat.node_tree.nodes, mat.node_tree.links
-bsdf = nodes["Principled BSDF"]
-a = nodes.new("ShaderNodeTexImage")
-a.image = albedo_img
-links.new(a.outputs["Color"], bsdf.inputs["Base Color"])
-n = nodes.new("ShaderNodeTexImage")
-n.image = normal_img
-nm = nodes.new("ShaderNodeNormalMap")
-links.new(n.outputs["Color"], nm.inputs["Color"])
-links.new(nm.outputs["Normal"], bsdf.inputs["Normal"])
-r = nodes.new("ShaderNodeTexImage")
-r.image = rough_img
-sep = nodes.new("ShaderNodeSeparateColor")
-links.new(r.outputs["Color"], sep.inputs["Color"])
-links.new(sep.outputs["Green"], bsdf.inputs["Roughness"])
-bsdf.inputs["Metallic"].default_value = 0.0
+# One material per atlas, in the order of the faces' material index: "Skin v2 face" (head, teeth, hands) and "Skin v2" (body).
 mesh.materials.clear()
-mesh.materials.append(mat)
+for g, name in enumerate(ATLASES):
+    stem = "skin" if name == "body" else "skin-face"
+    save_mask(f"{stem}-mask", masks[g])
+    albedo_img = image(f"{stem}-color", texturing.linear_to_srgb(colours[g]), True)
+    normal_img = image(f"{stem}-normal", normal_maps[g], False)
+    rough_rgb = np.zeros((TEX, TEX, 3), np.float32)
+    rough_rgb[..., 1] = roughs[g]
+    rough_img = image(f"{stem}-rough", rough_rgb, False)
+    mat = bpy.data.materials.new("Skin v2" if name == "body" else "Skin v2 face")
+    mat.use_nodes = True
+    nodes, links = mat.node_tree.nodes, mat.node_tree.links
+    bsdf = nodes["Principled BSDF"]
+    a = nodes.new("ShaderNodeTexImage")
+    a.image = albedo_img
+    links.new(a.outputs["Color"], bsdf.inputs["Base Color"])
+    n = nodes.new("ShaderNodeTexImage")
+    n.image = normal_img
+    nm = nodes.new("ShaderNodeNormalMap")
+    links.new(n.outputs["Color"], nm.inputs["Color"])
+    links.new(nm.outputs["Normal"], bsdf.inputs["Normal"])
+    r = nodes.new("ShaderNodeTexImage")
+    r.image = rough_img
+    sep = nodes.new("ShaderNodeSeparateColor")
+    links.new(r.outputs["Color"], sep.inputs["Color"])
+    links.new(sep.outputs["Green"], bsdf.inputs["Roughness"])
+    bsdf.inputs["Metallic"].default_value = 0.0
+    mesh.materials.append(mat)
+# Only now that both slots exist: validate() clamps any index past the mesh's materials to 0, which had put the body on the
+# face's atlas.
+mesh.polygons.foreach_set("material_index", face_group)
+mesh.update()
+log("textures saved; faces per material", np.bincount(face_group).tolist())
 
-eye_mat = bpy.data.materials.new("Dead white eyes")
+# A spider's eyes: wet black, unlit. What shows of them is what they reflect (the game sets the same, spider-rig.ts).
+eye_mat = bpy.data.materials.new("Black eyes")
 eye_mat.use_nodes = True
 e = eye_mat.node_tree.nodes["Principled BSDF"]
-e.inputs["Base Color"].default_value = (1, 1, 1, 1)
-e.inputs["Emission Color"].default_value = (1, 1, 1, 1)
-e.inputs["Emission Strength"].default_value = 4.0
+e.inputs["Base Color"].default_value = (0.0035, 0.0035, 0.004, 1)
+e.inputs["Roughness"].default_value = 0.06
+e.inputs["Emission Strength"].default_value = 0.0
 eyes.data.materials.append(eye_mat)
 
 # --- armature --------------------------------------------------------------
@@ -562,5 +617,10 @@ with open(os.path.join(SOURCE, "rig.json"), "w") as f:
     json.dump(layout, f, indent=1)
 with open(os.path.join(ROOT, "game/data/spider-rig.json"), "w") as f:
     json.dump(layout, f)
+# The .blend refers to the atlases saved beside it (relative paths) instead of packing copies of them: packed, the two atlases'
+# six PNGs made it 79 MB, all of it already committed as the PNGs. No .blend1 backup either.
+bpy.context.preferences.filepaths.save_version = 0
 bpy.ops.wm.save_as_mainfile(filepath=os.path.join(SOURCE, "silence-creature-v2.blend"), compress=True)
+bpy.ops.file.make_paths_relative()
+bpy.ops.wm.save_mainfile(compress=True)
 log("CREATURE_V2_COMPLETE", len(mesh.polygons), "triangles", len(bones), "bones")

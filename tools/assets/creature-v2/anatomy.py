@@ -480,8 +480,9 @@ def torso_field(h):
 
         def root(p, frame=frame, chain=chain, rr=rr):
             # World to bone-local without materialising more than the region.
-            xyz = [p[i] - frame[i, 3] for i in range(3)]
-            q = [sum(frame[j, i] * xyz[j] for j in range(3)) for i in range(3)]
+            m = frame.tolist()   # Python floats: numpy float64 scalars would turn the float32 grid into float64 (sdf._floats)
+            xyz = [p[i] - m[i][3] for i in range(3)]
+            q = [sum(m[j][i] * xyz[j] for j in range(3)) for i in range(3)]
             return core_sdf(q, chain, rr)
 
         mid = chain[-1]

@@ -192,18 +192,21 @@ test('creature v2 GLB is a complete binary glTF 2.0 container with a single 76-j
   for (const node of gltf.nodes.filter(n => n.mesh !== undefined)) assert.equal(node.skin, 0, `${node.name} shares the one skeleton`);
 });
 
-test('creature v2 GLB stays under the 110000 triangle budget', () => {
+// About 200,000 since the detail pass (tools/assets/creature-v2/build.py part_list): one hero creature, skinned on the GPU.
+test('creature v2 GLB stays under the 230000 triangle budget', () => {
   const total = primitives.reduce((sum, { primitive }) => sum + triangleCount(primitive), 0);
   assert.ok(Number.isInteger(total));
-  assert.ok(total > 0 && total < 110000, `${total} triangles`);
+  assert.ok(total > 0 && total < 230000, `${total} triangles`);
   for (const { primitive } of primitives) assert.ok((primitive.mode ?? 4) === 4, 'triangle lists only');
-  const body = Math.max(...primitives.map(({ primitive }) => triangleCount(primitive)));
-  assert.equal(layout.triangles, body, 'spider-rig.json was generated from this skin mesh');
+  // The skin is one mesh drawn as two primitives, one per atlas (face, body).
+  const skin = primitives.filter(({ primitive }) => gltf.materials[primitive.material].name.startsWith('Skin v2'));
+  assert.equal(layout.triangles, skin.reduce((sum, { primitive }) => sum + triangleCount(primitive), 0), 'spider-rig.json was generated from this skin mesh');
 });
 
-test('creature v2 GLB exposes exactly the Skin v2, Dead white eyes and Bristles materials', () => {
-  assert.deepEqual(gltf.materials.map(m => m.name).sort(), ['Bristles', 'Dead white eyes', 'Skin v2']);
-  assert.deepEqual([...new Set(primitives.map(({ primitive }) => gltf.materials[primitive.material].name))].sort(), ['Bristles', 'Dead white eyes', 'Skin v2'], 'every material is drawn');
+test('creature v2 GLB exposes exactly its two skin atlases, the black eyes and the bristles', () => {
+  const names = ['Black eyes', 'Bristles', 'Skin v2', 'Skin v2 face'];
+  assert.deepEqual(gltf.materials.map(m => m.name).sort(), names);
+  assert.deepEqual([...new Set(primitives.map(({ primitive }) => gltf.materials[primitive.material].name))].sort(), names, 'every material is drawn');
   for (const { primitive } of primitives) assert.ok(primitive.material !== undefined);
 });
 
@@ -233,7 +236,7 @@ test('the skeleton matches the layout and carries every bone the runtime poses',
 });
 
 test('the eyes are a separate draw rigidly bound to the head joint', () => {
-  const eyes = primitives.find(({ primitive }) => gltf.materials[primitive.material].name === 'Dead white eyes').primitive;
+  const eyes = primitives.find(({ primitive }) => gltf.materials[primitive.material].name === 'Black eyes').primitive;
   const weights = accessor(eyes.attributes.WEIGHTS_0), indices = accessor(eyes.attributes.JOINTS_0);
   for (let i = 0; i < weights.length; i++) {
     const dominant = weights[i].indexOf(Math.max(...weights[i]));

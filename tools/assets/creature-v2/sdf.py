@@ -80,8 +80,15 @@ def smoothstep(a, b, v):
 
 
 # --- primitives ------------------------------------------------------------
+# Centres, radii and ends come in as numpy float64 (catmull, frames). Under numpy 2's promotion rules a float64 scalar turns a
+# float32 grid into float64, so a 124-million-voxel region took 1 GB per temporary and the torso build ran out of memory. Plain
+# Python floats leave the grid's own precision alone.
+def _floats(v):
+    return [float(x) for x in v]
+
+
 def ellipsoid(p, c, r):
-    r = np.asarray(r, F)
+    c, r = _floats(c), _floats(r)
     q = [(p[i] - c[i]) for i in range(3)]
     k0 = np.sqrt(sum((q[i] / r[i]) ** 2 for i in range(3)))
     k1 = np.sqrt(sum((q[i] / (r[i] * r[i])) ** 2 for i in range(3))) + 1e-7
@@ -89,9 +96,11 @@ def ellipsoid(p, c, r):
 
 
 def capsule(p, a, b, ra, rb=None):
-    rb = ra if rb is None else rb
-    ax, ay, az = a
-    bax, bay, baz = b[0] - ax, b[1] - ay, b[2] - az
+    ra = float(ra)
+    rb = ra if rb is None else float(rb)
+    ax, ay, az = _floats(a)
+    bx, by, bz = _floats(b)
+    bax, bay, baz = bx - ax, by - ay, bz - az
     pax, pay, paz = p[0] - ax, p[1] - ay, p[2] - az
     t = np.clip((pax * bax + pay * bay + paz * baz) / max(bax * bax + bay * bay + baz * baz, 1e-9), 0, 1)
     dx, dy, dz = pax - bax * t, pay - bay * t, paz - baz * t
@@ -99,6 +108,7 @@ def capsule(p, a, b, ra, rb=None):
 
 
 def box(p, c, half, radius=0.0):
+    c, half, radius = _floats(c), _floats(half), float(radius)
     q = [np.abs(p[i] - c[i]) - (half[i] - radius) for i in range(3)]
     outer = np.sqrt(sum(np.maximum(v, 0) ** 2 for v in q))
     inner = np.minimum(np.maximum(np.maximum(q[0], q[1]), q[2]), 0)
@@ -136,7 +146,9 @@ class Field:
         self.h = float(h)
         self.n = (np.ceil((np.asarray(hi, dtype=np.float64) - self.lo) / self.h).astype(int) + 1)
         self.d = np.full(self.n, 1.0, F)
-        self.tags = {t: np.full(self.n, 1.0, F) for t in tags}
+        # Tags (distance to bone, tendon, a socket...) only feed masks and weights through smoothsteps a centimetre or so wide:
+        # half precision is plenty, and halves the torso's grid (687 million voxels, five tags) from 16.5 to 9.6 GB.
+        self.tags = {t: np.full(self.n, 1.0, np.float16) for t in tags}
 
     def region(self, lo, hi):
         i0 = np.maximum(np.floor((np.asarray(lo) - self.lo) / self.h).astype(int), 0)
