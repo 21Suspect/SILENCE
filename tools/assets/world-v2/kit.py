@@ -1015,11 +1015,17 @@ def setup_cycles(samples=24):
     scene = bpy.context.scene
     scene.render.engine = "CYCLES"
     prefs = bpy.context.preferences.addons["cycles"].preferences
-    prefs.compute_device_type = "METAL"
-    prefs.get_devices()
-    for d in prefs.devices:
-        d.use = d.type == "METAL"
-    scene.cycles.device = "GPU"
+    # The GPU API this machine has: Metal on a Mac, OptiX (then CUDA, HIP, oneAPI) on a PC; the CPU if none works.
+    available = {item.identifier for item in prefs.bl_rna.properties["compute_device_type"].enum_items}
+    api = next((a for a in ("METAL", "OPTIX", "CUDA", "HIP", "ONEAPI") if a in available), "NONE")
+    gpu = False
+    if api != "NONE":
+        prefs.compute_device_type = api
+        prefs.get_devices()
+        for d in prefs.devices:
+            d.use = d.type == api
+            gpu = gpu or d.use
+    scene.cycles.device = "GPU" if gpu else "CPU"
     scene.cycles.samples = samples
     scene.cycles.use_denoising = False
     scene.render.bake.margin = 10

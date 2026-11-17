@@ -130,7 +130,7 @@ test('no more than six legs ever swing and at least two stay planted, at every s
   }
 });
 
-test('a sustained brisk walk alternates the two tetrapods, four legs at a time, each leg stepping once per cycle', () => {
+test('a sustained brisk walk alternates the two tetrapods, mostly four legs at a time but never in clockwork, each leg stepping once per cycle', () => {
   const { gait, frames } = simulate({ seconds: 14, move: straight(() => 3) });
   const group = leg => TETRAPODS.findIndex(set => set.includes(gait.legs[leg].label));
   TETRAPODS.flat().forEach(label => assert.ok(gait.legs.some(l => l.label === label), `leg ${label} exists`));
@@ -139,12 +139,12 @@ test('a sustained brisk walk alternates the two tetrapods, four legs at a time, 
   const runs = [];
   for (const s of starts) { const g = group(s.leg); if (runs.at(-1)?.group === g) runs.at(-1).legs.push(s.leg); else runs.push({ group: g, legs: [s.leg] }); }
   assert.ok(runs.length >= 8, `${runs.length} alternating bursts of steps`);
-  // Ignore the possibly truncated first and last bursts.
-  for (let i = 1; i < runs.length - 1; i++) {
-    assert.equal(runs[i].legs.length, 4, `burst ${i} moves four legs`);
-    assert.equal(new Set(runs[i].legs).size, 4, `burst ${i} moves four different legs`);
-    assert.notEqual(runs[i].group, runs[i - 1].group, `burst ${i} alternates with the previous tetrapod`);
-  }
+  // The sets still take turns, but each step is early or late (spider-rhythm.ts: the measured scatter), so now and then a leg of
+  // one set lifts among the other's. Ignoring the possibly truncated first and last bursts, most bursts are a set's three to five.
+  const inner = runs.slice(1, -1), sizes = inner.map(r => r.legs.length), mean = sizes.reduce((a, b) => a + b, 0) / sizes.length;
+  assert.ok(mean > 2.4 && mean < 5.5, `bursts of ${mean.toFixed(2)} legs on average`);
+  assert.ok(sizes.filter(n => n >= 3 && n <= 5).length / sizes.length > .6, `burst sizes ${sizes.join(' ')}`);
+  assert.ok(sizes.some(n => n !== 4), 'and not every burst is exactly four: it is not clockwork');
   // Four legs at most are ever airborne, so a full tetrapod always carries the body.
   assert.ok(Math.max(...frames.map(swingCount)) <= 4, 'never more than one tetrapod lifted');
   // Both tetrapods share the work evenly.
@@ -406,7 +406,8 @@ test('the step rate rises with speed and stays a rate legs this long could keep'
     assert.ok(rate < 6.3, `${speed} m/s: ${rate.toFixed(2)} steps a second`);
     last = rate;
   }
-  assert.ok(last > 2.5 && last < 5, `at a full charge the legs cycle ${last.toFixed(2)} times a second`);
+  // A charge is a drum roll of feet by design (spider-rhythm.ts: faster by stepping faster): 4.5 Hz at 11 m/s, 5.4 at 13.5.
+  assert.ok(last > 2.5 && last < 5.8, `at a full charge the legs cycle ${last.toFixed(2)} times a second`);
 });
 
 test('a narrow stance folds the legs fore and aft: the feet stand close beside the body and each leg keeps its length', () => {
@@ -438,4 +439,74 @@ test('the thorax pitches and rolls about its own middle, so a change of slope do
   }
   assert.ok(tilted > .12, `the body should tilt onto the ramp, tilted ${tilted.toFixed(3)} rad`);
   assert.ok(worst < .02, `the middle of the thorax swung ${worst.toFixed(3)} m off its line`);
+});
+
+// ---------------------------------------------------------------- body follows the surface
+/** A plane tilted `deg` degrees about the x axis, rising toward +z, through the origin; a flat floor before `from` metres of z. */
+function slopeSurface(deg, from = -Infinity) {
+  const t = Math.tan(deg * Math.PI / 180), n = new THREE.Vector3(0, 1, -t).normalize();
+  return (target, out) => { out.point.set(target.x, (from === -Infinity ? target.z : Math.max(0, target.z - from)) * t, target.z); out.normal.copy(from !== -Infinity && target.z < from ? new THREE.Vector3(0, 1, 0) : n); };
+}
+const slopeNormal = deg => new THREE.Vector3(0, Math.cos(deg * Math.PI / 180), -Math.sin(deg * Math.PI / 180));
+const upOf = stage => new THREE.Vector3(0, 1, 0).applyQuaternion(stage.root.quaternion);
+/** Stands a following gait still on a surface; returns the stage. `dt` is the frame length. */
+function stand(surface, seconds, dt = DT, y = 0) {
+  const stage = createStage({ surface }); stage.command.follow = 1; stage.anchor.set(0, y, 0);
+  stage.trace = [];
+  for (let i = 0; i < Math.round(seconds / dt); i++) { stage.gait.update(dt, (i + 1) * dt, stage.command); stage.trace.push({ t: (i + 1) * dt, up: upOf(stage) }); }
+  return stage;
+}
+
+test('on a 30 degree slope the body lies along it within a second, and stands its ride height off the plane', () => {
+  const normal = slopeNormal(30), stage = createStage({ surface: slopeSurface(30) });
+  stage.command.follow = 1;
+  for (let i = 0; i < 90; i++) stage.gait.update(DT, (i + 1) * DT, stage.command);
+  const up = upOf(stage), err = Math.acos(Math.min(1, up.dot(normal)));
+  assert.ok(err < .035, `body up is ${(err * 180 / Math.PI).toFixed(2)} degrees off the slope normal after 1.5 s`);
+  const at1 = stand(slopeSurface(30), 1);
+  assert.ok(at1.trace.at(-1).up.angleTo(normal) < .09, 'within a second it has got there to within five degrees');
+  // Height of the thorax's middle above the plane, along the normal, against the commanded ride height.
+  const mid = new THREE.Vector3(); for (const leg of stage.gait.legs) mid.add(stage.body.localToWorld(leg.hip.clone())); mid.multiplyScalar(1 / LEG_COUNT);
+  const height = mid.clone().sub(stage.anchor).dot(normal);
+  const flatStage = createStage(); for (let i = 0; i < 90; i++) flatStage.update((i + 1) * DT);
+  const flatMid = new THREE.Vector3(); for (const leg of flatStage.gait.legs) flatMid.add(flatStage.body.localToWorld(leg.hip.clone())); flatMid.multiplyScalar(1 / LEG_COUNT);
+  assert.ok(Math.abs(height - flatMid.y) < .08 * S, `thorax stands ${height.toFixed(3)} m off the slope, ${flatMid.y.toFixed(3)} m off flat ground`);
+});
+
+test('on flat ground the body stays exactly level, even over uneven footholds', () => {
+  const level = stand(flat, 3);
+  assert.ok(level.trace.every(f => Math.abs(f.up.y - 1) < 1e-9), 'flat ground: up is vertical every frame');
+  // Footholds that wobble by a few centimetres are noise, not a slope.
+  const bumpy = (target, out) => { out.point.set(target.x, .03 * Math.sin(target.x * 7 + target.z * 5), target.z); out.normal.set(0, 1, 0); };
+  const rough = stand(bumpy, 3);
+  const worst = Math.max(...rough.trace.map(f => f.up.angleTo(new THREE.Vector3(0, 1, 0))));
+  assert.ok(worst < .02, `uneven ground tilted the body ${worst.toFixed(3)} rad`);
+});
+
+test('the body tilt does not depend on the frame rate', () => {
+  const slow = stand(slopeSurface(30), 1, 1 / 30), fast = stand(slopeSurface(30), 1, 1 / 144);
+  const a = slow.trace.at(-1).up, b = fast.trace.at(-1).up;
+  assert.ok(a.angleTo(b) < .05, `at 30 fps up is ${a.angleTo(b).toFixed(3)} rad from 144 fps after a second`);
+  const half = (s, t) => s.trace.find(f => f.t >= t - 1e-6).up.angleTo(new THREE.Vector3(0, 1, 0));
+  assert.ok(Math.abs(half(slow, .4) - half(fast, .4)) < .06, 'and they are as far along at 0.4 s');
+});
+
+test('stepping from flat onto a slope the body eases over, monotonically and without overshoot', () => {
+  const stage = createStage({ surface: slopeSurface(30, 4) }); stage.command.follow = 1;
+  const normal = slopeNormal(30), angles = []; let z = 0;
+  for (let i = 0; i < 8 / DT; i++) {
+    z += 1.2 * DT; stage.anchor.set(0, Math.max(0, z - 4) * Math.tan(Math.PI / 6), z); stage.update((i + 1) * DT);
+    angles.push(upOf(stage).angleTo(new THREE.Vector3(0, 1, 0)));
+  }
+  assert.ok(angles.at(-1) > .45, `it ends up tilted to the slope (${angles.at(-1).toFixed(3)} rad)`);
+  assert.ok(Math.max(...angles) < 30 * Math.PI / 180 + .03, `no overshoot past the slope's ${(30 * Math.PI / 180).toFixed(3)} rad: peak ${Math.max(...angles).toFixed(3)}`);
+  let biggestJump = 0; for (let i = 1; i < angles.length; i++) biggestJump = Math.max(biggestJump, Math.abs(angles[i] - angles[i - 1]));
+  assert.ok(biggestJump < .02, `a frame changed the tilt by ${biggestJump.toFixed(4)} rad`);
+  assert.ok(upOf(stage).angleTo(normal) < .1, 'and it settles on the slope normal');
+});
+
+test('a body that is not following keeps the up it is given', () => {
+  const stage = createStage({ surface: slopeSurface(30) });
+  for (let i = 0; i < 60; i++) stage.update((i + 1) * DT);
+  assert.ok(upOf(stage).angleTo(new THREE.Vector3(0, 1, 0)) < 1e-9);
 });

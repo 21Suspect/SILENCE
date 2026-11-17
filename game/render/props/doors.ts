@@ -3,6 +3,7 @@ import { solidContact, type SolidCollider } from '../../sim/world/collision';
 import type { Interactable } from './interaction';
 import type { Pois, PoiSeat } from './pois';
 import { doorLeafMaterial } from './prop-materials';
+import { NOISE } from '../../sim/noise/noise-scale';
 
 /**
  * A hinged door leaf, as an asset's `doors` entry in world-assets.json (written by the Blender pipeline).
@@ -47,8 +48,10 @@ export type DoorPose = {
 export const DOOR_SECONDS = .7;
 /** At most this open and a door counts as shut (see `closedAt`). */
 export const DOOR_CLOSED = .03;
-/** How loud (0..1, about 100 m at 1) the creature hears a door opened or shut: a dry latch, then a heavier close. */
-export const DOOR_NOISE = { open: .06, close: .1 };
+/** How far the Listener hears a door opened or shut, in hundreds of metres: 22 m either way (the noise scale's door row), faint at any range. */
+export const DOOR_NOISE = { open: NOISE.door, close: NOISE.door, /** The Listener forcing a door or breaking its bar: a crash, 70 m. */ forced: NOISE.crateBreak };
+/** A door forced swings open this much faster than a hand opens it. */
+export const FORCED_SPEED = 4;
 const THICKNESS = .05, COLLIDER_PAD = .03, HANDLE_HEIGHT = 1.05, HANDLE_FROM_EDGE = .12;
 /**
  * The player's capsule as moveCharacter sees it (BODY_RADIUS), and a hand's breadth more (PLAYER_RADIUS): a leaf swinging shut stops
@@ -101,10 +104,14 @@ export type DoorInfo = {
   open: number; target: number; moving: boolean;
   /** Shut: the leaf stands in the doorway. */
   closed: boolean;
+  /** A bar lies across it (cabin only). */
+  barred: boolean;
   /** 'idle'/'loading': the leaf's model has not arrived (its collider and state exist all the same); 'failed': it never will, so the door is gone. */
   status: 'idle' | 'loading' | 'ready' | 'failed';
   x: number; y: number; z: number; yaw: number; width: number;
   tip: { x: number; z: number }; handle: { x: number; y: number; z: number };
+  /** The middle of the doorway (the shut leaf's middle), world metres: where it is, whatever the leaf is doing. */
+  mid: { x: number; z: number };
 };
 
 export type DoorsOptions = {
@@ -113,7 +120,11 @@ export type DoorsOptions = {
   collisions?: { replace: (name: string, colliders: SolidCollider[]) => void };
   interaction?: { register: (item: Interactable) => () => void };
   /** The player opened or shut a door: a sound, at its handle. */
-  onNoise?: (e: { id: string; x: number; z: number; loudness: number; opening: boolean }) => void;
+  onNoise?: (e: { id: string; x: number; z: number; loudness: number; opening: boolean; /** The Listener forced it (or broke its bar): a crash. */ forced?: boolean }) => void;
+  /** Which placements' doors can be barred, from inside (the cabin's): the bar is the player's, silent, and holds the door shut. */
+  barrable?: (placement: string) => boolean;
+  /** Whether a point is inside the building (the bar is reached from inside only). */
+  indoors?: (x: number, z: number) => boolean;
   group?: string;
 };
 export type DoorsFrame = { dt: number; player: { x: number; y: number; z: number } };
@@ -121,8 +132,14 @@ export type DoorsFrame = { dt: number; player: { x: number; y: number; z: number
 type Door = {
   id: string; placement: string; index: number; spec: DoorSpec; seat: PoiSeat;
   open: number; target: number;
+  /** A bar lies across it: it cannot be opened until the bar is lifted. */
+  barred: boolean; bar: THREE.Vector3; unregisterBar?: () => void;
   /** The current leg of the swing: from where it set off, and how far through (0..1) it is. */
   from: number; t: number; blocked: number;
+  /** Swinging faster than a hand does (forced), until it arrives. */
+  fast: boolean;
+  /** The middle of the doorway, from the shut pose. */
+  mid: { x: number; z: number };
   pose: DoorPose; handle: THREE.Vector3;
   status: 'idle' | 'loading' | 'ready' | 'failed'; shown: boolean; object?: THREE.Object3D; unregister?: () => void;
 };
@@ -154,16 +171,18 @@ function segmentDistance(px: number, pz: number, ax: number, az: number, bx: num
  */
 export function createDoors(o: DoorsOptions) {
   const group = o.group ?? 'doors', doors: Door[] = [], byId = new Map<string, Door>(), warned = new Set<string>();
-  let disposed = false, dirty = false;
+  let disposed = false, dirty = false, at = { x: 0, y: 0, z: 0 };
   const warnOnce = (key: string, message: string) => { if (!warned.has(key)) { warned.add(key); console.warn(`SILENCE: ${message}`); } };
   const poseOf = (d: Door, open: number) => doorPose(d.seat.placement, d.seat.ground, d.seat.quaternion, d.spec, open);
   const publish = () => o.collisions?.replace(group, doors.filter(d => d.status !== 'failed').map(d => d.pose.collider));
   const place = (d: Door) => {
     d.pose = poseOf(d, d.open); d.handle.copy(d.pose.handle);
+    // The bar lies across the leaf above the handle (half a metre up, so a look at the handle and a look at the bar are two things).
+    d.bar.copy(d.pose.handle).y += .55;
     if (d.object) { d.object.position.copy(d.pose.position); d.object.quaternion.copy(d.pose.quaternion); d.object.scale.setScalar(d.pose.scale); }
   };
   const heading = (d: Door) => d.open !== d.target ? d.target : d.open;
-  const aim = (d: Door, target: number) => { d.target = target; d.from = d.open; d.t = 0; d.blocked = 0; };
+  const aim = (d: Door, target: number, fast = false) => { d.target = target; d.from = d.open; d.t = 0; d.blocked = 0; d.fast = fast; };
 
   for (const seat of o.pois.seats()) {
     const specs = seat.def.doors; if (!Array.isArray(specs)) continue;
@@ -172,27 +191,35 @@ export function createDoors(o: DoorsOptions) {
       if (problem) { warnOnce(`spec:${id}`, `door ${id} ${problem}; it is skipped.`); return; }
       if (!o.pois.known(spec.asset)) { warnOnce(`asset:${spec.asset}`, `world-assets.json has no entry for the door ${spec.asset}; ${seat.id} gets no door.`); return; }
       const start = clamp01(spec.start ?? 0);
-      const d: Door = { id, placement: seat.id, index, spec, seat, open: start, target: start, from: start, t: 0, blocked: 0,
+      const d: Door = { id, placement: seat.id, index, spec, seat, open: start, target: start, from: start, t: 0, blocked: 0, fast: false, mid: { x: 0, z: 0 }, barred: false, bar: new THREE.Vector3(),
         pose: undefined as unknown as DoorPose, handle: new THREE.Vector3(), status: 'idle', shown: false };
       place(d); doors.push(d); byId.set(id, d);
+      { const shut = poseOf(d, 0); d.mid.x = shut.position.x + shut.direction.x * spec.width * shut.scale / 2; d.mid.z = shut.position.z + shut.direction.z * spec.width * shut.scale / 2; }
       d.unregister = o.interaction?.register({
-        id: `door:${id}`, position: d.handle, range: 2.3, label: () => heading(d) < .5 ? 'Left click to open' : 'Left click to close',
+        id: `door:${id}`, position: d.handle, range: 2.3, label: () => d.barred ? 'The door is barred' : heading(d) < .5 ? 'Left click to open' : 'Left click to close',
         enabled: () => d.status !== 'failed',
         keyOnly: true,   // the interact key (E) works a door; a click is the torch
         activate: () => toggle(d, true),
+      });
+      if (o.barrable?.(seat.id)) d.unregisterBar = o.interaction?.register({
+        id: `bar:${id}`, position: d.bar, range: 2.3, label: () => d.barred ? 'Left click to lift the bar' : 'Left click to bar the door', keyOnly: true,
+        // Only from inside, and only across a shut door: an open one has nothing to lie across.
+        enabled: () => d.status !== 'failed' && o.indoors?.(at.x, at.z) === true && (d.barred || (d.target <= DOOR_CLOSED && d.open <= DOOR_CLOSED)),
+        activate: () => { d.barred = !d.barred; },
       });
     });
   }
   publish();
 
   function toggle(d: Door, byPlayer: boolean) {
+    if (d.barred) return;
     const opening = heading(d) < .5;
     aim(d, opening ? 1 : 0);
     if (byPlayer) o.onNoise?.({ id: d.id, x: d.handle.x, z: d.handle.z, loudness: opening ? DOOR_NOISE.open : DOOR_NOISE.close, opening });
   }
 
   function drop(d: Door) {
-    d.status = 'failed'; d.unregister?.(); d.unregister = undefined; d.object?.removeFromParent(); d.object = undefined; d.shown = false; dirty = true; publish();
+    d.status = 'failed'; d.unregister?.(); d.unregister = undefined; d.unregisterBar?.(); d.unregisterBar = undefined; d.barred = false; d.object?.removeFromParent(); d.object = undefined; d.shown = false; dirty = true; publish();
   }
   function load(d: Door) {
     d.status = 'loading';
@@ -215,7 +242,7 @@ export function createDoors(o: DoorsOptions) {
   /** Move one frame along the swing, stopping short of the player. True if the leaf moved. */
   function advance(d: Door, dt: number, player: { x: number; y: number; z: number }) {
     const span = d.target - d.from;
-    d.t = Math.min(1, d.t + dt / (DOOR_SECONDS * Math.max(.3, Math.abs(span))));
+    d.t = Math.min(1, d.t + dt / (DOOR_SECONDS * Math.max(.3, Math.abs(span)) / (d.fast ? FORCED_SPEED : 1)));
     let next = d.t >= 1 ? d.target : d.from + span * ease(d.t), blocked = false;
     const reach = d.spec.width * d.pose.scale + PLAYER_RADIUS + .5;
     if (Math.hypot(player.x - d.pose.position.x, player.z - d.pose.position.z) < reach) {
@@ -237,8 +264,8 @@ export function createDoors(o: DoorsOptions) {
 
   const info = (d: Door): DoorInfo => ({
     id: d.id, placement: d.placement, index: d.index, asset: d.spec.asset, open: d.open, target: d.target, moving: d.open !== d.target,
-    closed: d.open <= DOOR_CLOSED, status: d.status, x: d.pose.position.x, y: d.pose.position.y, z: d.pose.position.z, yaw: d.pose.yaw, width: d.spec.width * d.pose.scale,
-    tip: { x: d.pose.tip.x, z: d.pose.tip.z }, handle: { x: d.handle.x, y: d.handle.y, z: d.handle.z },
+    closed: d.open <= DOOR_CLOSED, barred: d.barred, status: d.status, x: d.pose.position.x, y: d.pose.position.y, z: d.pose.position.z, yaw: d.pose.yaw, width: d.spec.width * d.pose.scale,
+    tip: { x: d.pose.tip.x, z: d.pose.tip.z }, handle: { x: d.handle.x, y: d.handle.y, z: d.handle.z }, mid: { x: d.mid.x, z: d.mid.z },
   });
   const find = (id: string) => byId.get(id) ?? doors.find(d => d.placement === id);
 
@@ -247,6 +274,7 @@ export function createDoors(o: DoorsOptions) {
     update(f: DoorsFrame) {
       let changed = dirty, moved = false; dirty = false;
       const dt = Math.min(Math.max(f.dt, 0), .1), p = f.player;
+      at = p;
       for (const d of doors) {
         if (d.status === 'failed') continue;
         if (d.status === 'idle' && d.seat.loadRange(p.x, p.z)) load(d);
@@ -282,14 +310,45 @@ export function createDoors(o: DoorsOptions) {
       if (!d || d.status === 'failed' || !Number.isFinite(v)) return false;
       const to = clamp01(v);
       if (animate) aim(d, to);
-      else { d.open = d.target = d.from = to; d.t = 0; d.blocked = 0; place(d); dirty = true; publish(); }
+      else { d.open = d.target = d.from = to; d.t = 0; d.blocked = 0; d.fast = false; place(d); dirty = true; publish(); }
       return true;
+    },
+    /**
+     * Doors whose doorway middle is within `radius` metres of (x, z), nearest first (the Listener, at a building: which ways in are close).
+     * Includes open ones; each says `open`, `barred` and where it is.
+     */
+    doorsNear(x: number, z: number, radius = 12): DoorInfo[] {
+      return doors.filter(d => d.status !== 'failed' && Math.hypot(d.mid.x - x, d.mid.z - z) <= radius)
+        .sort((a, b) => Math.hypot(a.mid.x - x, a.mid.z - z) - Math.hypot(b.mid.x - x, b.mid.z - z)).map(info);
+    },
+    /** Whether the door is open enough to be a way in (more than `from`, default a third), counting one on its way open. */
+    isOpen(id: string, from = .3) { const d = find(id); return !!d && d.status !== 'failed' && Math.max(d.open, d.target) >= from; },
+    /**
+     * The Listener forces a door: any bar breaks (it comes off, for good), and the leaf is flung open hard (several times the speed
+     * of a hand), with a crash for the noise stream (DOOR_NOISE.forced, a loud noise at the doorway). A door already open is left
+     * as it is. False if there is no such door, or nothing to force.
+     */
+    force(id: string) {
+      const d = find(id); if (!d || d.status === 'failed') return false;
+      const was = d.barred; d.barred = false;
+      if (!was && heading(d) >= .5) return false;
+      aim(d, 1, true);
+      o.onNoise?.({ id: d.id, x: d.handle.x, z: d.handle.z, loudness: DOOR_NOISE.forced, opening: true, forced: true });
+      return true;
+    },
+    /** Whether a bar lies across this door (`id` as for set()). */
+    isBarred(id: string) { return !!find(id)?.barred; },
+    /** Put the bar across a door or lift it, silently. A bar only goes on a shut door. False if there is no such door or it is open. */
+    setBar(id: string, on: boolean) {
+      const d = find(id); if (!d || d.status === 'failed') return false;
+      if (on && (d.target > DOOR_CLOSED || d.open > DOOR_CLOSED)) return false;
+      d.barred = on; return true;
     },
     /** What a click does: swing it the other way (from wherever it is, if it is moving). */
     toggle(id: string) { const d = find(id); if (!d || d.status === 'failed') return false; toggle(d, false); return true; },
     /** A restarted night: every leaf back to where it began, at once, silently. */
     reset() {
-      for (const d of doors) { const start = clamp01(d.spec.start ?? 0); d.open = d.target = d.from = start; d.t = 0; d.blocked = 0; place(d); }
+      for (const d of doors) { const start = clamp01(d.spec.start ?? 0); d.open = d.target = d.from = start; d.t = 0; d.blocked = 0; d.fast = false; d.barred = false; place(d); }
       dirty = true; publish();
     },
     /** The live colliders, one per door. Rebuilt (not mutated) whenever a leaf moves. */
@@ -297,7 +356,7 @@ export function createDoors(o: DoorsOptions) {
     get size() { return doors.filter(d => d.status !== 'failed').length; },
     dispose() {
       disposed = true;
-      for (const d of doors) { d.unregister?.(); d.unregister = undefined; d.object?.removeFromParent(); d.object = undefined; }
+      for (const d of doors) { d.unregister?.(); d.unregister = undefined; d.unregisterBar?.(); d.unregisterBar = undefined; d.object?.removeFromParent(); d.object = undefined; }
       doors.length = 0; byId.clear(); o.collisions?.replace(group, []);
     },
   };

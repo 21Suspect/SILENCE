@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { LEG_MAX_TARSAL, LEG_REACH, SPIDER_LEGS, SPIDER_SCALE as S, solveSpiderLeg, type LegJoints, type SpiderRig } from './spider-rig';
+import { createRhythmWander, dutyAt, legShift, runShare, strideAt } from './spider-rhythm';
 
 type V3 = THREE.Vector3;
 /** Where a foot should go, given a desired world point near a surface. */
@@ -9,6 +10,9 @@ export type SpiderSurface = (target: V3, out: Contact, from?: V3) => void;
 export type LimbClearance = (a: V3, b: V3) => number;
 /** Overrides where a leg wants to stand, e.g. wrapped around a trunk. */
 export type RestPose = (leg: { index: number; side: number; rest: V3 }, anchor: V3, right: V3, forward: V3, yawAhead: number, out: V3) => void;
+
+/** A swinging foot has landed: which leg (index in `legs`, 0-7, and its label), where (world metres), the surface normal, and how fast the body is going (m/s). */
+export type FootPlant = { leg: number; label: string; x: number; y: number; z: number; nx: number; ny: number; nz: number; speed: number };
 
 export type SpiderCommand = {
   anchor: V3;   // point on the surface under the thorax
@@ -25,6 +29,11 @@ export type SpiderCommand = {
   poleWide?: number;       // how far the knees splay outward
   hug?: number;            // 0 on the ground, 1 wrapped on a trunk: knees blend between the two
   obstacles?: { x: number; z: number; r: number }[];   // vertical trunks a leg must lean around
+  /**
+   * 0 to 1: how far the body's up follows the surface the feet stand on (a plane through the footholds), eased over TILT_TAU.
+   * Unset or 0 keeps `up` exactly as commanded (trunks and buildings supply their own frame).
+   */
+  follow?: number;
   /** Route for a swinging foot, e.g. around a trunk rather than through it. s runs 0 to 1. */
   swingPath?: (from: V3, to: V3, s: number, out: V3) => V3;
   /** Metres per second a reaching foot travels when the body is not in a hurry. */
@@ -37,6 +46,9 @@ type Leg = {
   index: number; side: number; label: string; hip: V3; rest: V3; outward: V3; inward: V3; azimuth: number; offset: number; seedLift: number;
   foot: V3; from: V3; to: V3; normal: V3; fromNormal: V3; toNormal: V3;
   swinging: boolean; pending: boolean; t: number; duration: number; lift: number; phase: number; liftPriority: number; joints: LegJoints;
+  /** How far the rhythm has carried this leg (cycles, its own shift included), never moving back: a leg whose wander turns it
+   * late waits to catch up rather than being called twice, and one turned early cannot jump over its call. NaN: start afresh. */
+  mark: number;
   /** Where this leg stands now, thorax units in the body's own horizontal plane, and the unit direction from hip to there. */
   restNow: { x: number; z: number }; outNow: V3; azimuthNow: number;
   /** The leg's own direction when its planted foot came down. A foot is judged against the stance it was placed for, not one the body has changed to since. */
@@ -75,6 +87,12 @@ const URGENT_INSIDE = .7, SOFT_INSIDE = .5, HARD_INSIDE = .15;
 const CLAW_IN = .33, CLAW_UP = .18;
 /** The middle of the thorax, between the eight hips, in its own units: what the body pitches and rolls about. */
 const PIVOT = SPIDER_LEGS.reduce((sum, l) => sum.addScaledVector(l.hip, 1 / SPIDER_LEGS.length), new THREE.Vector3()).setX(0);
+/**
+ * Body tilt on a slope. The frame's up eases toward the footholds' surface with this time constant (a spider leans into a
+ * slope over a few steps, not in one frame); under TILT_DEAD radians the fit is noise from uneven ground and is faded to
+ * nothing, so flat ground stays exactly level; and the body may turn past vertical onto a wall but never upside down.
+ */
+const TILT_TAU = .3, TILT_DEAD = .03, TILT_FULL = .12, MIN_UP_Y = -.05;
 /** Fastest the legs will cycle. Beyond what that carries, the body is asked to go no faster (see `capacity`). */
 const MAX_STEP_RATE = 6.2;
 
@@ -99,7 +117,7 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
       offset: ((l.index + (l.side > 0 ? 1 : 0)) % 2) * .5,
       seedLift: fract(Math.sin(i * 91.7) * 43758.5453),
       foot: new THREE.Vector3(), from: new THREE.Vector3(), to: new THREE.Vector3(), normal: new THREE.Vector3(0, 1, 0), fromNormal: new THREE.Vector3(0, 1, 0), toNormal: new THREE.Vector3(0, 1, 0),
-      swinging: false, pending: false, t: 1, duration: .3, lift: .4, phase: 0, liftPriority: 0, joints: { knee: new THREE.Vector3(), ankle: new THREE.Vector3(), tarsal: new THREE.Vector3() },
+      swinging: false, pending: false, t: 1, duration: .3, lift: .4, phase: 0, mark: NaN, liftPriority: 0, joints: { knee: new THREE.Vector3(), ankle: new THREE.Vector3(), tarsal: new THREE.Vector3() },
       restNow: { x: l.foot.x, z: l.foot.z }, outNow: outward.clone(), outPlant: outward.clone(), azimuthNow: Math.atan2(outward.x, outward.z), windowLo: -1, windowHi: 1, centre: 0,
       dirX: 0, dirZ: 1, drive: 0, planted: 1, urgent: false,
       cooldown: 0, settled: false, hover: 0, hoverAllowed: 1, hoverPoint: new THREE.Vector3(), clear: Infinity, pole: new THREE.Vector3(), poleYaw: 0, lean: 0, leanSide: 0, tip: new THREE.Vector3(), reachRatio: 0, clearPart: 0, smoothUp: new THREE.Vector3(0, 1, 0), upReady: false,
@@ -112,7 +130,12 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
   const trunkPole = new THREE.Vector3(), foreAft = new THREE.Vector3(), pivot = new THREE.Vector3();
   const stepFrom = new THREE.Vector3(), stepTo = new THREE.Vector3(), forwardFrom = new THREE.Vector3(), forwardTo = new THREE.Vector3(), upFrom = new THREE.Vector3(), upTo = new THREE.Vector3();
   const invRoot = new THREE.Quaternion(), worldQ = new THREE.Quaternion(), bodyQ = new THREE.Quaternion(), turn_ = new THREE.Quaternion(), none = new THREE.Quaternion();
+  // The measured scatter in a spider's step timing; seeded, so a test's walk is the same every run.
+  const wander = createRhythmWander(7);
   let ready = false, phase = 0, speed = 0, smoothSpeed = 0, yawRate = 0, prevForwardAngle = 0, frequency = 0, nextIdleStep = 0, idleCursor = 0;
+  const tiltUp = new THREE.Vector3(0, 1, 0), fitUp = new THREE.Vector3(), prevUp = new THREE.Vector3(0, 1, 0), meanP = new THREE.Vector3(), avgN = new THREE.Vector3();
+  let plantHandler: ((plant: FootPlant) => void) | undefined, liftHandler: ((plant: FootPlant) => void) | undefined;
+  const plantEvent: FootPlant = { leg: 0, label: '', x: 0, y: 0, z: 0, nx: 0, ny: 1, nz: 0, speed: 0 };
   let pitch = 0, roll = 0, rise = 0, heave = 0, sprint = 0, currentPace = 0, capacity = 30, wasMoving = false;
   /** Which planted leg last held the body back, and why: for diagnosis and tests. */
   let limitedBy: { leg: string; why: 'reach' | 'inward'; value: number; pending: boolean; cooldown: number } | undefined;
@@ -123,8 +146,40 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
   function neighbourSwinging(leg: Leg) {
     return legs.some(o => o !== leg && o.swinging && ((o.side === leg.side && Math.abs(o.index - leg.index) === 1) || (o.side !== leg.side && o.index === leg.index)));
   }
+  /**
+   * The surface under the feet: the smallest axis of the footholds' scatter (a least-squares plane that also works on a
+   * wall), averaged with the contact normals, which settles a lopsided stance. A foot in the air counts where it is going.
+   */
+  function surfaceUp(out: V3) {
+    meanP.set(0, 0, 0); avgN.set(0, 0, 0);
+    for (const leg of legs) { meanP.add(leg.swinging ? leg.to : leg.foot); avgN.add(leg.swinging ? leg.toNormal : leg.normal); }
+    meanP.divideScalar(legs.length);
+    let xx = 0, xy = 0, xz = 0, yy = 0, yz = 0, zz = 0;
+    for (const leg of legs) {
+      const p = leg.swinging ? leg.to : leg.foot, x = p.x - meanP.x, y = p.y - meanP.y, z = p.z - meanP.z;
+      xx += x * x; xy += x * y; xz += x * z; yy += y * y; yz += y * z; zz += z * z;
+    }
+    // Power iteration on (trace I - C): its biggest axis is C's smallest, the plane's normal. Seeded with the mean normal.
+    const tr = xx + yy + zz;
+    const seed = Math.hypot(avgN.x, avgN.y, avgN.z) || 1, sx = avgN.x / seed, sy = avgN.y / seed, sz = avgN.z / seed;
+    let nx = sx, ny = sy, nz = sz;
+    for (let i = 0; i < 8; i++) {
+      const mx = (tr - xx) * nx - xy * ny - xz * nz, my = -xy * nx + (tr - yy) * ny - yz * nz, mz = -xz * nx - yz * ny + (tr - zz) * nz, l = Math.hypot(mx, my, mz);
+      if (l < 1e-9) break;
+      nx = mx / l; ny = my / l; nz = mz / l;
+    }
+    if (nx * sx + ny * sy + nz * sz < 0) { nx = -nx; ny = -ny; nz = -nz; }
+    out.set(nx + sx, ny + sy, nz + sz).normalize();
+    // Level ground, to within the noise of uneven footholds, is exactly level.
+    const angle = Math.acos(clamp(out.y, -1, 1)), k = sstep(angle, TILT_DEAD, TILT_FULL);
+    out.x *= k; out.z *= k;
+    if (out.y < MIN_UP_Y) out.y = MIN_UP_Y;
+    return out.normalize();
+  }
   function setFrame(cmd: SpiderCommand) {
+    const w = clamp(cmd.follow ?? 0, 0, 1);
     basisU.copy(cmd.up).normalize();
+    if (w > 0) basisU.lerp(tiltUp, w).normalize();
     right.crossVectors(basisU, cmd.forward).normalize();
     basisF.crossVectors(right, basisU).normalize();
     mat.makeBasis(right, basisU, basisF);
@@ -296,6 +351,10 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
     // not taken: otherwise that leg lifts and sets down again for ever.
     if (resting && span < .32 * K) { leg.pending = false; leg.settled = true; leg.cooldown = 1.5; return false; }
     leg.swinging = true; leg.pending = false; leg.urgent = false; leg.t = 0; leg.duration = duration; leg.cooldown = .4; leg.settled = false;
+    if (liftHandler) {
+      const e = plantEvent; e.leg = legs.indexOf(leg); e.label = leg.label; e.x = leg.from.x; e.y = leg.from.y; e.z = leg.from.z;
+      e.nx = leg.fromNormal.x; e.ny = leg.fromNormal.y; e.nz = leg.fromNormal.z; e.speed = smoothSpeed; liftHandler(e);
+    }
     let need = 0;
     // Clear what is underneath, allowing for how low the arc is at each point.
     // Sampled every 12 cm or so: a longer stride must not step over a narrow ridge unseen.
@@ -330,6 +389,10 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
   return {
     legs,
     get speed() { return smoothSpeed; },
+    /** Called the moment a swinging foot lands (not for the first placing of the feet). The event object is reused: read it, do not keep it. */
+    onPlant(handler: ((plant: FootPlant) => void) | undefined) { plantHandler = handler; },
+    /** Called the moment a planted foot lifts off to swing (the claw leaving the ground). Same reused event object as onPlant. */
+    onLift(handler: ((plant: FootPlant) => void) | undefined) { liftHandler = handler; },
     get limitedBy() { return limitedBy; },
     get frequency() { return frequency; },
     /** The fastest the body can travel in a straight line with the legs it has room to swing now, metres per second. */
@@ -337,7 +400,7 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
     reset() {
       ready = false; phase = speed = smoothSpeed = yawRate = frequency = currentPace = 0; capacity = 30; wasMoving = false;
       pitch = roll = rise = heave = sprint = 0;
-      for (const leg of legs) { leg.pending = false; leg.poleYaw = leg.lean = leg.leanSide = 0; leg.upReady = false; leg.settled = false; }
+      for (const leg of legs) { leg.pending = false; leg.mark = NaN; leg.poleYaw = leg.lean = leg.leanSide = 0; leg.upReady = false; leg.settled = false; }
     },
     /**
      * How much of this frame's body motion the planted legs allow, 0 to 1. Steps are planned so that this is 1: it is the
@@ -380,7 +443,7 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
         const steps = Math.ceil(dt * 40), step = dt / steps;
         stepFrom.copy(prevAnchor); stepTo.copy(cmd.anchor);
         forwardFrom.copy(basisF); forwardTo.copy(cmd.forward);
-        upFrom.copy(basisU); upTo.copy(cmd.up);
+        upFrom.copy(prevUp); upTo.copy(cmd.up);
         for (let i = 1; i <= steps; i++) {
           const blend = i / steps;
           cmd.anchor.lerpVectors(stepFrom, stepTo, blend);
@@ -391,8 +454,12 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
         cmd.anchor.copy(stepTo); cmd.forward.copy(forwardTo); cmd.up.copy(upTo);
         return;
       }
+      if (!ready) tiltUp.copy(cmd.up).normalize();
+      else if ((cmd.follow ?? 0) > 0) tiltUp.lerp(surfaceUp(fitUp), 1 - Math.exp(-dt / TILT_TAU)).normalize();   // exponential in time: 30 and 144 fps arrive together
+      else tiltUp.copy(cmd.up).normalize();
+      prevUp.copy(cmd.up);
       setFrame(cmd);
-      if (!ready) { poseStance(cmd); placeAll(cmd); prevAnchor.copy(cmd.anchor); ready = true; prevForwardAngle = Math.atan2(basisF.x, basisF.z); frequency = 0; }
+      if (!ready) { poseStance(cmd); placeAll(cmd); if ((cmd.follow ?? 0) > 0) { tiltUp.copy(surfaceUp(fitUp)); setFrame(cmd); } prevAnchor.copy(cmd.anchor); ready = true; prevForwardAngle = Math.atan2(basisF.x, basisF.z); frequency = 0; }
       dt = Math.max(dt, 1e-4);
       velocity.subVectors(cmd.anchor, prevAnchor).divideScalar(dt);
       prevAnchor.copy(cmd.anchor);
@@ -426,9 +493,10 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
         if (l > .05) { leg.dirX = lx / l; leg.dirZ = lz / l; } else { leg.dirX = 0; leg.dirZ = 1; }
         carried = Math.max(carried, l);
       }
-      const run = sstep(carried, 1.4, 6.5);
-      const stride = lerp(1.15, 3.4, run);
-      const duty = lerp(.78, .56, sstep(carried, .8, 6)) - .06 * sstep(carried, 6, 13);
+      // Stride and duty as measured on running spiders (spider-rhythm.ts): faster by stepping faster more than longer.
+      const run = runShare(carried);
+      const stride = strideAt(run);
+      const duty = dutyAt(carried);
       // Each leg carries its foot `travel` metres back under the body per step. The stride asks for stride * duty; a leg
       // with less room than that (a tall ride, a turn that sweeps it sideways) takes shorter, quicker steps instead of
       // running out of leg.
@@ -443,10 +511,9 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
       capacity = limit;
       wanted = moving ? clamp(wanted, .5, MAX_STEP_RATE) : 0;
       // Setting off, the first tetrapod steps at once rather than after most of a cycle.
-      if (moving && !wasMoving) phase = Math.ceil(phase) + duty - .01;
+      if (moving && !wasMoving) { phase = Math.ceil(phase) + duty - .01; for (const leg of legs) leg.mark = NaN; }
       wasMoving = moving;
       frequency = damp(frequency, wanted, wanted > frequency ? 16 : 5, dt);
-      const wave = lerp(.1, .02, run);
       const beat = Math.max(frequency, .45);
       const stance = duty / beat, swing = clamp((1 - duty) / beat * .94, lerp(.16, .085, sstep(pace, 5, 13)), lerp(.5, .28, sstep(pace, .8, 6)));
       for (const leg of legs) {
@@ -457,6 +524,7 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
       }
       const previous = phase;
       phase += frequency * dt;
+      wander.advance(frequency * dt);
 
       root.position.copy(cmd.anchor);
       root.updateMatrixWorld(true);
@@ -466,11 +534,18 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
       for (const leg of legs) leg.cooldown -= dt;
       // The rhythm calls each leg. A call that finds the foot in the air, or only just down, is passed over.
       for (const leg of legs) {
-        const shift_ = leg.offset + leg.index * wave * (leg.side > 0 ? 1 : .96);
+        // The tetrapods half a cycle apart, a short wave from the back legs forward within each, one side a little behind, and the
+        // scatter: each leg a little early or late, the front pair drifting against the hind (spider-rhythm.ts).
+        const shift_ = legShift(leg.index, leg.side, run, wander);
         const b = fract(phase + shift_);
         leg.phase = b;
         if (!leg.swinging) leg.planted += dt;
-        if (frequency > .05 && Math.floor(previous + shift_ - duty) < Math.floor(phase + shift_ - duty) && !leg.swinging && leg.planted > stance * .25) leg.pending = true;
+        const at = phase + shift_ - duty, from = Number.isNaN(leg.mark) ? previous + shift_ - duty : leg.mark;
+        if (frequency > .05 && Math.floor(from) < Math.floor(at)) {
+          if (!leg.swinging && leg.planted > stance * .25) leg.pending = true;
+          wander.kick(leg.index, leg.side);
+        }
+        leg.mark = Math.max(from, at);
       }
       let airborne = legs.filter(l => l.swinging).length;
       due.length = 0;
@@ -538,6 +613,10 @@ export function createSpiderGait(root: THREE.Group, body: THREE.Group, rig: Spid
             leg.to.copy(contact.point); leg.toNormal.copy(contact.normal);
           }
           leg.foot.copy(leg.to); leg.normal.copy(leg.toNormal); leg.swinging = false; leg.planted = 0; leg.outPlant.copy(leg.outNow);
+          if (plantHandler) {
+            const e = plantEvent; e.leg = legs.indexOf(leg); e.label = leg.label; e.x = leg.foot.x; e.y = leg.foot.y; e.z = leg.foot.z;
+            e.nx = leg.normal.x; e.ny = leg.normal.y; e.nz = leg.normal.z; e.speed = smoothSpeed; plantHandler(e);
+          }
         }
       }
 

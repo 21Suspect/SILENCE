@@ -2,7 +2,7 @@
  * A headless player that plays a whole night against the real creature (tools/playtest/world.mjs), the way
  * game/core/engine.ts drives a player: the same walking, sprinting and crouching speeds and easing, moveCharacter against
  * the real colliders, footsteps into the real noise stream by surface, the torch switch, the senses the creature is
- * given, the grab, three lives and waking at the cabin. Each play style is a small controller that decides, every
+ * given, the grab, the run (dusk sends the Listener out; being taken ends the night, you wake at dawn with everything). Each play style is a small controller that decides, every
  * frame, where to go, where to look, and what to do with the torch. Everything is seeded: one style, one seed, one
  * night, the same log every time.
  *
@@ -14,7 +14,7 @@ import { game, heightAt, darknessAt, createHeadlessWorld } from './world.mjs';
 // The player's real stamina: the bot gets out of breath exactly as a player does (9 s of sprint, then a walk).
 const { createStamina, gaitSpeed } = await import('../../game/sim/player/stamina.ts');
 
-const W = game.world, L = game.layout, V = game.v2, B = game.brain, LV = game.lives, VIS = game.visibility;
+const W = game.world, L = game.layout, V = game.v2, B = game.brain, LV = game.lives, VIS = game.visibility, N = game.noiseScale, S = game.surface, R = game.run;
 const ENGINE = { walk: 1.8, hurry: 3.35, crouch: .95, wading: .55, offTrail: .88, stand: 1.69, low: 1.05, stride: .82 };
 export const FRAME = 1 / 30;
 export const STYLES = ['trail', 'wander', 'still', 'sprint', 'indoors', 'smart', 'careless'];
@@ -231,18 +231,22 @@ function coverFrom(collisions, p, threat) {
  * Play one night. Returns the structured log: every behaviour change, sound, sighting, placement and removal,
  * stun, hunt, grab and death, the opening's timeline, and the silences.
  */
-export async function playNight({ style, seed, minutes = 15, untilDawn = true, onFrame } = {}) {
+export async function playNight({ style, seed, minutes = 15, untilDawn = true, onFrame, startHour = 18.5, opening = false } = {}) {
   const events = [];
   const spawn = L.SPAWN, player = new THREE.Vector3(spawn.x, heightAt(spawn.x, spawn.z), spawn.z);
   // Each trace entry is stamped with how far the player was from where it happened.
-  const world = await createHeadlessWorld({ creatureSeed: seed * 131 + 7, trace: e => events.push(e.x === undefined ? e : { ...e, distance: Math.hypot(e.x - player.x, e.z - player.z) }) });
-  const { encounters, collisions, world2, view } = world;
+  const world = await createHeadlessWorld({ creatureSeed: seed * 131 + 7, opening, trace: e => events.push(e.x === undefined ? e : { ...e, distance: Math.hypot(e.x - player.x, e.z - player.z) }) });
+  const { encounters, collisions, world2, view, dayNoise } = world;
+  // The run, put at `startHour` of day 1 (half an hour before dusk: the bot plays the night, not the day it sleeps through). Dusk sends the
+  // Listener out; being taken ends the night (the player wakes at dawn), as in the game.
+  const gameRun = R.createRun(), startAt = ((startHour - R.RUN.startHour) % 24 + 24) % 24;
+  gameRun.restore({ day: 1, elapsed: startAt, duskSeen: false, status: 'running' });
   const bot = createBot(style, seed);
   const velocity = new THREE.Vector3(), lastFoot = player.clone(), forward = new THREE.Vector3(), temp = new THREE.Vector3();
-  let yaw = Math.atan2(player.x - W.pathX(player.z - 8), 8), pitch = -.045, elapsed = 0, hours = LV.NIGHT_START_HOURS, stride = 0, cameraHeight = ENGINE.stand;
-  let torch = false, lives = LV.initialLives(), grab, ended, heardIndex = 0, wantedSpeed = 0, moved = 0;
-  const unsubscribe = world2.noise.subscribe(e => { if (e.x !== undefined && e.z !== undefined) encounters.hear({ loudness: e.loudness, source: e.source, x: e.x, z: e.z }); });
-  const log = { style, seed, frames: 0, sightings: [], deaths: [], grabs: [], visibilityPops: [], stuns: [], hunts: [], sounds: [], transitions: [], behaviours: [], opening: [], deadAir: [], timeline: [], samples: [] };
+  let yaw = Math.atan2(player.x - W.pathX(player.z - 8), 8), pitch = -.045, elapsed = 0, hours = startHour, stride = 0, cameraHeight = ENGINE.stand;
+  let torch = false, grab, ended, heardIndex = 0, wantedSpeed = 0, moved = 0;
+  const unsubscribe = world2.noise.subscribe(e => { if (e.x !== undefined && e.z !== undefined) { encounters.hear({ loudness: e.loudness, source: e.source, x: e.x, z: e.z, sustained: e.sustained }); dayNoise.record({ x: e.x, z: e.z, loudness: e.loudness, sustained: e.sustained, hours: elapsed / 60 }); } });
+  const log = { style, seed, frames: 0, sightings: [], deaths: [], grabs: [], visibilityPops: [], stuns: [], hunts: [], sounds: [], transitions: [], behaviours: [], opening: [], deadAir: [], timeline: [], samples: [], openingScripted: opening, startHour, runEvents: [] };
   let sighting, lastVisible = false, lastStun = 'none', stun, lastBehaviour, indoorsSeconds = 0, lastGroundSpeed = 0;
   const stamina = createStamina();
   const head = new THREE.Vector3();
@@ -250,7 +254,13 @@ export async function playNight({ style, seed, minutes = 15, untilDawn = true, o
 
   for (let frame = 0; ; frame++) {
     const dt = FRAME; elapsed += dt; world.setClock(elapsed);
-    if (!grab) hours = (hours + dt / 60) % 24;
+    if (!grab) {
+      hours = (hours + dt / 60) % 24;
+      for (const e of gameRun.advance(hours)) {
+        log.runEvents.push({ t: elapsed, ...e });
+        if (e.type === 'dusk') { const l = dayNoise.loudest(); encounters.dusk(l ? { x: l.x, z: l.z } : null); }
+      }
+    }
     const darkness = darknessAt(hours);
     if (elapsed >= endAt || (untilDawn && elapsed > 300 && hours >= 6 && hours < 16)) { ended = elapsed >= endAt ? 'time' : 'dawn'; break; }
     // --- What the player knows this frame.
@@ -261,7 +271,7 @@ export async function playNight({ style, seed, minutes = 15, untilDawn = true, o
     const intent = grab ? { yaw, pitch } : bot.decide({ t: elapsed, darkness, player, yaw, pitch, seen, head: seen ? { x: head.x, y: head.y, z: head.z } : undefined, heard, indoors, stun: probe.stun, moved, wanted: wantedSpeed, cover: threat => coverFrom(collisions, player, threat) });
     // --- The engine's frame (game/core/engine.ts animate), for one player.
     yaw = intent.yaw ?? yaw; pitch = THREE.MathUtils.clamp(intent.pitch ?? 0, -1.28, 1.32);
-    if (!grab && intent.torch !== undefined && intent.torch !== torch) { torch = intent.torch; world2.noise.emit({ type: 'noise', loudness: B.FLASHLIGHT_CLICK_LOUDNESS, source: 'flashlight', x: player.x, z: player.z }); }
+    if (!grab && intent.torch !== undefined && intent.torch !== torch) { torch = intent.torch; world2.noise.emit({ type: 'noise', loudness: N.NOISE.torchClick, source: 'flashlight', x: player.x, z: player.z }); }
     const crouch = !grab && !!intent.crouch, run = stamina.update(dt, !grab && !!intent.sprint && !crouch, lastGroundSpeed), hurry = run.sprinting;
     const waterY = W.riverSurfaceAt(player.x, player.z), inWater = waterY !== undefined && player.y < waterY + .10;
     let moveSpeed = crouch ? ENGINE.crouch : gaitSpeed(run.blend);
@@ -280,8 +290,9 @@ export async function playNight({ style, seed, minutes = 15, untilDawn = true, o
       stride += speed * dt;
       if (stride > ENGINE.stride) {
         stride %= ENGINE.stride;
-        const surface = Math.abs(player.z - W.roadZ(player.x)) < 2.7 ? 'road' : offTrail < .25 ? 'forest' : 'dirt';
-        const loudness = B.footstepLoudness({ speed, sprinting: hurry && !crouch, crouching: crouch, surface }) * (indoors ? .5 : 1);
+        // As the engine: one ground query, wooden floor indoors, the noise scale's footstep.
+        const surface = indoors ? 'wood' : S.stepSurfaceOf(S.surfaceAt(player.x, player.z));
+        const loudness = N.footstepNoise({ speed, sprinting: hurry && !crouch, crouching: crouch, surface });
         if (loudness > 0) world2.noise.emit({ type: 'noise', loudness, source: 'footstep', x: player.x, z: player.z });
       }
     }
@@ -295,13 +306,13 @@ export async function playNight({ style, seed, minutes = 15, untilDawn = true, o
     world2.update({ dt, time: elapsed, player, darkness, active: !grab, simulate: true });
     const teleported = Math.hypot(player.x - lastFoot.x, player.z - lastFoot.z) > dt * 12;
     lastGroundSpeed = teleported ? 0 : Math.hypot(player.x - lastFoot.x, player.z - lastFoot.z) / dt;
-    const senses = { vx: teleported ? 0 : (player.x - lastFoot.x) / dt, vz: teleported ? 0 : (player.z - lastFoot.z) / dt, sprinting: hurry && !crouch, crouching: crouch, flashlightOn: torch, inWater, onLadder: false, indoors, untouchable: !!grab, blackout: !!grab && LV.grabTimeline(grab.t).black >= 1 };
+    const senses = { vx: teleported ? 0 : (player.x - lastFoot.x) / dt, vz: teleported ? 0 : (player.z - lastFoot.z) / dt, sprinting: hurry && !crouch, crouching: crouch, flashlightOn: torch, inWater, onLadder: false, indoors, untouchable: !!grab, blackout: !!grab && LV.grabTimeline(grab.t).black >= 1, day: gameRun.day, breathHeld: false };
     const wasVisible = probe.visible;
     encounters.update(dt, elapsed, player, forward, darkness, hours, senses); lastFoot.copy(player);
     if (encounters.takeStrike() && !grab) {
-      const r = LV.loseLife(lives); lives = r.state; grab = { t: 0, outcome: r.outcome, respawned: false };
+      grab = { t: 0, outcome: 'caught', respawned: false };
       const after = encounters.probe();
-      log.grabs.push({ t: elapsed, phase: after.phase, hours, distance: flat(player, after), outcome: r.outcome });
+      log.grabs.push({ t: elapsed, phase: after.phase, hours, distance: flat(player, after), outcome: 'caught', behaviour: after.behaviour });
       if (stun) stun.interrupted = 'grab';
       velocity.set(0, 0, 0);
     }
@@ -313,12 +324,11 @@ export async function playNight({ style, seed, minutes = 15, untilDawn = true, o
       const g = LV.grabTimeline(grab.t);
       if (g.respawn && !grab.respawned) {
         grab.respawned = true;
-        log.deaths.push({ t: elapsed, hours, outcome: grab.outcome });
-        if (grab.outcome === 'game-over') { ended = 'game-over'; break; }
-        hours = LV.respawnHours(hours);
-        const at = V.cabinWakePoint();
-        player.set(at.x, heightAt(at.x, at.z), at.z); velocity.set(0, 0, 0); yaw = at.yaw; lastFoot.copy(player);
-        encounters.relocate(player, elapsed);
+        // Taken: the run moves to the next dawn (everything is kept), which ends the night.
+        const r = gameRun.caught();
+        log.deaths.push({ t: elapsed, hours, outcome: r.outcome });
+        log.runEvents.push(...r.events.map(e => ({ t: elapsed, ...e })));
+        ended = 'caught'; break;
       }
       if (g.done) grab = undefined;
     }
@@ -359,6 +369,6 @@ export async function playNight({ style, seed, minutes = 15, untilDawn = true, o
     if (e.type !== 'behaviour' && e.type !== 'transition') log.timeline.push(e);
   }
   log.indoorsSeconds = indoorsSeconds;
-  log.lives = lives; log.ended = ended; log.duration = elapsed; log.audioCalls = world.sounds.length;
+  log.day = gameRun.day; log.ended = ended; log.duration = elapsed; log.audioCalls = world.sounds.length;
   return log;
 }

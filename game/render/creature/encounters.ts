@@ -5,18 +5,27 @@ import type { ForestAudio } from '../../audio/audio';
 import {WORLD_RADIUS} from '../../sim/world/world';
 import type {SolidCollider,createCollisionWorld} from '../../sim/world/collision';
 import {createCreatureNavigation} from '../../sim/creature/creature-navigation';
-import {createListener} from './listener';
+import {createListener,type ListenerPlant} from './listener';
+import {surfaceAt} from '../../sim/world/surface';
+import {footSurface,FOOT_TAGS,FOOTFALL,type FootSurface} from '../../audio/creature-steps';
+import type {Building,Opening} from '../../sim/creature/buildings';
+import type {DoorInfo} from '../props/doors';
 import {SPIDER_SCALE} from './spider-rig';
 import {creatureInView,createOffscreenLatch,CREATURE_VIEW_RADIUS,type EncounterView} from '../../sim/creature/encounter-visibility';
 import {inDirectView,sightlineClear,createEncounterAwareness} from '../../sim/creature/creature-sighting';
 import {createCreatureBrain,createRandom,type BrainEvent,type Intent,type NoiseEvent,type PlayerPercept,type Point,type Vec2} from '../../sim/creature/creature-brain';
 import {createOpeningDirector,type DirectorEvent,type OpeningPhase} from '../../sim/creature/creature-director';
+import {createScuttle} from '../../sim/creature/scuttle';
 
 /** What the engine knows about the player each frame, beyond where they stand and look. */
 export type CreatureSenses=Omit<PlayerPercept,'x'|'y'|'z'>&{
+  /** Which day of the run (1 to 5, default 1): the Listener's lair hours, search time and light sleep follow it. */
+  day?:number;
   /** The screen is black (the player is being taken): nothing can pop in or out of view. */
   blackout?:boolean;
 };
+/** The doors, as the Listener needs them: their state (DoorInfo: open, barred, the doorway's middle) and a way to force one (doors.ts). */
+export type CreatureDoors={list():DoorInfo[];force(id:string):boolean};
 export type CreatureMode='natural'|'hunt'|'idle'|'walk'|'run'|'tree';
 /** One thing the creature did, for logs and the playtest bot: placements and removals, sounds' reasons, stun phases... */
 export type CreatureTrace={t:number;type:string;[key:string]:unknown};
@@ -26,8 +35,8 @@ export type DoorQuery=(x:number,z:number)=>{x:number;z:number;outX:number;outZ:n
 /**
  * The Listener, always somewhere. Far from the player it is a point travelling through the world with no body;
  * near, the Listener's body walks it. For the first minutes game/sim/creature/creature-director.ts runs a scripted, harmless
- * opening (a glimpse, then the tree); after that game/sim/creature/creature-brain.ts decides what it does: it hears, sees,
- * shadows, hunts and grabs. It is never placed or removed on screen (protectedNow, the off-screen latch).
+ * opening (a glimpse, then the tree); after that game/sim/creature/creature-brain.ts decides what it does: it is blind, it
+ * hears (the noise scale), calls, searches, sleeps in its lair by day and grabs a player it perceives. It is never placed or removed on screen (protectedNow, the off-screen latch).
  */
 export function createEncounters(
   scene: THREE.Scene,
@@ -36,7 +45,11 @@ export function createEncounters(
   collisionWorld?: Pick<ReturnType<typeof createCollisionWorld>,'nearby'>,
   getView?:()=>EncounterView,
   waterSurfaceAt?:(x:number,z:number)=>number|undefined,
-  options:{places?:readonly Vec2[];seed?:number;doorAt?:DoorQuery;trace?:(event:CreatureTrace)=>void;opening?:boolean}={},
+  options:{places?:readonly Vec2[];seed?:number;doorAt?:DoorQuery;trace?:(event:CreatureTrace)=>void;opening?:boolean;
+    /** Where it sleeps by day (default: where it first stands) and the points of one night's round (default: its places). */
+    lair?:Vec2;round?:()=>readonly Vec2[];
+    /** The buildings it besieges (creatureBuildings in sim/creature/buildings.ts) and the doors in them: with both, a loud noise from inside brings it to the walls, it tries the doors, forces them, and reaches in through an open one. */
+    buildings?:readonly Building[];doors?:CreatureDoors}={},
 ) {
   const root = new THREE.Group();
   root.name = 'something-between-the-trees';
@@ -52,6 +65,22 @@ export function createEncounters(
   // The visible eight-legged rig supplies locomotion, visibility bounds and collision.
   const listener=createListener(scene,heightAt,navigation,collisionWorld);
   const sculpt={get ready(){return listener.ready;},inspect(){const box=new THREE.Box3();listener.root.updateMatrixWorld(true);listener.root.traverse(o=>{if((o as THREE.Bone).isBone)box.expandByPoint(o.getWorldPosition(new THREE.Vector3()));});return {ready:listener.ready,model:'listener',visible:listener.root.visible,parentVisible:listener.root.parent?.visible,root:listener.root.position.toArray(),bones:[box.min.toArray(),box.max.toArray()]};},dispose(){listener.dispose();}};
+  // Footfalls: each time a swinging foot lands it is heard from where it landed, by the surface under it. Audio only: never fed to the brain.
+  const stepAt={x:0,y:0,z:0};let creakIn=0,brushIn=0,brushSurface:FootSurface='earth';
+  function underFoot(x:number,y:number,z:number){
+    for(const c of collisionWorld?.nearby(x,z,.5)??[]){if(c.tag&&FOOT_TAGS.has(c.tag)&&Math.abs(y-c.maxY)<.55)return c.tag;}
+    return undefined;
+  }
+  function footfall(p:ListenerPlant,lift=false){
+    if(!root.visible)return;
+    // Beyond FOOTFALL.maxDistance a foot is silent: do not even ask what it stands on.
+    if(Math.hypot(p.x-lastPlayer.x,p.z-lastPlayer.z)>FOOTFALL.maxDistance)return;
+    stepAt.x=p.x;stepAt.y=p.y;stepAt.z=p.z;
+    audio.creatureStep?.(stepAt,p.leg,p.speed,footSurface({on:p.on,normalY:p.ny,ground:surfaceAt(p.x,p.z),tag:underFoot(p.x,p.y,p.z)}),lift);
+  }
+  listener.onPlant(p=>footfall(p));
+  // The claw leaving the ground too: between the landings, these make a spider's patter.
+  listener.onLift?.(p=>footfall(p,true));
   let currentDarkness=0,treeCollider:(SolidCollider&{kind:'capsule'})|undefined,perchTime=0,stareBoost=0;
   // The crawl controller uses six guide contacts to steer its trunk path. The visible
   // eight-legged rig owns all ground locomotion, contacts, and limb collision.
@@ -98,28 +127,27 @@ export function createEncounters(
   // Unseen it may not close inside FAR_HOLD: the body has to be placed out of view first.
   const NEAR=80,FAR=105,FAR_HOLD=50,SIGHT_LIMIT=90,LOOK_EVERY=.2,BEAM_RANGE=26,BEAM_ANGLE=15*Math.PI/180,REVEAL_GAP=300;
   // From the middle of its body, how far it can bend and reach down, for a player it has run over.
-  // DEAD_AIR: seconds of free roam with neither a sighting nor a sound before it is steered in and makes one.
   // Every sound has to mean something. HISS_QUIET: it hisses when the beam first pins it in an engagement and not again until
-  // the beam has been off it this long (or a new hunt begins). ROAR_GAP, HUNT_GAP: one roar per hunt, at its start; a hunt
-  // that begins within ROAR_GAP of the last roar, or within HUNT_GAP of the last hunt ending, is the same hunt taken up again.
-  // LOUD_QUIET, SIGHT_QUIET: an ambient sound (clicks, knock, branch, call) is no use straight after it has been loud or seen.
-  const BRANCH_FAR=70,BODY_REACH=1.2,CALL_GAP=180,PRESENCE_GAP=30,STUN_BRAKE=20,STOP_BRAKE=22,GRAB_BRAKE=45,DEAD_AIR=150,DEAD_AIR_CALL=30,HISS_QUIET=45,ROAR_GAP=75,HUNT_GAP=45,LOUD_QUIET=25,SIGHT_QUIET=30;
-  const seed=options.seed??7741,brain=createCreatureBrain({random:createRandom(seed),places:options.places}),hostRandom=createRandom(seed*31+7);
+  // the beam has been off it this long.
+  // LOUD_QUIET: the reveal recording is no use straight after something loud (a hiss, a grab).
+  // CALL_HEARD, CLICKS_HEARD: the brain's call and clicks are played where it really is; beyond these ranges they would be silence.
+  const BODY_REACH=1.2,PRESENCE_GAP=30,STUN_BRAKE=20,STOP_BRAKE=22,GRAB_BRAKE=45,HISS_QUIET=45,LOUD_QUIET=25,CALL_HEARD=320,CLICKS_HEARD=70;
+  const seed=options.seed??7741,brain=createCreatureBrain({random:createRandom(seed),places:options.places,lair:options.lair,round:options.round,buildings:options.buildings}),hostRandom=createRandom(seed*31+7);
   const director=createOpeningDirector({random:createRandom(seed*17+3)});
-  if(options.opening===false)director.jump('free');else brain.holdHunting();
+  // Unhurried, it moves as spiders do: in bursts and dead stops (scuttle.ts). Going to a loud noise, charging, going home and
+  // the siege are steady; so is anything while the torch holds it.
+  const scuttle=createScuttle(createRandom(seed*13+5)),scuttled:Intent={speed:0};
+  if(options.opening===false)director.jump('free');
   const trace=(elapsed:number,event:{type:string;[key:string]:unknown})=>{options.trace?.({t:elapsed,...event});};
   let frozen=0;
   const FROZEN_AFTER=2,FROZEN_IN_VIEW=6;
   let placed=false,materializeIn=0,lookIn=0,lineOfSight=false,beamOnIt=false,reach=Infinity,strikePending=false,grabbing=false,strikePose=0,blackout=false;
-  const lastSpot={x:0,z:0};
-  let lastReveal=-Infinity,lastCall=-Infinity,nextBranch=150,nextClicks=40,nextKnock=240,lastPresence=-Infinity,nearSince=-1,stillFor=0,stuck=0,detourUntil=0,detourSide=1;
-  // What the player has had of it: the last time it was seen or heard (for the no-dead-air rule) and the last sighting.
-  let lastEvidence=0,lastSighted=-Infinity,deadAirAt=0,lastRoar=-Infinity,lastHuntEnd=-Infinity,lastLoud=-Infinity,lastBeam=-Infinity,hissArmed=true;
+  let lastReveal=-Infinity,lastPresence=-Infinity,stuck=0,detourUntil=0,detourSide=1,day=1;
+  // What the player has had of it: the last sighting and the last loud sound, and the hiss's arming.
+  let lastSighted=-Infinity,lastLoud=-Infinity,lastBeam=-Infinity,hissArmed=true;
   /** A creature sound was played: it counts as evidence, and an ambient one opens the PRESENCE_GAP; a loud one (reveal, hiss, roar, grab) quietens the ambient ones for a while. */
-  const voiced=(elapsed:number,kind:string,at:THREE.Vector3,presence:boolean)=>{lastEvidence=elapsed;if(presence)lastPresence=elapsed;else lastLoud=elapsed;trace(elapsed,{type:'sound',kind,presence,x:at.x,y:at.y,z:at.z,seen:directSight});};
-  /** Free roam: whether an ambient sound would still mean something (the PRESENCE_GAP is kept separately). Not just after it was loud, nor just after it was seen. */
-  const ambientOk=(elapsed:number,afterSight=true)=>elapsed-lastPresence>PRESENCE_GAP&&elapsed-lastLoud>LOUD_QUIET&&(!afterSight||elapsed-lastSighted>SIGHT_QUIET);
-  const percept:PlayerPercept={x:0,y:0,z:0,vx:0,vz:0,sprinting:false,crouching:false,flashlightOn:false,inWater:false,onLadder:false,indoors:false,untouchable:false};
+  const voiced=(elapsed:number,kind:string,at:THREE.Vector3,presence:boolean)=>{if(presence)lastPresence=elapsed;else lastLoud=elapsed;trace(elapsed,{type:'sound',kind,presence,x:at.x,y:at.y,z:at.z,seen:directSight});};
+  const percept:PlayerPercept={x:0,y:0,z:0,vx:0,vz:0,sprinting:false,crouching:false,flashlightOn:false,inWater:false,onLadder:false,indoors:false,breathHeld:false,untouchable:false};
   const eye=new THREE.Vector3(),chest=new THREE.Vector3();
   let treeCrawl:ReturnType<typeof createTreeCrawl>|undefined;
   let adminMode:CreatureMode='natural',dismissRequested=false,outsideReady=false,retryIn=0;
@@ -224,7 +252,7 @@ export function createEncounters(
     grabbing=false;strikePending=false;dismissRequested=false;retryIn=0;
     adminMode=request.mode==='natural'||request.mode==='hunt'?'natural':request.mode;
     brain.relocated();
-    if(request.mode==='hunt')brain.provoke(percept);else if(request.mode==='natural')brain.alert(request.origin,6);
+    if(request.mode==='hunt')brain.provoke();else if(request.mode==='natural')brain.alert(request.origin,6);
     if(audio.creatureReveal(root.position)){awareness.revealed();lastReveal=elapsed;voiced(elapsed,'reveal',root.position,false);}
     return true;
   }
@@ -370,17 +398,29 @@ export function createEncounters(
     if(e.type==='strike'){
       if(!root.visible||grabbing)return;
       grabbing=strikePending=true;eyes(cuePosition);audio.screech(cuePosition,1);voiced(elapsed,'grab',cuePosition,false);recordTransition('strike',elapsed,protectedNow(),'strike');
-    }else if(e.type==='hunt-started'){
-      trace(elapsed,{type:'hunt'});
-      // One roar per hunt, at its start. A hunt taken up again straight after a stun or a lost chase is the same hunt: silent.
-      if(elapsed-lastRoar>ROAR_GAP&&elapsed-lastHuntEnd>HUNT_GAP){lastRoar=elapsed;hissArmed=true;eyes(cuePosition);audio.screech(cuePosition,.5);voiced(elapsed,'roar',cuePosition,false);}
     }
-    // The call is ambient, like the clicks: it is for a chase it has lost (not a shadowing that fizzled out), unseen, once the presence gap and the quiet after a loud sound have passed.
-    else if(e.type==='lost-player'&&e.from==='hunt'&&!directSight&&elapsed-lastCall>CALL_GAP&&ambientOk(elapsed,false)){lastCall=elapsed;cuePosition.copy(root.position);cuePosition.y+=2;audio.cue('call',cuePosition);voiced(elapsed,'call',cuePosition,true);}
-    // The hiss belongs to the start of a stun sequence: the first time the beam pins it in an engagement. Pinned again, it only recoils, until the beam has been off it a good while or a new hunt begins.
+    // Its call: it has taken up a loud noise. From where it really is, however far, so the player knows it heard.
+    else if(e.type==='call'){trace(elapsed,{type:'call'});if(Math.hypot(root.position.x-lastPlayer.x,root.position.z-lastPlayer.z)<CALL_HEARD){cuePosition.copy(root.position);cuePosition.y+=2;audio.cue('call',cuePosition);voiced(elapsed,'call',cuePosition,true);}}
+    // Clicks while it searches, listening: the audio side keeps its own gaps, so a refusal just means it was too soon.
+    else if(e.type==='clicks'){trace(elapsed,{type:'clicks'});if(Math.hypot(root.position.x-lastPlayer.x,root.position.z-lastPlayer.z)<CLICKS_HEARD){cuePosition.copy(root.position);cuePosition.y+=1.2;if(audio.stalkCue(cuePosition))voiced(elapsed,'clicks',cuePosition,true);}}
+    // At a shut door of the building it besieges: it scratches or knocks.
+    else if(e.type==='doorTell'){
+      trace(elapsed,{type:'doorTell',kind:e.kind,door:e.door});
+      if(Math.hypot(e.x-lastPlayer.x,e.z-lastPlayer.z)<CLICKS_HEARD){cuePosition.set(e.x,heightAt(e.x,e.z)+1.1,e.z);if(e.kind==='scratch')audio.creatureScratch?.(cuePosition);else audio.knock(cuePosition);voiced(elapsed,e.kind,cuePosition,true);}
+    }
+    // It forces the door: the leaf is flung open (doors.ts calls the noise stream's onNoise with a crash) and any bar breaks.
+    else if(e.type==='forceDoor'){
+      trace(elapsed,{type:'forceDoor',door:e.door,barred:e.barred});
+      options.doors?.force(e.door);
+      cuePosition.set(e.x,heightAt(e.x,e.z)+1,e.z);audio.doorCrash?.(cuePosition);voiced(elapsed,'door',cuePosition,false);
+    }
+    else if(e.type==='wake')trace(elapsed,{type:'wake',cause:e.cause});
+    else if(e.type==='sleep')trace(elapsed,{type:'sleep'});
+    else if(e.type==='heard')trace(elapsed,{type:'heard',source:e.source,grade:e.grade,distance:e.distance});
+    // The hiss belongs to the start of a stun sequence: the first time the beam pins it in an engagement. Pinned again, it only recoils, until the beam has been off it a good while.
     else if(e.type==='flinch'){trace(elapsed,{type:'stun',phase:'slowing',seconds:e.seconds});if(root.visible&&hissArmed){hissArmed=false;eyes(cuePosition);audio.hiss(cuePosition);voiced(elapsed,'hiss',cuePosition,false);}}
     else if(e.type==='stun')trace(elapsed,{type:'stun',phase:e.phase,seconds:e.seconds});
-    if(e.type==='behaviour'){trace(elapsed,{type:'behaviour',from:e.from,to:e.to});if(e.from==='hunt')lastHuntEnd=elapsed;}
+    else if(e.type==='behaviour')trace(elapsed,{type:'behaviour',from:e.from,to:e.to});
   }
   function aim(g?:Point){
     if(g)attentionTarget.set(g.x,g.y??heightAt(g.x,g.z)+1.3,g.z);
@@ -409,6 +449,11 @@ export function createEncounters(
     // stands between (a trunk the player has stepped behind) instead of straight at it.
     moveCreature(dt,speed,movementDirection,brake,detour?undefined:target);
     animateCreature(dt,elapsed);
+    // Running, now and then a creak and rattle of the body.
+    if((creakIn-=dt)<=0&&root.visible&&lastMoveSpeed>6&&Math.hypot(root.position.x-lastPlayer.x,root.position.z-lastPlayer.z)<FOOTFALL.maxDistance){
+      stepAt.x=root.position.x;stepAt.y=root.position.y+1.5;stepAt.z=root.position.z;
+      const next=audio.creatureCreak?.(stepAt,lastMoveSpeed);creakIn=typeof next==='number'?next:1.2;
+    }
   }
   /** Recoiling from the torch: a short step straight back, facing the light, where there is room. */
   function backstep(dt:number,speed:number){
@@ -481,7 +526,7 @@ export function createEncounters(
   function freeRoam(elapsed:number,player:THREE.Vector3){
     pendingCall=false;placed=true;
     if(!root.visible)placeFar(player,80,120);
-    brain.relocated();brain.forget();brain.permitHunting();lastEvidence=elapsed;deadAirAt=0;
+    brain.relocated();brain.forget();
   }
   /**
    * End the opening now (a developer spawn or jump, a death): it never replays. Only ever from a developer's hand or
@@ -736,7 +781,7 @@ export function createEncounters(
         // Dead stop, a moment, then it withdraws.
         brake=STOP_BRAKE;rear=Math.max(0,.6-inStage);
         if(inStage>=.8){
-          if(t.dev){script=undefined;listener.setRear(0);brain.relocated();brain.force('withdraw');trace(elapsed,{type:'script',kind:'tree',stage:'handed-over',dev:true});return;}
+          if(t.dev){script=undefined;listener.setRear(0);brain.relocated();brain.force('round');trace(elapsed,{type:'script',kind:'tree',stage:'handed-over',dev:true});return;}
           t.fast=true;t.exit=exitFrom(player,t.side);enterStage(t,'leaving',elapsed);
         }
         break;
@@ -784,10 +829,21 @@ export function createEncounters(
     if(script)perform(dt,elapsed,player);
     else if(root.visible)depart(dt,elapsed,player);
     else{directSight=false;drift(dt,player);}
-    if(directSight)lastSighted=lastEvidence=elapsed;
+    if(directSight)lastSighted=elapsed;
     // The interlude's one distant call, from where it went.
-    if(pendingCall&&!root.visible&&elapsed-lastPresence>PRESENCE_GAP){cuePosition.copy(root.position);cuePosition.y+=2;audio.cue('call',cuePosition);voiced(elapsed,'call',cuePosition,true);lastCall=elapsed;pendingCall=false;}
+    if(pendingCall&&!root.visible&&elapsed-lastPresence>PRESENCE_GAP){cuePosition.copy(root.position);cuePosition.y+=2;audio.cue('call',cuePosition);voiced(elapsed,'call',cuePosition,true);pendingCall=false;}
     if(root.visible)audio.hush(1-(Math.hypot(player.x-root.position.x,player.z-root.position.z)-12)/28);
+  }
+  // The doorways of the buildings and how open they are, refreshed a few times a second.
+  let openingsAt=-1,openingsNow:Opening[]|undefined;
+  const buildingIds=new Set((options.buildings??[]).map(b=>b.id));
+  function openings(elapsed:number){
+    if(!options.doors||!buildingIds.size)return undefined;
+    if(openingsNow&&elapsed-openingsAt<.1&&elapsed>=openingsAt)return openingsNow;
+    openingsAt=elapsed;
+    // A door on its way open counts as open: the arms need only the gap.
+    openingsNow=options.doors.list().filter(d=>buildingIds.has(d.placement)).map(d=>({id:d.id,building:d.placement,x:d.mid.x,z:d.mid.z,open:Math.max(d.open,d.target),barred:d.barred,kind:'door' as const}));
+    return openingsNow;
   }
   function think(dt:number,elapsed:number,player:THREE.Vector3,hours:number){
     const near=root.visible;
@@ -796,7 +852,8 @@ export function createEncounters(
     // The beam on it keeps the engagement going; off it long enough, the next stun hisses again.
     if(beamOnIt)lastBeam=elapsed;else if(!hissArmed&&elapsed-lastBeam>HISS_QUIET)hissArmed=true;
     measureReach(player);
-    const out=brain.tick({dt,hours,darkness:currentDarkness,creature:{x:root.position.x,z:root.position.z,yaw:root.rotation.y,speed:near?lastMoveSpeed:undefined},player:percept,lineOfSight,playerLooking:near&&directSight,beamOnIt,reach});
+    // Blind: the brain is told nothing of sight, only where the torch beam falls and how far its head is from the player.
+    const out=brain.tick({dt,hours,day,darkness:currentDarkness,creature:{x:root.position.x,z:root.position.z,yaw:root.rotation.y,speed:near?lastMoveSpeed:undefined},player:percept,beamOnIt,reach,openings:openings(elapsed)});
     for(const e of out.events)react(e,elapsed);
     stunShown=out.stun.phase;
     if(grabbing)return;
@@ -804,39 +861,30 @@ export function createEncounters(
     // The reveal recording marks the first sighting in a while, at the moment it is seen.
     if(near&&directSight){
       if(elapsed-lastSighted>20&&elapsed-lastReveal>REVEAL_GAP&&elapsed-lastLoud>LOUD_QUIET&&distance<45){eyes(cuePosition);if(audio.creatureReveal(cuePosition)){lastReveal=elapsed;awareness.revealed();voiced(elapsed,'reveal',cuePosition,false);}}
-      lastSighted=lastEvidence=elapsed;
+      lastSighted=elapsed;
     }
     if(near){
       strikePose=Math.max(0,strikePose-dt*2);listener.setStrike(strikePose);
       // The torch: it shrinks from the light and steps back while it is held, then gets going again.
       listener.setRecoil(out.stun.recoil);if(out.stun.backstep>0)backstep(dt,out.stun.backstep);
-      // A hunt begins with it rearing and roaring on the spot (the brain holds it still for huntWindup), then it runs.
-      listener.setRear(out.behaviour==='hunt'&&out.intent.speed===0&&out.stun.phase==='none'?1:0);
-      aim(out.gaze);drive(dt,elapsed,out.intent,out.stun.phase==='none'?undefined:STUN_BRAKE);
+      listener.setRear(0);
+      aim(out.gaze);
+      const pace=scuttle.factor(dt,out.intent.speed,out.stun.phase==='none'&&(out.behaviour==='drift'||out.behaviour==='round'||out.behaviour==='prowl'||out.behaviour==='search'));
+      let intent=out.intent;if(pace!==1){scuttled.target=intent.target;scuttled.arrive=intent.arrive;scuttled.speed=intent.speed*pace;intent=scuttled;}
+      drive(dt,elapsed,intent,out.stun.phase==='none'?undefined:STUN_BRAKE);
+      // The legs' brush between the footfalls, from the body, on what it stands on (looked up four times a second).
+      if(root.visible&&distance<FOOTFALL.maxDistance){
+        if((brushIn-=dt)<=0){brushIn=.25;brushSurface=footSurface({on:'ground',normalY:1,ground:surfaceAt(root.position.x,root.position.z),tag:underFoot(root.position.x,root.position.y,root.position.z)});}
+        stepAt.x=root.position.x;stepAt.y=root.position.y+.6;stepAt.z=root.position.z;audio.creatureMove?.(stepAt,lastMoveSpeed,brushSurface);
+      }else audio.creatureMove?.(null);
       if(protectedNow()){outsideReady=false;offscreen.reset();}
       if(dismissRequested){if(outsideReady&&hideBody(elapsed,'dismiss')){placeFar(player,150,220);dismissRequested=false;brain.forget();}}
-      else if(distance>FAR&&out.behaviour!=='hunt'&&outsideReady)hideBody(elapsed,'recede');
+      else if(distance>FAR&&out.behaviour!=='run'&&outsideReady)hideBody(elapsed,'recede');
       // The birds stop when it is close, whether or not the player has noticed it.
       if(root.visible)audio.hush(1-(distance-12)/28);
-      // Letting itself be heard. Sparingly, and each for a reason; never while the player is looking at it (a noise
-      // from something in plain view is just an animal making a noise), and never two within half a minute.
-      stillFor=Math.hypot(percept.vx,percept.vz)<.4?stillFor+dt:0;
-      const closeBy=distance<(percept.indoors?45:28);
-      nearSince=closeBy?(nearSince<0?elapsed:nearSince):-1;
-      if(root.visible&&!directSight&&!grabbing&&out.behaviour!=='hunt'&&out.behaviour!=='strike'&&ambientOk(elapsed)){
-        if(closeBy&&elapsed-nearSince>8&&elapsed>nextClicks){
-          // Clicks: it has been close for a while and the player has not found it. From where its head is. A player
-          // shut indoors hears it a little more often: it is outside, and wants them to know.
-          cuePosition.copy(root.position);cuePosition.y+=1.2;
-          if(audio.stalkCue(cuePosition)){voiced(elapsed,'clicks',cuePosition,true);nextClicks=elapsed+(percept.indoors?70:100)+hostRandom()*(percept.indoors?60:100);}
-        }else if(elapsed>nextKnock&&stillFor>5&&distance>10&&distance<38&&!percept.indoors){
-          // A knock on the trunk beside it: the answer to a player who has stopped to listen. Rare.
-          cuePosition.copy(root.position);cuePosition.y+=1.6;
-          if(audio.knock(cuePosition)){voiced(elapsed,'knock',cuePosition,true);nextKnock=elapsed+300+hostRandom()*300;}
-        }
-      }
     }else{
       if(dismissRequested){placeFar(player,150,220);dismissRequested=false;brain.forget();}
+      audio.creatureMove?.(null);
       travel(dt,player,out.intent);
       materializeIn-=dt;
       if(distance<NEAR&&materializeIn<=0){
@@ -848,11 +896,6 @@ export function createEncounters(
         }else if(distance<FAR_HOLD+15)arriveFromSide(player,distance,elapsed);
       }
     }
-    // A branch breaks where it really is, but only when it has actually covered ground out of sight since the last one.
-    if(!directSight&&elapsed>nextBranch&&distance>28&&distance<BRANCH_FAR&&ambientOk(elapsed)&&Math.hypot(root.position.x-lastSpot.x,root.position.z-lastSpot.z)>18){
-      nextBranch=elapsed+180+hostRandom()*180;lastSpot.x=root.position.x;lastSpot.z=root.position.z;cuePosition.copy(root.position);cuePosition.y+=1;audio.cue('branch',cuePosition);voiced(elapsed,'branch',cuePosition,true);
-    }
-    deadAir(elapsed,player,distance);
   }
   /**
    * Close, and somewhere the player is looking, it would be a presence with no body: it cannot be placed in view.
@@ -869,29 +912,6 @@ export function createEncounters(
       if(point&&placeBody(point,Math.atan2(player.x-point.x,player.z-point.z),elapsed,'arrive-side')){brain.relocated();return;}
     }
   }
-  /**
-   * No long dead air: neither seen nor heard for DEAD_AIR seconds, it is steered toward where the player roughly is
-   * and makes one sound from where it really is. Close and unseen that is the clicks; within earshot a branch; still
-   * far after DEAD_AIR_CALL seconds of coming, its call. The presence gap holds throughout.
-   */
-  function deadAir(elapsed:number,player:THREE.Vector3,distance:number){
-    if(grabbing||percept.untouchable)return;
-    if(deadAirAt&&lastEvidence>deadAirAt){deadAirAt=0;return;}
-    if(!deadAirAt){
-      if(elapsed-lastEvidence<=DEAD_AIR)return;
-      deadAirAt=elapsed;brain.alert({x:player.x+(hostRandom()-.5)*16,z:player.z+(hostRandom()-.5)*16},10);trace(elapsed,{type:'dead-air',distance});
-    }
-    if(elapsed-lastPresence<=PRESENCE_GAP)return;
-    let kind:'clicks'|'branch'|'call'|undefined;
-    if(root.visible&&!directSight&&distance<26)kind='clicks';
-    else if(!directSight&&distance>18&&distance<70)kind='branch';
-    else if(!directSight&&elapsed-deadAirAt>DEAD_AIR_CALL)kind='call';
-    if(!kind)return;
-    cuePosition.copy(root.position);cuePosition.y+=kind==='clicks'?1.2:kind==='call'?2:1;
-    if(kind==='clicks'){if(!audio.stalkCue(cuePosition))return;}else audio.cue(kind,cuePosition);
-    if(kind==='branch'){lastSpot.x=root.position.x;lastSpot.z=root.position.z;}
-    voiced(elapsed,kind,cuePosition,true);deadAirAt=0;
-  }
   return {
     spawn(player:THREE.Vector3,forward:THREE.Vector3,mode:CreatureMode='natural'){
       observe(player,forward);
@@ -903,6 +923,14 @@ export function createEncounters(
     dismiss(_elapsed:number){endOpening(lastElapsed,lastPlayer);pendingSpawn=undefined;dismissRequested=true;brain.dismiss();},
     /** A sound in the world: from the objectives' noise stream (footsteps, the torch, ladders, the generator...). */
     hear(noise:NoiseEvent){brain.hear(noise);},
+    /**
+     * A running source (a generator, a pump, the pad's generator, the helicopter): `source(id,{x,z,loudness})` while it runs, `source(id,null)`
+     * when it stops. The Listener hears it whenever it is within its reach (loudness x 100 m, less in weather), runs there, stays while it
+     * runs, and searches when it stops. Replaces the generator's repeated sustained noise events.
+     */
+    source(id:string,spec:{x:number;z:number;loudness:number}|null){brain.source(id,spec);},
+    /** The night's start: the loudest place of the day (null for none). When it leaves the lair it goes there first. */
+    dusk(start:Vec2|null){brain.dusk(start);},
     /** True once when it has reached the player: the engine plays out the grab. */
     takeStrike(){if(!strikePending)return false;strikePending=false;return true;},
     get grabbing(){return grabbing;},
@@ -916,11 +944,11 @@ export function createEncounters(
       // A death ends the opening for good (only a developer can die during it).
       endOpening(elapsed,origin);script=undefined;
       pendingSpawn=undefined;dismissRequested=false;strikePending=false;adminMode='natural';
-      hideBody(elapsed,'relocate',true);placeFar(origin,150,220);placed=true;brain.struck();awareness.reset();lastEvidence=elapsed;deadAirAt=0;
+      hideBody(elapsed,'relocate',true);placeFar(origin,150,220);placed=true;brain.struck();awareness.reset();
       return true;
     },
     /** Game over: a new night. The opening is not played again; hunting is rare again at first. */
-    restart(origin:THREE.Vector3,elapsed:number){const moved=this.relocate(origin,elapsed);brain.reset();brain.permitHunting();lastReveal=-Infinity;nextBranch=elapsed+150;nextClicks=elapsed+40;nextKnock=elapsed+240;return moved;},
+    restart(origin:THREE.Vector3,elapsed:number){const moved=this.relocate(origin,elapsed);brain.reset();lastReveal=-Infinity;return moved;},
     /** The opening: its phase and clock, and the scripted encounter if one is running. */
     openingStatus(){return{...director.inspect(),script:script&&{kind:script.kind,variant:script.variant,stage:script.stage,step:script.step,seen:script.seen,force:script.force,dev:script.dev,trunks:{vetted:script.cursor,candidates:script.trees?.length??0,ready:script.ready.length}}};},
     /** Developer: jump the opening to a phase ('glimpse', 'tree', 'free'...) now. */
@@ -957,7 +985,7 @@ export function createEncounters(
     update(dt:number,elapsed:number,player:THREE.Vector3,forward:THREE.Vector3,darkness:number,hours=16,senses?:CreatureSenses){
       currentDarkness=darkness;blackout=!!senses?.blackout;
       percept.x=player.x;percept.y=player.y;percept.z=player.z;
-      if(senses){percept.vx=senses.vx;percept.vz=senses.vz;percept.sprinting=senses.sprinting;percept.crouching=senses.crouching;percept.flashlightOn=senses.flashlightOn;percept.inWater=senses.inWater;percept.onLadder=senses.onLadder;percept.indoors=senses.indoors;percept.untouchable=!!senses.untouchable;}
+      if(senses){percept.vx=senses.vx;percept.vz=senses.vz;percept.sprinting=senses.sprinting;percept.crouching=senses.crouching;percept.flashlightOn=senses.flashlightOn;percept.inWater=senses.inWater;percept.onLadder=senses.onLadder;percept.indoors=senses.indoors;percept.breathHeld=!!senses.breathHeld;percept.untouchable=!!senses.untouchable;day=senses.day??1;}
       tick(dt,elapsed,player,forward,hours);listener.root.visible=root.visible;
     },
     dispose(){scene.remove(root);sculpt.dispose();},

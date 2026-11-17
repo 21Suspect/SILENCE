@@ -58,7 +58,7 @@ test('the whole loop plays through the prompts, with the right words at each ste
   assert.equal(label('generator:cord'), 'Left click to refuel');
   use('generator:cord'); assert.equal(rt.state.phase, 'fueled');
   assert.equal(label('generator:cord'), 'Left click to pull the cord');
-  use('generator:cord'); assert.equal(rt.state.phase, 'running'); assert.equal(ok('generator:cord'), false, 'nothing left to do at the generator');
+  use('generator:cord'); assert.equal(rt.state.phase, 'running'); assert.equal(label('generator:cord'), 'Left click to switch off the generator'); assert.equal(ok('generator:cord'), true, 'a running generator can be switched off');
 
   use('pickup:fuse-mine');
   assert.equal(ok('hut:fusebox'), true); assert.equal(label('hut:fusebox'), 'Left click to insert fuse');
@@ -71,14 +71,24 @@ test('the whole loop plays through the prompts, with the right words at each ste
   assert.equal(rt.state.phase, 'powered'); assert.equal(ok('hut:radio'), true); assert.equal(label('hut:radio'), 'Left click to transmit');
   use('hut:radio');
   assert.equal(rt.state.phase, 'signalSent');
-  assert.deepEqual(['generator:cord', 'hut:fusebox', 'hut:radio', 'pickup:jerry-camp', 'pickup:fuse-mine'].map(ok), [false, false, false, false, false]);
+  assert.deepEqual(['generator:cord', 'hut:fusebox', 'hut:radio', 'pickup:jerry-camp', 'pickup:fuse-mine'].map(ok), [true, false, false, false, false], 'after the call only the cord is left: it switches the still running generator off');
 });
 
-test('with the generator off, the fuse box says so rather than doing nothing', () => {
+test('the fuse box takes a fuse with the generator off; the radio waits for the generator', () => {
   const { rt, label, ok, use } = setup();
   use('pickup:fuse-mine');
-  assert.equal(ok('hut:fusebox'), true); assert.equal(label('hut:fusebox'), 'No power');
-  use('hut:fusebox'); assert.equal(rt.state.fuseBox[0], null);
+  assert.equal(ok('hut:fusebox'), true); assert.equal(label('hut:fusebox'), 'Left click to insert fuse');
+  use('hut:fusebox'); assert.equal(rt.state.fuseBox[0], 'fuse-mine');
+  assert.equal(ok('hut:radio'), false);
+});
+
+test('the cord switches a running generator off, keeps its fuel, and starts it again', () => {
+  const { rt, label, use } = setup();
+  use('pickup:jerry-camp'); use('generator:cord'); use('generator:cord');
+  assert.equal(rt.state.generator.running, true); assert.equal(label('generator:cord'), 'Left click to switch off the generator');
+  use('generator:cord');
+  assert.equal(rt.state.generator.running, false); assert.equal(rt.state.generator.hours, 4); assert.equal(label('generator:cord'), 'Left click to pull the cord');
+  use('generator:cord'); assert.equal(rt.state.generator.running, true);
 });
 
 test('noise events reach subscribers with a world position, which is what the creature will listen to', () => {

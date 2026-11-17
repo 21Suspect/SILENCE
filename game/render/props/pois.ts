@@ -500,6 +500,8 @@ export function createPois(scene: THREE.Scene, heightAt: (x: number, z: number) 
     },
     /** World position of a model-local hook, or undefined if the placement or hook does not exist. Available before the GLB loads. */
     hook(placementId: string, hookName: string): THREE.Vector3 | undefined { return entries.get(placementId)?.hooks.get(hookName)?.clone(); },
+    /** The drawn copy of a placed prop once its model has loaded (hidden or shown with its draw distance); a child added to it follows it. */
+    objectOf(placementId: string): THREE.Object3D | undefined { return entries.get(placementId)?.object; },
     /** Every placement (hand-placed and scattered) as it stands: its seat, ground and tilt. Fixed once the placements are. */
     seats(): PoiSeat[] {
       return [...entries.values()].map(e => ({ id: e.p.id, asset: e.p.asset, def: e.model.def, placement: e.p, ground: e.ground, quaternion: e.quaternion,

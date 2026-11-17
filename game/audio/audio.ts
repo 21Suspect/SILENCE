@@ -1,9 +1,11 @@
 import type * as THREE from 'three';
-import {createBreathing, type Breath} from '../sim/player/breathing';
+import {createBreathing, makeBreath, type Breath} from '../sim/player/breathing';
 import { riverX, waterHeightAt } from '../sim/world/world';
 import { coastDistance, SEA_LEVEL } from '../sim/world/coastal-geography';
 import { WORLD_V2 } from '../sim/world/world-flags';
 import { volumeGain, type Settings } from '../core/settings';
+import { synthesizeEngine, engineHearing, engineRate, engineFlutter, type EngineKind } from './engines';
+import { footfallPlan, creakPlan, createVoicePool, buildFootfall, buildCreak, buildScratch, buildCrash, createBrush, type Brush, type FootSurface, type Voice } from './creature-steps';
 
 type Surface = 'dirt' | 'road' | 'water' | 'wood';
 export type ForestAudioFrame = {
@@ -14,6 +16,8 @@ export type ForestAudioFrame = {
   /** The player's stamina, 1 full .. 0 empty, and whether they are locked out of sprinting: this is what the breathing follows. */
   stamina?: number;
   winded?: boolean;
+  /** The breath is held (game/sim/player/breath-hold.ts): no breathing is heard until it is let go. */
+  breathHeld?: boolean;
   darkness: number;
   surface: Surface;
   riverDistance: number;
@@ -72,6 +76,13 @@ export class ForestAudio {
   private lastTake = new Map<CreatureSound, number>();
   private revealSource: AudioBufferSourceNode | null = null;
   private position: Point = { x: 0, y: 0, z: 0 };
+  // Running engines (generator, pump): one looping voice each while it is on and within earshot. The loops are synthesized once per kind.
+  private engines = new Map<string, { kind: EngineKind; position: Point; voice?: { source: AudioBufferSourceNode; gain: GainNode; filter: BiquadFilterNode; pan: PannerNode } }>();
+  private engineBuffers = new Map<EngineKind, AudioBuffer>();
+  // The Listener's feet: at most a few voices at once (creature-steps.ts).
+  // The claws lifting off have their own few voices: at a charge (some 70 a second with the landings) they must never take a landing's.
+  private stepPool = createVoicePool(); private liftPool = createVoicePool(6);
+  private brush: { voice: Brush; pan: PannerNode; next: number; moving: boolean } | null = null;
 
   async start(): Promise<void> {
     if (this.disposed) return;
@@ -307,6 +318,9 @@ export class ForestAudio {
     }
   }
 
+  /** The breath let out in a gasp (a hold run to its limit, or let go winded): one hard breath, as at empty stamina. */
+  gasp(): void { this.playerBreath(makeBreath(1)); }
+
   /** A small, dry switch sound; safe before the first audio gesture. */
   flashlightClick(): void {
     if (!this.context || this.context.state !== 'running') return;
@@ -378,6 +392,127 @@ export class ForestAudio {
     }
   }
 
+  /**
+   * A running engine at a place, as a sound that goes on while it runs: `engine('generator', position, true, 'generator')` to start it
+   * (or move it), `engine('generator', position, false)` to stop it. Positional, falling with distance (faintly there at 150 m, gone
+   * past 260 m); one looping voice per running engine, started only while within earshot. Safe to call before the audio has started.
+   */
+  engine(id: string, position: Point, on: boolean, kind: EngineKind = 'generator'): void {
+    const at = this.engines.get(id);
+    if (!on) { if (at?.voice) this.stopEngine(at); this.engines.delete(id); return; }
+    if (at && at.kind !== kind && at.voice) this.stopEngine(at);
+    if (at) { at.kind = kind; at.position = { x: position.x, y: position.y, z: position.z }; }
+    else this.engines.set(id, { kind, position: { x: position.x, y: position.y, z: position.z } });
+  }
+  private engineBuffer(kind: EngineKind): AudioBuffer {
+    let buffer = this.engineBuffers.get(kind);
+    if (!buffer) {
+      const c = this.context!, data = synthesizeEngine(kind, c.sampleRate);
+      buffer = c.createBuffer(1, data.length, c.sampleRate); buffer.copyToChannel(data, 0); this.engineBuffers.set(kind, buffer);
+    }
+    return buffer;
+  }
+  private stopEngine(e: { voice?: { source: AudioBufferSourceNode; gain: GainNode } }): void {
+    const v = e.voice; e.voice = undefined;
+    if (!v || !this.context) return;
+    const now = this.context.currentTime;
+    v.gain.gain.cancelScheduledValues(now); v.gain.gain.setTargetAtTime(0, now, .1);
+    try { v.source.stop(now + .6); } catch { /* already stopped */ }
+  }
+  private updateEngines(now: number): void {
+    const context = this.context;
+    if (!context || !this.ambienceGroup) return;
+    for (const [id, e] of this.engines) {
+      const h = engineHearing(e.kind, Math.hypot(e.position.x - this.position.x, e.position.y - this.position.y, e.position.z - this.position.z));
+      if (!h.audible) { if (e.voice) this.stopEngine(e); continue; }
+      if (!e.voice) {
+        const buffer = this.engineBuffer(e.kind), source = context.createBufferSource(), gain = context.createGain(), filter = context.createBiquadFilter(), pan = context.createPanner();
+        source.buffer = buffer; source.loop = true; gain.gain.value = 0;
+        filter.type = 'lowpass'; filter.Q.value = .5; filter.frequency.value = h.lowpass;
+        pan.panningModel = 'HRTF'; pan.rolloffFactor = 0; pan.channelCount = 1; pan.channelCountMode = 'explicit';
+        source.connect(filter).connect(gain).connect(pan).connect(this.ambienceGroup);
+        this.track(source, [filter, gain, pan]);
+        source.start(0, Math.random() * buffer.duration);
+        e.voice = { source, gain, filter, pan };
+      }
+      const v = e.voice;
+      v.gain.gain.setTargetAtTime(h.gain * engineFlutter(id, this.age), now, .12);
+      v.filter.frequency.setTargetAtTime(h.lowpass, now, .15);
+      v.source.playbackRate.setTargetAtTime(engineRate(id, this.age), now, .25);
+      v.pan.positionX.value = e.position.x; v.pan.positionY.value = e.position.y; v.pan.positionZ.value = e.position.z;
+    }
+  }
+
+  /** A positional panner for one of the creature's own sounds, at `position`, into the creature group. */
+  private creaturePanner(position: Point): PannerNode {
+    const pan = this.context!.createPanner();
+    pan.panningModel = 'HRTF'; pan.distanceModel = 'inverse'; pan.refDistance = 4; pan.maxDistance = 90; pan.rolloffFactor = 1.2;
+    pan.positionX.value = position.x; pan.positionY.value = position.y; pan.positionZ.value = position.z;
+    pan.connect(this.creatureGroup!);
+    return pan;
+  }
+  /** Let a built voice go when its last source ends, with its panner. */
+  private playVoice(voice: Voice, pan: PannerNode): void {
+    voice.sources.forEach((source, i) => this.track(source, i === 0 ? [...voice.nodes, pan] : []));
+  }
+
+  /**
+   * One footfall of the Listener, from where the foot landed, by the surface under it (creature-steps.ts: the thump of its weight, a
+   * claw's strike, the ground's own sound, a scrape when it runs). `leg` is 0 to 7, `speed` its ground speed. False if nothing played
+   * (too far, too many voices, audio not running). It is only a sound: it is never a noise the creature itself hears.
+   */
+  creatureStep(position: Point, leg: number, speed: number, surface: FootSurface, lift = false): boolean {
+    const c = this.context;
+    if (!c || c.state !== 'running' || !this.creatureGroup || !this.noise) return false;
+    const plan = footfallPlan({ surface, speed, leg, lift, distance: Math.hypot(position.x - this.position.x, position.y - this.position.y, position.z - this.position.z) });
+    if (!plan) return false;
+    // A few hundredths early or late, so feet the gait plants on the same frame are never heard as one.
+    const now = c.currentTime + Math.random() * .02;
+    if (!(lift ? this.liftPool : this.stepPool).take(now, plan.duration + .03)) return false;
+    const pan = this.creaturePanner(position);
+    this.playVoice(buildFootfall(c, plan, pan, this.noise, name => this.beds.get(name), now), pan);
+    return true;
+  }
+
+  /**
+   * The legs' brush between the footfalls (creature-steps.ts createBrush), following the creature: call every frame while it is
+   * near and seen with where its body is, how fast it goes and what it is on; `null` fades it out. One loop, made the first time.
+   */
+  creatureMove(position: Point | null, speed = 0, surface: FootSurface = 'earth'): void {
+    const c = this.context;
+    if (!c || c.state !== 'running' || !this.creatureGroup || !this.noise) return;
+    const now = c.currentTime;
+    if (!position) { if (this.brush && this.brush.moving) { this.brush.voice.set(0, surface, now); this.brush.moving = false; } return; }
+    if (!this.brush) { const pan = this.creaturePanner(position); this.brush = { voice: createBrush(c, pan, this.noise), pan, next: 0, moving: false }; }
+    const b = this.brush;
+    b.pan.positionX.value = position.x; b.pan.positionY.value = position.y; b.pan.positionZ.value = position.z;
+    if (now >= b.next) { b.voice.set(speed, surface, now); b.next = now + .06 + Math.random() * .08; b.moving = true; }
+  }
+
+  /** A creak of its body, now and then, when it runs (creature-steps.ts). Returns the seconds before the next is due, or undefined if none played. */
+  creatureCreak(position: Point, speed: number): number | undefined {
+    const plan = creakPlan(speed);
+    if (!plan || !this.context || this.context.state !== 'running' || !this.creatureGroup || !this.noise) return undefined;
+    const pan = this.creaturePanner(position);
+    this.playVoice(buildCreak(this.context, plan, pan, this.noise, this.context.currentTime), pan);
+    return plan.next;
+  }
+
+  /** It scratches at a shut door: three drags of claws catching on the grain, from the door. */
+  creatureScratch(position: Point): void {
+    if (!this.context || this.context.state !== 'running' || !this.creatureGroup || !this.noise) return;
+    const pan = this.creaturePanner(position);
+    this.playVoice(buildScratch(this.context, pan, this.noise, this.context.currentTime), pan);
+  }
+
+  /** A door forced or a bar broken: the leaf thrown back against the wall, splinters, the boards ringing. */
+  doorCrash(position: Point): void {
+    if (!this.context || this.context.state !== 'running' || !this.creatureGroup || !this.noise) return;
+    const pan = this.creaturePanner(position);
+    this.playVoice(buildCrash(this.context, pan, this.noise, this.context.currentTime), pan);
+  }
+
+
   update(dt: number, info: ForestAudioFrame): void {
     if (!this.context || this.context.state !== 'running' || this.disposed) return;
     this.age += dt;
@@ -395,6 +530,7 @@ export class ForestAudio {
     listener.upY.value = 1;
     listener.upZ.value = 0;
     this.ambience(dt, info, now);
+    this.updateEngines(now);
     // Diffuse forest ambience follows translation, but not head rotation. It
     // surrounds the listener anywhere on the map instead of collecting behind them.
     for(const [pan,offset] of this.ambienceDirections){
@@ -404,7 +540,7 @@ export class ForestAudio {
     }
     if(this.revealPanner&&this.revealPoint){const p=this.revealPoint;this.revealPanner.positionX.setTargetAtTime(p.x,now,.04);this.revealPanner.positionY.setTargetAtTime(p.y,now,.04);this.revealPanner.positionZ.setTargetAtTime(p.z,now,.04);}
     const breath=this.breathing.update(dt,{stamina:info.stamina??1,winded:info.winded??false});
-    if(breath.breath)this.playerBreath(breath.breath);
+    if(breath.breath&&!info.breathHeld)this.playerBreath(breath.breath);
     // Project onto the curved stream, rather than pinning its sound to one ear.
     let riverZ = info.position.z;
     for (let i = 0; i < 3; i++) {
@@ -529,7 +665,7 @@ export class ForestAudio {
     this.sources.clear();
     if (this.context) void this.context.close();
     this.context = null;
-    this.noise = null;
+    this.noise = null; this.engines.clear(); this.engineBuffers.clear(); this.stepPool.clear(); this.liftPool.clear(); this.brush = null;
     this.userMaster = null; this.ambienceGroup = null; this.creatureGroup = null;
     this.riverPanner = null;this.revealPanner=null;this.revealPoint=null;this.field=[];this.ambienceDirections.clear();this.buses=null;this.voices={};this.beds.clear();
   }

@@ -265,12 +265,12 @@ test('both faces of the door can see the prompt: the line of sight to the handle
   assert.equal(lineOfSight(r.world, new THREE.Vector3(2, 1.69, 1.5), new THREE.Vector3(2, 1.69, -1.5)), false, 'the wall itself still blocks the view');
 });
 
-test('opening or shutting by hand makes a small noise at the handle: shutting louder than opening; diagnostics and reset are silent', () => {
+test('opening or shutting by hand makes a small noise at the handle: both the door row of the noise scale; diagnostics and reset are silent', () => {
   const r = rig({ assets: { hut: { ...hut, doors: [{ ...spec, start: 0 }] }, door: leaf } });
   r.items[0].activate(); r.run(1); r.items[0].activate();
   assert.equal(r.noises.length, 2);
   assert.deepEqual(r.noises.map(n => [n.opening, n.loudness]), [[true, DOOR_NOISE.open], [false, DOOR_NOISE.close]]);
-  assert.ok(DOOR_NOISE.close > DOOR_NOISE.open && DOOR_NOISE.close <= .2);
+  assert.ok(DOOR_NOISE.close === DOOR_NOISE.open && DOOR_NOISE.close === .22, "the noise scale's door row: 22 m, faint at any range");
   assert.ok(Number.isFinite(r.noises[0].x) && Number.isFinite(r.noises[0].z) && r.noises[0].id === 'b#0');
   r.doors.set('b#0', 1); r.doors.set('b#0', 0, true); r.doors.toggle('b#0'); r.doors.reset();
   assert.equal(r.noises.length, 2);
@@ -534,3 +534,34 @@ test('the rebuilt world wires doors in: they swing only while the game simulates
     assert.equal(noises.length, 0, 'and silently');
   } finally { console.warn = warn; world.dispose(); }
 });
+
+test('a door can be barred from inside and then will not open; the bar is silent, lifts, and a restart lifts it', () => {
+  const inside = { x: 0, y: 0, z: -4 };
+  const r = (() => {
+    const base = rig({ assets: { hut: { ...hut, doors: [{ ...spec, start: 0 }] }, door: leaf } });
+    return base;
+  })();
+  // Without a barrable placement there is no bar item at all.
+  assert.deepEqual(r.items.map(i => i.id), ['door:b#0']);
+  const bars = rigBarrable(inside);
+  const bar = bars.items.find(i => i.id === 'bar:b#0'), handle = bars.items.find(i => i.id === 'door:b#0');
+  assert.ok(bar && handle && bar.keyOnly, 'the cabin\'s door has a bar, key only');
+  assert.equal(bar.label(), 'Left click to bar the door'); assert.equal(bar.enabled(), true);
+  bar.activate();
+  assert.equal(bars.doors.isBarred('b#0'), true); assert.equal(bar.label(), 'Left click to lift the bar'); assert.equal(handle.label(), 'The door is barred');
+  handle.activate(); bars.run(1);
+  assert.equal(bars.doors.get('b#0').closed, true, 'a barred door does not open'); assert.equal(bars.noises.length, 0, 'and the bar made no sound');
+  bar.activate(); assert.equal(bars.doors.isBarred('b#0'), false);
+  handle.activate(); bars.run(1); assert.equal(bars.doors.get('b#0').closed, false);
+  assert.equal(bar.enabled(), false, 'an open door has nothing to bar'); assert.equal(bars.doors.setBar('b#0', true), false);
+  bars.doors.set('b#0', 0); assert.equal(bars.doors.setBar('b#0', true), true); bars.doors.reset(); assert.equal(bars.doors.isBarred('b#0'), false);
+  bars.state.inside = false; bars.doors.set('b#0', 0); bars.run(1 / 60); assert.equal(bar.enabled(), false, 'not from outside');
+});
+function rigBarrable(at) {
+  const base = rig({ assets: { hut: { ...hut, doors: [{ ...spec, start: 0 }] }, door: leaf }, at }), state = { inside: true };
+  const items = [], noises = [];
+  const interaction = { register(item) { items.push(item); return () => { const i = items.indexOf(item); if (i >= 0) items.splice(i, 1); }; } };
+  const doors = createDoors({ pois: base.pois, collisions: base.world, interaction, onNoise: e => noises.push(e), barrable: p => p === 'b', indoors: () => state.inside, group: 'doors2' });
+  const run = (seconds, dt = 1 / 60) => { for (let t = 0; t < seconds - 1e-9; t += dt) doors.update({ dt, player: base.player }); };
+  return { items, noises, doors, run, state };
+}

@@ -1,4 +1,4 @@
-import type { ObjectiveText } from '../sim/objectives/objective-text';
+import { MAX_LINES, TICK, type ObjectiveText } from '../sim/objectives/objective-text';
 
 /** Shows or hides the objective. Fixed rather than rebindable; the engine stands aside if a player has bound it to something else. */
 export const OBJECTIVE_KEY = 'KeyO';
@@ -27,6 +27,8 @@ export type ObjectiveHudFrame = {
   /** False while paused, loading, taken or out of the window: the objective is gone at once. */
   allowed: boolean;
   text: ObjectiveText | undefined;
+  /** The day of the run as a line, e.g. "Day 2 of 5". Shown whenever play is on, even with the objective hidden (O). */
+  day?: string;
 };
 
 /**
@@ -42,35 +44,50 @@ export function createObjectiveHud(container: HTMLElement, options: ObjectiveHud
   const isOn = options.enabled ?? (() => local), setOn = options.setEnabled ?? ((on: boolean) => { local = on; });
   const verb = touch ? 'Tap' : options.keyName ?? 'O';
   const doc = container.ownerDocument, make = () => doc.createElement('div');
-  const el = make(), body = make(), title = make(), detail = make(), hint = make();
+  const el = make(), dayEl = make(), body = make(), title = make(), detail = make(), hint = make();
+  // The checklist under the title: a fixed few rows, shown or hidden as the step needs them, so a frame never builds elements.
+  const rows = Array.from({ length: MAX_LINES }, make), ROW = 'font-size:11px;line-height:1.35;color:#a9a89b;letter-spacing:.04em', DONE = 'color:#77786d';
+  const rowText = rows.map(() => '');
   const fade = `opacity ${OBJECTIVE_FADE * 1000}ms ease`;
   el.setAttribute('role', 'status'); el.setAttribute('aria-live', 'polite');
   // The prompt's face, a notch smaller. Beneath the pause button's corner (z 4) and every overlay, so a menu or the death card covers it.
-  el.style.cssText = `position:absolute;left:max(16px,env(safe-area-inset-left));top:max(14px,env(safe-area-inset-top));max-width:calc(100% - 96px);pointer-events:none;z-index:3;opacity:0;transition:${fade};font:400 13px/1.4 system-ui,sans-serif;letter-spacing:.05em;color:#dcd8c9;text-shadow:0 1px 3px #000,0 0 14px rgba(0,0,0,.75);touch-action:manipulation`;
+  el.style.cssText = `position:absolute;left:max(16px,env(safe-area-inset-left));top:calc(max(14px,env(safe-area-inset-top)) + 22px);max-width:calc(100% - 96px);pointer-events:none;z-index:3;opacity:0;transition:${fade};font:400 13px/1.4 system-ui,sans-serif;letter-spacing:.05em;color:#dcd8c9;text-shadow:0 1px 3px #000,0 0 14px rgba(0,0,0,.75);touch-action:manipulation`;
+  // The day sits above the objective in the same corner, a smaller, wider-spaced line that stays when the objective is hidden: the player always knows the day.
+  dayEl.style.cssText = `position:absolute;left:max(16px,env(safe-area-inset-left));top:max(14px,env(safe-area-inset-top));pointer-events:none;z-index:3;opacity:0;transition:${fade};font:400 11px/1.4 system-ui,sans-serif;letter-spacing:.22em;text-transform:uppercase;color:#a9a89b;text-shadow:0 1px 3px #000,0 0 14px rgba(0,0,0,.75)`;
   detail.style.cssText = 'font-size:12px;color:#a9a89b';
   hint.style.cssText = `margin-top:5px;font-size:10px;letter-spacing:.14em;color:#8b8c80;opacity:0;transition:${fade}`;
-  body.appendChild(title); body.appendChild(detail); el.appendChild(body); el.appendChild(hint);
-  container.appendChild(el);
+  for (const r of rows) { r.style.cssText = `${ROW};display:none`; }
+  body.appendChild(title); body.appendChild(detail); for (const r of rows) body.appendChild(r); el.appendChild(body); el.appendChild(hint);
+  container.appendChild(el); container.appendChild(dayEl);
 
   // `seen` is the seconds the corner has been on screen, up to the hint's allowance.
   let key = '', seen = 0, allowedNow = false, lastNow: number | undefined, swap = false;
   // What the DOM already holds, so a frame that changes nothing writes nothing.
-  let opacity = '0', transition = fade, events = 'none', hintOpacity = '0', hintText = '';
+  let dayOpacity = '0', dayText = '', opacity = '0', transition = fade, events = 'none', hintOpacity = '0', hintText = '';
 
-  function update({ now, allowed, text }: ObjectiveHudFrame) {
+  function update({ now, allowed, text, day }: ObjectiveHudFrame) {
     const dt = lastNow === undefined ? 0 : Math.min(.25, Math.max(0, (now - lastNow) / 1000)); lastNow = now; allowedNow = allowed;
     // The text that changed under a visible element dipped out last frame; bring it back up.
     if (swap) { swap = false; body.style.transition = `opacity ${SWAP * 1000}ms ease`; body.style.opacity = '1'; }
     if (text) {
-      const next = `${text.title}\n${text.detail ?? ''}`;
+      const next = `${text.title}\n${text.detail ?? ''}\n${(text.lines ?? []).join('\n')}`;
       if (next !== key) {
         const showing = opacity === '1' && key !== '';
         key = next;
         if (text.title !== title.textContent) title.textContent = text.title;
         if ((text.detail ?? '') !== detail.textContent) detail.textContent = text.detail ?? '';
+        const lines = text.lines ?? [];
+        rows.forEach((r, i) => {
+          const line = lines[i] ?? '';
+          if (line === rowText[i]) return;
+          rowText[i] = line; r.textContent = line; r.style.cssText = `${ROW};${line.startsWith(TICK) ? `${DONE};` : ''}display:${line ? 'block' : 'none'}`;
+        });
         if (showing) { body.style.transition = 'none'; body.style.opacity = '0'; swap = true; } // not a pop: the new words fade up
       }
     }
+    if (day !== undefined && day !== dayText) { dayText = day; dayEl.textContent = day; }
+    const nextDay = allowed && dayText ? '1' : '0';
+    if (nextDay !== dayOpacity) { dayOpacity = nextDay; dayEl.style.opacity = nextDay; dayEl.style.transition = allowed ? fade : 'none'; }
     // Shown whenever the player wants it and play is going on; there is nothing to show until the first words arrive.
     const visible = isOn() && allowed && key !== '';
     if (visible) seen = Math.min(OBJECTIVE_HINT_SECONDS, seen + dt);
@@ -107,10 +124,13 @@ export function createObjectiveHud(container: HTMLElement, options: ObjectiveHud
     get hidden() { return !isOn(); },
     /** True while it is up or fading up. */
     get shown() { return opacity === '1'; },
+    get day() { return dayText; },
     get title() { return title.textContent ?? ''; },
     get detail() { return detail.textContent ?? ''; },
+    /** The checklist rows now shown, top to bottom. */
+    get lines() { return rowText.filter(Boolean); },
     get hint() { return hintOpacity === '1' ? hintText : ''; },
-    dispose() { el.remove(); },
+    dispose() { el.remove(); dayEl.remove(); },
   };
 }
 

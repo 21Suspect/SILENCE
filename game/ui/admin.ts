@@ -67,7 +67,7 @@ export function createAdmin(container:HTMLElement,options:AdminOptions){
   `;
   let capturing:Action|undefined;
   const bindings=panel.querySelector<HTMLElement>('#silence-bindings')!,message=panel.querySelector<HTMLElement>('#silence-bind-message')!;
-  const labels:Record<Action,string>={forward:'Move forward',back:'Move backward',left:'Strafe left',right:'Strafe right',sprint:'Sprint',crouch:'Crouch / fly down',interact:'Interact',fullscreen:'Fullscreen',rise:'Jump / fly up / release ladder',drop:'Drop item'};
+  const labels:Record<Action,string>={forward:'Move forward',back:'Move backward',left:'Strafe left',right:'Strafe right',sprint:'Sprint',crouch:'Crouch / fly down',interact:'Interact',fullscreen:'Fullscreen',rise:'Jump / fly up / release ladder',drop:'Drop item',breath:'Hold breath',bell:'Bicycle bell',map:'Paper map'};
   function renderBindings(){bindings.replaceChildren();for(const action of Object.keys(labels) as Action[]){const row=document.createElement('div');row.className='binding';const label=document.createElement('span');label.textContent=labels[action];const button=document.createElement('button');button.textContent=capturing===action?'Press a key…':keyLabel(options.settings.bindings[action]);button.setAttribute('aria-label',labels[action]+': '+button.textContent);button.onclick=()=>{capturing=action;renderBindings();};row.appendChild(label);row.appendChild(button);bindings.appendChild(row);}}
   renderBindings();
   const quality=panel.querySelector('#silence-quality') as unknown as HTMLSelectElement;

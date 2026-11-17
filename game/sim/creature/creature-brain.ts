@@ -1,31 +1,52 @@
 /**
- * The Listener's mind: senses, memory and a utility selector over behaviours.
+ * The Listener's mind: blind. It knows only what it hears (docs/game-design.md, "The Listener", "Sound and light").
  *
  * Pure and deterministic. No three.js, no scene, no clock and no Math.random: the host (game/render/creature/encounters.ts)
- * measures the world for it (line of sight, where the torch beam points, how far its head is from the player)
- * and moves the body; this module only perceives and decides. Randomness comes from the injected `random`, and
- * time only from the `dt` of each tick, so a fixed seed and a fixed script of inputs replay exactly. That keeps
- * it testable and lets a multiplayer host own it later.
+ * moves the body and tells it where the torch beam points and how far its head is from the player; this module hears and
+ * decides. Randomness comes from the injected `random`, and time only from the `dt` of each tick, so a fixed seed and a fixed
+ * script of inputs replay exactly.
  *
- * Decisions: every behaviour scores itself against the current situation; the best one runs. The running one
- * gets a small bonus (hysteresis) and a minimum commitment, so it does not flicker. New behaviours (Stage 2's
- * Watch, Bluff, Cut off) are new entries in the list handed to createCreatureBrain; nothing else changes.
+ * What it does, by what it heard (the grade is the sound's own class from game/sim/noise/noise-scale.ts, not how near it was):
+ *   faint     stops, turns its head, drifts that way slowly; ten seconds of silence and it loses interest
+ *   loud      calls once, trots to the spot and searches it for 20 s, listening (clicks)
+ *   veryLoud  (or kept up) runs at twice the player's sprint and stays while it goes on; then searches there
+ * A running source (a generator, a pump: brain.source(id, {x, z, loudness}) while it runs, null when it stops) is heard whenever
+ * the creature is inside its reach, as a kept-up noise: it runs there and, while it runs, prowls round it in widening rings
+ * (behaviour 'prowl': hunting whoever started it, never parked at it); when it stops it searches.
+ * Too big to enter a building: a loud noise from inside makes it besiege it (behaviour 'siege', see siegeStep): it comes to the walls,
+ * goes round them, tries the doors (scratching), forces a shut one after a while if the noise inside keeps up, and reaches in
+ * through an open doorway for anyone it perceives near it. Quiet inside, it searches outside and moves on.
+ * A second noise redirects it (see `take`): that is how a player leads it away. Within 3 m it hears breathing unless it is held.
+ * It catches only a player it perceives right now: one who made a heard noise in the last 1.5 s or is breathing within 3 m.
+ *
+ * By day it sleeps in its lair (the only place it rests); at dusk it leaves, earlier each day, for the loudest place of the
+ * day and then makes its round. Worse each day: it leaves earlier, searches longer, and from day 4 wakes to any loud noise.
  */
+import { STAMINA } from '../player/stamina';
+import { NOISE, hears, noiseGrade, footstepNoise, type NoiseGrade, type WeatherCover } from '../noise/noise-scale';
+import { buildingAt, bearingOf, ringPoint, standAt, toLocal, type Building, type Opening } from './buildings';
 
 export type Vec2 = { x: number; z: number };
 /** A world point. Without y the host picks a height (the ground plus head height). */
 export type Point = { x: number; y?: number; z: number };
 
-/** Something that made a sound, from the objectives' noise stream (footsteps, ladder rungs, the generator...). */
-export type NoiseEvent = { loudness: number; source: string; x: number; z: number };
+/**
+ * Something that made a sound, from the objectives' noise stream (footsteps, ladder rungs, the generator...). `sustained`
+ * marks a sound that is kept up (the generator's hum, hammering): it counts as very loud whatever its loudness.
+ */
+export type NoiseEvent = { loudness: number; source: string; x: number; z: number; sustained?: boolean };
+/** A sound that goes on for as long as the thing runs (a generator, a pump, the helicopter): see brain.source. */
+export type RunningSource = { x: number; z: number; loudness: number };
 
-/** What is true about the player this instant. The brain only uses position and motion when it senses them. */
+/** What is true about the player this instant. The brain only uses where they are (for breathing and the catch) and the torch. */
 export type PlayerPercept = {
   x: number; y: number; z: number;
   /** Ground velocity, m/s. */
   vx: number; vz: number;
   sprinting: boolean; crouching: boolean; flashlightOn: boolean;
   inWater: boolean; onLadder: boolean; indoors: boolean;
+  /** Holding their breath: it cannot hear them breathe, whatever the distance. Default false. */
+  breathHeld?: boolean;
   /** Flying/noclip, already caught, or otherwise out of play: it can neither sense nor strike them. */
   untouchable?: boolean;
 };
@@ -33,19 +54,23 @@ export type PlayerPercept = {
 export type BrainInput = {
   /** Seconds since the last tick. All of the brain's time comes from this. */
   dt: number;
-  /** Local solar time, 0-24, and how dark it is, 0-1. */
-  hours: number; darkness: number;
+  /** Local solar time, 0-24. Day and night are the brain's own business: asleep by day, out from dusk. */
+  hours: number;
+  /** How dark it is, 0-1. The blind Listener does not use it; kept so hosts need not change. */
+  darkness?: number;
+  /** Which day of the run, 1 to 5 (default 1): it leaves the lair earlier, searches longer, from day 4 sleeps lightly. */
+  day?: number;
+  /** Weather is cover: it shortens every distance a noise carries (default still). */
+  weather?: WeatherCover;
   /** Where it is, which way it faces, and (if the host knows) how fast its body is really moving, m/s. */
   creature: { x: number; z: number; yaw: number; speed?: number };
   player: PlayerPercept;
-  /** Measured by the host: nothing solid between its eyes and the player's body. */
-  lineOfSight: boolean;
-  /** The player has it on screen, unobstructed. */
-  playerLooking: boolean;
   /** The torch is on, aimed at its head and close enough to dazzle. */
   beamOnIt: boolean;
   /** Metres from its head and hands to the player's chest; Infinity when there is no body to reach with. */
   reach: number;
+  /** The doorways of the buildings (and how open they are), if the host knows them. Without them a siege never forces or reaches in. */
+  openings?: readonly Opening[];
 };
 
 export type Intent = {
@@ -59,18 +84,24 @@ export type Intent = {
 
 export type BrainEvent =
   | { type: 'behaviour'; from: string; to: string }
-  | { type: 'spotted' }
-  | { type: 'heard'; source: string; strength: number }
-  | { type: 'hunt-started' }
+  /** A noise it heard (within its range), with its grade and how far off it was. */
+  | { type: 'heard'; source: string; grade: NoiseGrade; distance: number }
+  /** Its call: it has taken up a loud (or louder) noise. The host plays it. */
+  | { type: 'call' }
+  /** A run of clicks while it searches, listening. The host plays them. */
+  | { type: 'clicks' }
+  | { type: 'wake'; cause: string }
+  | { type: 'sleep' }
+  /** It has the player: the host plays out the grab. */
   | { type: 'strike' }
-  /** It lost them: `from` is the behaviour that ended (a hunt lost is a chase that got away; a shadow lost is nothing much). */
-  | { type: 'lost-player'; from: string }
-  /** It has decided to get ahead of the player and wait on their way. */
-  | { type: 'ambush' }
   /** The torch has pinned it: it begins to slow to a halt and will be held for `seconds` if the beam stays on it. */
   | { type: 'flinch'; seconds: number }
   /** The stun moves on: held (it has stopped), starting (it is getting going again, `seconds` it was held), over. */
-  | { type: 'stun'; phase: 'held' | 'starting' | 'over'; seconds?: number };
+  | { type: 'stun'; phase: 'held' | 'starting' | 'over'; seconds?: number }
+  /** At a shut door of the building it besieges: it scratches or knocks (the host plays it, at the door). */
+  | { type: 'doorTell'; kind: 'scratch' | 'knock'; door: string; x: number; z: number }
+  /** It has forced a door: the host swings it open hard (a crash, a noise at the door) and breaks the bar if there was one. */
+  | { type: 'forceDoor'; door: string; barred: boolean; x: number; z: number };
 
 /** The torch stun: slowing to a halt, held, then getting going again. */
 export type StunPhase = 'none' | 'slowing' | 'held' | 'starting';
@@ -82,8 +113,12 @@ export type StunState = {
   backstep: number;
 };
 
+/** asleep in the lair; return to it; wait (woken by day, listening out the quiet); the night's round; the responses (siege: a building with someone loud in it); the catch. */
+export type BehaviourId = 'asleep' | 'return' | 'wait' | 'round' | 'drift' | 'trot' | 'run' | 'prowl' | 'search' | 'siege' | 'strike';
+const BEHAVIOURS: readonly BehaviourId[] = ['asleep', 'return', 'wait', 'round', 'drift', 'trot', 'run', 'prowl', 'search', 'siege', 'strike'];
+
 export type BrainOutput = {
-  behaviour: string;
+  behaviour: BehaviourId;
   intent: Intent;
   /** Where its head should look, or undefined to look along its path. */
   gaze?: Point;
@@ -91,94 +126,92 @@ export type BrainOutput = {
   /** Slowing or held by the torch: it cannot strike. */
   flinching: boolean;
   stun: StunState;
-  sees: boolean;
-  boldness: number;
+  asleep: boolean;
+  /** It perceives the player right now (a heard noise of theirs in the last catchWindow, or breathing within 3 m). */
+  perceives: boolean;
 };
 
 /** Every number that shapes how it hunts. Distances in metres, times in seconds, speeds in m/s. */
 export const CREATURE_TUNING = {
-  // --- Hearing. A noise of loudness 1 (the generator roaring awake) carries this far.
-  hearingRange: 100,
-  /** Position error of a heard noise: a base, a share of the distance, and more for a faint one. */
-  hearingError: 2, hearingErrorPerMetre: .1, hearingErrorFaint: 6,
-
-  // --- Sight ranges for a standing, walking player.
-  sightDay: 55,
-  /** Full night, torch off: a dark shape among trunks. */
-  sightNight: 15,
-  /** Torch on in the dark: a beacon. */
-  sightBeacon: 80,
-  sightCrouch: .55, sightStill: .8, sightSprint: 1.15, sightIndoors: .35,
-  /** Half-angle (radians) its ring of eyes sees well within; behind that the range shrinks to sightBehind. */
-  sightFov: 2.3, sightBehind: .6,
-  /** It feels a player this close whatever it can see. */
-  touchRange: 3.2,
-  /** Seconds of clear view to recognise the player: close is near-instant, at the edge of range slow. */
-  recogniseNear: .25, recogniseFar: 2.2, forgetRate: .8,
-
-  // --- Memory.
-  /** How long a lead (a heard noise, a last sighting) is worth following. */
-  leadMemory: 45,
-  /** How fast a last sighting loses out to a new noise: a loud one wins within seconds of losing sight. */
-  sightLeadFade: 12,
-  /** How long after losing sight it can still shadow from memory. */
-  shadowMemory: 7,
-  /** How long a hunt runs on toward where the player was heading after losing sight. */
-  huntPersist: 6,
-
-  // --- Boldness: night does most of it, the length of the evening the rest.
-  boldNight: .85, boldElapsed: .15, boldElapsedFrom: 90, boldElapsedTo: 600,
-  /** Free-roam playtime also builds courage, even after the sun comes up. */
-  pressureFrom: 120, pressureFull: 300, pressureBoldness: .72,
-  /** Boldness where hunting starts to be possible, and where it is a certainty. */
-  huntBoldnessMin: .5, huntBoldnessFull: .8,
-  /**
-   * The host can withhold hunting (the scripted opening). Once it is allowed again there is none for huntPermitDelay
-   * seconds; then the drive rises from huntPermitFloor to its full strength over huntPermitRamp: rare at first, certain
-   * later.
-   */
-  huntPermitDelay: 90, huntPermitFloor: .12, huntPermitRamp: 90,
-  /**
-   * A hunt that has run this long without a grab is broken off (it loses the scent, or its nerve): it withdraws, and for
-   * huntCooldown seconds after any hunt ends (lost, broken off, timed out) it will not take one up again.
-   */
-  huntLimit: 20, huntCooldown: 90,
-  /** Seconds of continuous sight before it commits to a hunt, when bold and when timid. */
-  huntSight: 1, huntSightTimid: 2.4,
-  /** After a death it is calm for a while (boldness scaled down); after losing a chase, briefly. */
-  calmAfterDeath: 200, calmScale: .25, calmAfterLoss: 60, calmLossScale: .5,
-  /** Developer "hunt" spawn: boldness 1 for this long. */
-  provokeSeconds: 90,
-
-  // --- Movement.
-  roamSpeed: 1.8, roamFarSpeed: 4.5, roamFar: 110,
-  investigateSpeed: 2.2, investigateUrgent: 4, investigateArrive: 4, investigateGiveUp: 40, searchSeconds: 4.5,
-  /** Shadowing distance when timid and when bold (closer at night). */
-  shadowFar: 28, shadowNear: 16, shadowMin: 10, shadowMaxSpeed: 5,
-  /** Shadowing distance multipliers in full daylight and full dark: about 28 m by day, so it is there to be seen. */
-  shadowDaylight: 1, shadowDark: .75,
-  /** Roam waypoints near the player's area keep at least this far off when timid, this far when bold. */
-  roamOffTimid: 75, roamOffBold: 45,
-  /**
-   * It does not follow the player about. After pacing them for paceBudget seconds (a number drawn afresh each time) it
-   * either gets ahead of them (ambushChance, if they are walking somewhere) or goes away. Away, for the seconds given,
-   * it roams elsewhere and only a noise of recallSalience or louder brings it back.
-   */
-  paceBudget: [8, 20], ambushChance: .55,
-  awayAfterPace: [50, 100], awayAfterSearch: [45, 90], awayAfterHunt: [70, 120], awayAfterWithdraw: [35, 70], recallSalience: .55,
-  /** The ambush: how far ahead on the player's way it waits, how wide it swings to get there, its pace, how long it waits, and how near they must come. */
-  ambushAhead: 62, ambushWide: 40, ambushSpeed: 6.2, ambushWait: 55, ambushMeet: 24,
-  // A sprinting player covers 3.35 m/s: it is still far faster, but a charge can now be seen coming and answered (the torch,
-  // a door, the water). At 13.5 m/s it crossed its whole charge distance in under two seconds.
-  huntApproach: 4.6, huntCharge: 8.5, huntChargeDistance: 20,
-  /** It rears for this long when a hunt starts (and screeches) before it runs. */
-  huntWindup: 1.2,
-  /** Seconds of the player's velocity it leads them by. */
-  huntLead: .45,
-  withdrawSpeed: 6.5, withdrawDistance: 42, withdrawSeconds: 12,
-
-  // --- The grab: metres from its head to the player's chest.
+  // --- Hearing. A noise is heard iff it is within heardWithin(loudness) (noise-scale.ts): no falloff, no chance. Only the
+  // position it makes of it is blurred, more for a faint sound than a loud one ("about right").
+  /** Error radius (m) of the place it makes of a faint, a loud and a very loud noise. */
+  errorFaint: 3, errorLoud: 1, errorVeryLoud: .5,
+  /** A heard noise within this far of the player's position is the player's own (footsteps, the torch, a door they opened). */
+  playerNoiseRadius: 6,
+  /** How long it perceives a player after hearing a noise of theirs: a walker's footfalls are 0.5 s apart, a crouch 0.9 s. */
+  catchWindow: 1.5,
+  /** The grab: metres from its head to the player's chest. */
   grabReach: 2.2,
+
+  // --- Faint: stop, turn the head, drift. 1.2 m/s is under a walk (1.8): a player who keeps still is not caught up with.
+  faintTurn: 1.2, faintSpeed: 1.2, faintArrive: 2,
+  /** Seconds with no further sound before it loses interest (design: ten). */
+  faintForget: 10,
+
+  // --- Loud: call once, trot, search. 4 m/s is more than a walk (1.8) and under a sprint (5.6): a sprinter can still outrun it.
+  trotSpeed: 4, trotArrive: 3,
+  /** Searching the spot, listening: seconds on day 1 and the extra each later day. */
+  searchSeconds: 20, searchPerDay: 5,
+  /** While it searches it clicks: the first after this long, then every so many seconds (drawn between the two). */
+  clicksFirst: 1.5, clicksEvery: [3.5, 6] as readonly number[],
+
+  // --- Very loud or kept up: it runs at runMultiplier x the player's sprint (STAMINA.sprintSpeed, 5.6 -> 11.2).
+  runMultiplier: 2, runArrive: 1.5,
+  /** At the source it stays while the sound goes on. The generator hums every 7 s, so quiet this long means it has stopped. */
+  stayQuiet: 10,
+  /** A running source (brain.source) is steady, so quiet this long at it means it was switched off; and it pulls a creature that is following something else back this often. */
+  sourceStayQuiet: 3, sourceRetake: 7,
+  /**
+   * At a running machine it does not wait: within `prowlStart` m of it, it prowls round it hunting whoever started it, at
+   * `prowlSpeed` m/s (scuttled), on rings that widen from `prowlRing[0]` to `prowlRing[1]` m and close again every `prowlWiden` s,
+   * now and then turning back the other way. So a running generator pulls it across the island, and is the worst place to be.
+   */
+  prowlStart: 6, prowlSpeed: 2.6, prowlRing: [9, 42] as readonly number[], prowlWiden: 40, prowlTurn: [10, 22] as readonly number[],
+
+  // --- Indoors. It is too big to enter: it besieges the building. Distances in metres from the walls or an opening.
+  /** How far from the walls its middle goes as it circles (its legs reach the rest of the way). */
+  siegeRing: 3.6,
+  /** No noise from inside for this long: it gives up, searches outside and moves on. */
+  siegeQuiet: 10,
+  /** With the noise inside kept up, a shut door is forced after this long (barred: after the second), by a creature at it: counted from when the siege began, whatever it was doing meanwhile. */
+  forceSeconds: 8, forceBarredSeconds: 25,
+  /** One visit to a door lasts this long before it goes round the building again (and over it, where it can climb); at a shut door it tells (scratches, knocks) every so often. */
+  doorSpell: 9, tellEvery: [1.4, 3] as readonly number[],
+  /** Going round, then (every so often) straight across to the far side, over the roof where the surface-climb takes it. */
+  circleSeconds: [6, 10] as readonly number[], crossEvery: [14, 22] as readonly number[],
+  /** A door open this far (0-1) is a way in for its arms. Inside this far (m) of an opening, and perceived, it strikes through it. */
+  openingOpen: .3, openingReach: 2.5,
+  /** It waits this far out from an opening it works at; it can strike from this far plus a body's reach. */
+  openingStand: 3.2, openingStrikeFrom: 4.8,
+  siegeSpeed: 3.2,
+  /** Within this far of the walls it is at the building (the quiet is counted from there). */
+  siegeNear: 14,
+  /** It counts the noise inside as kept up (and works at a door) while the last of it is this recent. */
+  keptUp: 4,
+
+  // --- A second noise (see `take`). A fainter noise redirects it only if it is nearer than the current target; a creature
+  // that is already at its target counts that target as this far, so a faint sound close beside a searcher still draws it.
+  redirectNear: 8,
+
+  // --- The lair and the day. By day it sleeps in the lair; it walks back from dawnReturn (05:30) and rests on arrival.
+  returnSpeed: 5, lairArrive: 3, dawnReturn: 5.5,
+  /** Woken by day it goes back to sleep after this many seconds of quiet. */
+  sleepQuiet: 90,
+  /** It leaves the lair at 19:00 on day 1 and half an hour earlier each day (17:00 on day 5). */
+  leaveHour: 19, leaveEarlier: .5,
+  /** Asleep: a loud noise within this far of the lair wakes it (a very loud one wakes it anywhere it is heard)... */
+  lairWakeRadius: 60,
+  /** ...and from this day it sleeps lightly: any loud noise it hears wakes it. */
+  lightSleepDay: 4,
+
+  // --- The round, when it has nothing to follow: a place, a pause to listen, the next. Slow near, brisk when far.
+  roundSpeed: 2.2, roundFar: 110, roundFarSpeed: 4.5, roundArrive: 3, roundPause: [5, 9] as readonly number[],
+  /** Without a provider from the host: its places in a shuffled order, or this many points this far (a range) from the lair. */
+  roundPoints: 5, roundRadius: [120, 220] as readonly number[],
+
+  // --- Developer hunt: it knows exactly where the player is, for this long.
+  provokeSeconds: 90,
 
   // --- Torch stun, in three phases: it slows to a halt, it is held, it gets going again. Never a hard stop.
   /** Seconds the beam must hold on its face before it takes. */
@@ -197,21 +230,6 @@ export const CREATURE_TUNING = {
   stunGrace: 1.2,
   /** The step back: seconds and top speed, early in the held phase. */
   stunBack: .7, stunBackSpeed: .8,
-  /** For this long after a stun a timid creature prefers to withdraw. */
-  stunShy: 6,
-  /**
-   * A hunt the torch has held may be broken off when it gets going again: the chance is this times how far it is
-   * from its full hunting drive. Early in the night the light can save you; deep in it, it only buys a moment.
-   */
-  stunBreakOff: .9,
-  /** How much of its hunting drive shields a hunt from being broken off by the torch: at full drive the chance is stunBreakOff x (1 - this). */
-  stunBreakDrive: .25,
-
-  // --- Being watched: seconds the player can stare before a timid / bold creature melts back.
-  watchTolerance: 1.6, watchToleranceBold: 3.5,
-
-  // --- Selector.
-  decisionInterval: .2, hysteresis: .12, interruptMargin: .3,
 };
 export type CreatureTuning = typeof CREATURE_TUNING;
 
@@ -219,6 +237,7 @@ const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const smoothstep = (v: number, a: number, b: number) => { const t = clamp((v - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 const dist = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.z - b.z);
+const RANK: Record<NoiseGrade, number> = { faint: 0, loud: 1, veryLoud: 2 };
 
 /** Mulberry32: small, fast, and identical on every client for the same seed. */
 export function createRandom(seed: number) {
@@ -233,38 +252,15 @@ export function createRandom(seed: number) {
 }
 
 // ------------------------------------------------------------------------------------------------------------
-// Senses, as plain functions so they can be checked on their own.
-
-/** How clearly a noise is heard, 0 (not at all) to 1 (right beside it). Falls off linearly to loudness x range. */
-export function hearingStrength(loudness: number, distance: number, tuning: CreatureTuning = CREATURE_TUNING) {
-  const range = Math.max(0, loudness) * tuning.hearingRange;
-  return range <= 0 ? 0 : clamp(1 - distance / range, 0, 1);
-}
+// Senses and the clock, as plain functions so they can be checked on their own.
 
 export type FootSurface = 'road' | 'dirt' | 'forest' | 'water';
-/** Loudness of one footfall. A sprint on the gravel road carries ~45 m; a crouch on the forest floor ~3 m. */
-export function footstepLoudness(o: { speed: number; sprinting: boolean; crouching: boolean; surface: FootSurface }) {
-  if (o.speed < .2) return 0;
-  const gait = o.crouching ? .04 : o.sprinting && o.speed > 2.2 ? .34 : .13 + clamp(o.speed - 1, 0, 1.5) * .03;
-  const surface = o.surface === 'road' ? 1.35 : o.surface === 'water' ? 2 : o.surface === 'forest' ? .8 : 1;
-  return gait * surface;
-}
+/** Loudness of one footfall (the noise scale's: a sprint carries 45 m, a walk 22 m, a crouch 6 m). */
+export function footstepLoudness(o: { speed: number; sprinting: boolean; crouching: boolean; surface: FootSurface }) { return footstepNoise(o); }
 /** The torch switch: a small dry click, heard within a few metres. */
-export const FLASHLIGHT_CLICK_LOUDNESS = .07;
+export const FLASHLIGHT_CLICK_LOUDNESS = NOISE.torchClick;
 
-/** How far it can see the player, before line of sight and its own field of view are considered. */
-export function sightRange(o: { darkness: number; flashlightOn: boolean; crouching: boolean; sprinting: boolean; moving: boolean; indoors: boolean }, tuning: CreatureTuning = CREATURE_TUNING) {
-  const dark = clamp(o.darkness, 0, 1);
-  // The beam is what it sees at night, and the darker it is the more it stands out.
-  let range = o.flashlightOn ? Math.max(lerp(tuning.sightDay, tuning.sightNight, dark), lerp(tuning.sightDay, tuning.sightBeacon, smoothstep(dark, .15, .7))) : lerp(tuning.sightDay, tuning.sightNight, dark);
-  if (o.crouching) range *= tuning.sightCrouch;
-  if (!o.moving) range *= tuning.sightStill;
-  else if (o.sprinting) range *= tuning.sightSprint;
-  if (o.indoors) range *= tuning.sightIndoors;
-  return range;
-}
-
-/** How dark the hour is, as far as courage goes: nothing by day, rising through the evening, full after 23:00. */
+/** How dark the hour is, as far as courage once went: nothing by day, rising through the evening, full after 23:00. */
 export function nightness(hours: number) {
   const h = ((hours % 24) + 24) % 24;
   if (h >= 16) return smoothstep(h, 16.5, 23);
@@ -272,372 +268,383 @@ export function nightness(hours: number) {
   return 1 - smoothstep(h, 4.5, 7);
 }
 
-/** Courage before calm and provocation: mostly the hour, partly how long the evening has gone on. */
-export function baseBoldness(hours: number, elapsed: number, tuning: CreatureTuning = CREATURE_TUNING) {
-  return clamp(tuning.boldNight * nightness(hours) + tuning.boldElapsed * smoothstep(elapsed, tuning.boldElapsedFrom, tuning.boldElapsedTo), 0, 1);
+/** The hour it leaves the lair on a day of the run: 19:00 on day 1, half an hour earlier each day. */
+export function leaveHour(day: number, tuning: CreatureTuning = CREATURE_TUNING) { return tuning.leaveHour - tuning.leaveEarlier * (clamp(Math.round(day), 1, 99) - 1); }
+/** Its night: from the hour it leaves the lair to dawnReturn. The rest is its day, spent asleep. */
+export function isNight(hours: number, day = 1, tuning: CreatureTuning = CREATURE_TUNING) {
+  const h = ((hours % 24) + 24) % 24;
+  return h >= leaveHour(day, tuning) || h < tuning.dawnReturn;
 }
-
-// ------------------------------------------------------------------------------------------------------------
-// Memory.
-
-export type Sighting = { x: number; y: number; z: number; vx: number; vz: number; at: number };
-/** Something worth going to look at: a heard noise, or where the player was last seen. */
-export type Lead = { id: number; kind: 'sight' | 'sound'; source: string; x: number; z: number; y?: number; uncertainty: number; salience: number; at: number; investigated: boolean };
-
-// ------------------------------------------------------------------------------------------------------------
-// Behaviours.
-
-/** A behaviour's own working notes (waypoints, timers, sweep angles): each behaviour keeps different things in it. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Scratch = Record<string, any>;
-
-export type BrainContext = {
-  now: number; dt: number; random: () => number; tuning: CreatureTuning;
-  input: BrainInput; self: Vec2 & { yaw: number };
-  sees: boolean; sightTime: number;
-  lastSeen?: Sighting; lastSeenAge: number;
-  lead?: Lead; leadAge: number;
-  boldness: number; huntDrive: number;
-  /** Seconds the player has kept it on screen. */
-  watched: number;
-  flinching: boolean; sinceFlinch: number;
-  dismissed: boolean;
-  /** The torch broke its nerve: it gives up this hunt and withdraws. */
-  shaken: boolean;
-  /** The side (+1/-1) it shadows from; Withdraw flips it so it comes back from the other side. */
-  flank: number;
-  current: string; inCurrent: number;
-  /** It has had enough of the player for now (a lost chase, a search that found nothing, a long look): it is off elsewhere. */
-  away: boolean;
-  /** Seconds it has spent pacing the player since it last went away, and how many it allows itself. */
-  paced: number; paceBudget: number;
-  /** A place ahead of the player it has decided to get to and wait at, by way of a point well off to one side. */
-  ambush?: { via: Vec2; at: Vec2; from: Vec2; until: number; reached: boolean };
-  /** Go away for a while (seconds), dropping what it was following. */
-  leave(seconds: number): void;
-  endAmbush(): void;
-  /** True distance to the player. Only for pacing (how fast to travel while far); never for finding them. */
-  distanceToPlayer: number;
-  places: readonly Vec2[];
-  /** Per-behaviour scratch state, cleared when the behaviour is entered. */
-  state: Scratch;
-  stateOf(id: string): Scratch;
-  setFlank(side: number): void;
-  clearDismissed(): void;
-  emit(event: BrainEvent): void;
-};
-
-export type Behaviour = {
-  id: string;
-  /** Seconds it runs before a merely better option may replace it (a much better one interrupts at once). */
-  commit: number;
-  score(c: BrainContext): number;
-  enter?(c: BrainContext): void;
-  exit?(c: BrainContext): void;
-  act(c: BrainContext): { intent: Intent; gaze?: Point };
-};
-
-const watchTolerance = (c: BrainContext) => lerp(c.tuning.watchTolerance, c.tuning.watchToleranceBold, c.boldness);
-/** Where the player probably is now: what it sees, or the last sighting carried along their heading a little. */
-function playerEstimate(c: BrainContext, lead = 0): Point | undefined {
-  const p = c.input.player;
-  if (c.sees) return { x: p.x + p.vx * lead, y: p.y + 1.5, z: p.z + p.vz * lead };
-  const s = c.lastSeen; if (!s) return undefined;
-  const t = Math.min(1.5, c.lastSeenAge + lead);
-  return { x: s.x + s.vx * t, y: s.y + 1.5, z: s.z + s.vz * t };
-}
-const ahead = (from: Vec2 & { yaw: number }, to?: Vec2): Point => {
-  if (!to || dist(from, to) < .5) return { x: from.x + Math.sin(from.yaw) * 10, z: from.z + Math.cos(from.yaw) * 10 };
-  const d = dist(from, to); return { x: from.x + (to.x - from.x) / d * 10, z: from.z + (to.z - from.z) / d * 10 };
-};
-
-/** Patrols between the places the player needs, drifting toward where the player roughly is (a director's hint). */
-export const roam: Behaviour = {
-  id: 'roam', commit: 3,
-  score: () => .2,
-  act(c) {
-    const s = c.state, t = c.tuning;
-    // Having turned away from the player it picks somewhere new at once, well away from them.
-    if (!s.waypoint || dist(c.self, s.waypoint) < 6 || c.now > s.until || s.away !== c.away) { s.away = c.away; s.waypoint = c.away ? pickFarWaypoint(c) : pickWaypoint(c); s.until = c.now + 40 + c.random() * 30; }
-    return { intent: { target: s.waypoint, speed: c.distanceToPlayer > t.roamFar ? t.roamFarSpeed : t.roamSpeed, arrive: 3 }, gaze: ahead(c.self, s.waypoint) };
-  },
-};
-function pickWaypoint(c: BrainContext): Vec2 {
-  const p = c.input.player, r = c.random;
-  // The hint is coarse: the player's area, not their position.
-  const hint = { x: p.x + (r() - .5) * 40, z: p.z + (r() - .5) * 40 };
-  if (!c.places.length || r() < .35 + .5 * c.boldness) {
-    const a = r() * Math.PI * 2, d = lerp(c.tuning.roamOffTimid, c.tuning.roamOffBold, c.boldness) + r() * 35;
-    return { x: hint.x + Math.sin(a) * d, z: hint.z + Math.cos(a) * d };
-  }
-  let total = 0; const weights = c.places.map(q => { const w = 1 / (1 + dist(q, hint) / 60) ** 2; total += w; return w; });
-  let pick = r() * total, i = 0;
-  while (i < weights.length - 1 && pick > weights[i]) pick -= weights[i++];
-  const q = c.places[i], a = r() * Math.PI * 2, d = 4 + r() * 8;
-  return { x: q.x + Math.sin(a) * d, z: q.z + Math.cos(a) * d };
-}
-
-/** Somewhere to be that is not where the player is: one of its places a good way off, or just off into the forest. */
-function pickFarWaypoint(c: BrainContext): Vec2 {
-  const p = c.input.player, r = c.random, far = c.places.filter(q => dist(q, p) > 110 && dist(q, p) < 320);
-  if (far.length && r() < .7) { const q = far[Math.floor(r() * far.length)], a = r() * Math.PI * 2, d = 4 + r() * 10; return { x: q.x + Math.sin(a) * d, z: q.z + Math.cos(a) * d }; }
-  // Onward the way it is already going from them, not back across them.
-  const out = Math.atan2(c.self.x - p.x, c.self.z - p.z) + (r() - .5) * 1.6, d = 130 + r() * 70;
-  return { x: p.x + Math.sin(out) * d, z: p.z + Math.cos(out) * d };
-}
-
-/** Goes to a noise or a last sighting, slowly, then stands and sweeps its head. */
-export const investigate: Behaviour = {
-  id: 'investigate', commit: 2,
-  score(c) {
-    // With the player in sight there is nothing to go and look for: shadowing, hunting or withdrawing decide.
-    const lead = c.lead; if (!lead || lead.investigated || c.sees) return 0;
-    const fresh = 1 - c.leadAge / c.tuning.leadMemory; if (fresh <= 0) return 0;
-    // Gone off elsewhere, only a real noise brings it back: not the memory of where it last saw them.
-    if (c.away && (lead.kind === 'sight' || lead.salience < c.tuning.recallSalience)) return 0;
-    // A sighting is not worth walking to the moment it is lost: for a few seconds it paces them from memory.
-    return (.3 + .45 * fresh * Math.min(1, lead.salience)) * (lead.kind === 'sight' ? smoothstep(c.leadAge, 1, 4) : 1);
-  },
-  act(c) {
-    const lead = c.lead!, t = c.tuning, s = c.state;
-    if (s.leadId !== lead.id) { s.leadId = lead.id; s.search = undefined; s.since = c.now; s.probe = undefined; }
-    const goal: Vec2 = s.probe ?? lead;
-    if (s.search === undefined && dist(c.self, goal) < t.investigateArrive) { s.search = c.now; s.sweep = c.self.yaw; }
-    if (s.search !== undefined) {
-      const searching = c.now - s.search;
-      if (searching > t.searchSeconds) {
-        // A vague noise gets one more look somewhere inside its uncertainty before it gives up.
-        if (!s.probe && lead.uncertainty > 6) {
-          const a = c.random() * Math.PI * 2, d = lead.uncertainty * (.4 + c.random() * .5);
-          s.probe = { x: lead.x + Math.sin(a) * d, z: lead.z + Math.cos(a) * d }; s.search = undefined;
-        } else {
-          // It looked, they were not there: it loses interest and goes elsewhere. A player who hid has got away.
-          lead.investigated = true; c.leave(t.awayAfterSearch[0] + c.random() * (t.awayAfterSearch[1] - t.awayAfterSearch[0]));
-        }
-      }
-      const a = s.sweep + Math.sin(searching * 1.4) * 1.3;
-      return { intent: { target: goal, speed: 0 }, gaze: { x: c.self.x + Math.sin(a) * 9, z: c.self.z + Math.cos(a) * 9 } };
-    }
-    if (c.now - s.since > t.investigateGiveUp) lead.investigated = true;
-    const urgent = lead.kind === 'sight' || lead.salience > .6;
-    const urgency = clamp(lead.salience, 0, 1) * (.4 + .6 * c.boldness);
-    const speed = lerp(t.investigateSpeed, t.investigateUrgent, Math.max(urgency, urgent ? c.boldness : 0));
-    return { intent: { target: goal, speed, arrive: 1.5 }, gaze: { x: goal.x, y: lead.y, z: goal.z } };
-  },
-};
-
-/** Paces the player at the edge of the fog, off to one side; stops when they stop. */
-export const shadow: Behaviour = {
-  id: 'shadow', commit: 2,
-  score(c) {
-    if (c.input.player.untouchable) return 0;
-    const t = c.tuning;
-    if (!c.sees && !(c.lastSeen && c.lastSeenAge < t.shadowMemory)) return 0;
-    // It does not trail the player all evening: a spell of pacing them, then it does something else (see `tick`). Gone
-    // away it does not pace them at all, and a player who has gone indoors out of its sight is not paced round the walls.
-    if (c.away || c.ambush || c.paced >= c.paceBudget || (c.input.player.indoors && !c.sees)) return 0;
-    let s = .5 + .15 * (1 - c.huntDrive);
-    if (!c.sees) s *= 1 - .5 * c.lastSeenAge / t.shadowMemory;
-    if (c.watched > watchTolerance(c)) s -= .45;
-    return s;
-  },
-  act(c) {
-    const t = c.tuning, anchor = playerEstimate(c)!, p = c.input.player;
-    // Further off in daylight, closer as the dark comes on: always about the edge of what can be seen.
-    const range = lerp(t.shadowFar, t.shadowNear, c.boldness) * lerp(t.shadowDaylight, t.shadowDark, c.input.darkness);
-    const vx = c.sees ? p.vx : c.lastSeen?.vx ?? 0, vz = c.sees ? p.vz : c.lastSeen?.vz ?? 0, playerSpeed = Math.hypot(vx, vz);
-    // Walking, they are paced from beside and a little behind, on its flank. Standing, it holds its bearing and
-    // only settles the distance, so it does not circle them.
-    const angle = playerSpeed > .3 ? Math.atan2(vx, vz) + c.flank * 1.9
-      : dist(c.self, anchor) < .01 ? c.self.yaw + Math.PI : Math.atan2(c.self.x - anchor.x, c.self.z - anchor.z);
-    const target = { x: anchor.x + Math.sin(angle) * range, z: anchor.z + Math.cos(angle) * range }, gap = dist(c.self, target);
-    // A little inside its distance is close enough to stand: walking away would turn its back on them.
-    const settled = playerSpeed < .3 && (gap < 4 || (dist(c.self, anchor) < range && dist(c.self, anchor) > range - 7));
-    const speed = settled ? 0 : clamp(playerSpeed * 1.1 + gap * .25, .6, t.shadowMaxSpeed);
-    return { intent: { target, speed, arrive: 2 }, gaze: anchor };
-  },
-};
-
-/** The run at the player: an approach, then a charge, toward where they will be. */
-export const hunt: Behaviour = {
-  id: 'hunt', commit: 2.5,
-  score(c) {
-    const t = c.tuning, p = c.input.player;
-    if (p.untouchable || c.huntDrive <= 0) return 0;
-    const need = lerp(t.huntSightTimid, t.huntSight, c.huntDrive);
-    let s = 0;
-    if (c.sees && (c.sightTime >= need || c.current === 'hunt')) s = .65 + .5 * c.huntDrive;
-    else if (c.current === 'hunt' && c.lastSeen && c.lastSeenAge < t.huntPersist) s = .65 + .5 * c.huntDrive;
-    if (p.indoors) s *= .3;
-    return s;
-  },
-  enter(c) { c.state.started = c.now; c.emit({ type: 'hunt-started' }); },
-  act(c) {
-    const t = c.tuning, near = playerEstimate(c) ?? { x: c.input.player.x, z: c.input.player.z };
-    c.state.started ??= c.now;
-    const d = dist(c.self, near), target = playerEstimate(c, Math.min(1.2, t.huntLead + d / t.huntCharge * .5)) ?? near;
-    const closing = 1 - smoothstep(d, t.huntChargeDistance * .25, t.huntChargeDistance * 1.6);
-    const urgency = Math.max(c.huntDrive, clamp(Math.hypot(c.input.player.vx, c.input.player.vz) / 3.35, 0, 1));
-    const speed = c.now - c.state.started < t.huntWindup ? 0 : lerp(t.huntApproach, t.huntCharge, closing * (.55 + .45 * urgency));
-    return { intent: { target, speed, arrive: .5 }, gaze: near };
-  },
-};
-
-/** The grab. The host plays it out; the brain holds here until it is told the player was taken or escaped. */
-export const strike: Behaviour = {
-  id: 'strike', commit: Infinity,
-  score(c) {
-    if (c.input.player.untouchable) return 0;
-    if (c.current === 'strike') return 3;
-    return c.current === 'hunt' && !c.flinching && c.input.reach < c.tuning.grabReach ? 3 : 0;
-  },
-  enter(c) { c.emit({ type: 'strike' }); },
-  act(c) { return { intent: { speed: 0 }, gaze: playerEstimate(c) }; },
-};
-
-/**
- * Gets ahead of the player. Having watched which way they are walking it swings wide, out of sight, to a place on their
- * way, and stands there facing them until they walk up to it. It goes by what it last saw: a player who turns aside
- * is not met, and it gives up waiting.
- */
-export const ambush: Behaviour = {
-  id: 'ambush', commit: 3,
-  score(c) {
-    const plan = c.ambush; if (!plan || c.away || c.input.player.untouchable) return 0;
-    // Met: from here it is a hunt, or a retreat. Never both waiting and seen up close.
-    if (c.sees && dist(c.self, c.input.player) < c.tuning.ambushMeet) return 0;
-    return c.now < plan.until ? .62 : 0;
-  },
-  exit(c) { if (c.ambush && (c.now >= c.ambush.until || (c.sees && dist(c.self, c.input.player) < c.tuning.ambushMeet))) c.endAmbush(); },
-  act(c) {
-    const plan = c.ambush!, t = c.tuning;
-    if (c.now >= plan.until) { c.endAmbush(); c.leave(t.awayAfterSearch[0] + c.random() * (t.awayAfterSearch[1] - t.awayAfterSearch[0])); return { intent: { speed: 0 } }; }
-    if (!plan.reached && dist(c.self, plan.via) < 8) plan.reached = true;
-    const goal = plan.reached ? plan.at : plan.via, waiting = plan.reached && dist(c.self, plan.at) < 4;
-    // Standing in their way it looks back along it, toward where they will come from.
-    return { intent: { target: goal, speed: waiting ? 0 : t.ambushSpeed, arrive: 2.5 }, gaze: waiting ? { x: plan.from.x, y: 1.5, z: plan.from.z } : ahead(c.self, goal) };
-  },
-};
-
-/** Breaks off and circles away; afterwards it returns from the other side. */
-export const withdraw: Behaviour = {
-  id: 'withdraw', commit: 4,
-  score(c) {
-    const t = c.tuning, s = c.stateOf('withdraw'), running = c.current === 'withdraw';
-    if (running && s.done) return 0;
-    if (c.dismissed || c.shaken) return 1.5;
-    if (running) return .8;
-    let score = 0;
-    if (c.sinceFlinch < t.stunShy) score = Math.max(score, .8 * (1 - .6 * c.boldness));
-    if (c.current !== 'hunt' && c.huntDrive < .45 && c.watched > watchTolerance(c)) score = Math.max(score, .75);
-    if (c.current !== 'hunt' && c.huntDrive < .45 && c.lastSeen && c.lastSeenAge < 3 && dist(c.self, c.lastSeen) < t.shadowMin) score = Math.max(score, .72);
-    return score;
-  },
-  enter(c) { const s = c.state, t = c.tuning; s.side = c.random() < .5 ? -1 : 1; s.until = c.now + t.withdrawSeconds * (.7 + c.random() * .5); s.done = false; },
-  exit(c) { c.setFlank(-c.stateOf('withdraw').side || 1); c.clearDismissed(); if (!c.sees) c.leave(c.tuning.awayAfterWithdraw[0] + c.random() * (c.tuning.awayAfterWithdraw[1] - c.tuning.awayAfterWithdraw[0])); },
-  act(c) {
-    const s = c.state, t = c.tuning, p = c.input.player;
-    if (s.side === undefined) withdraw.enter!(c);
-    // It knows what it is backing away from, even when it has lost sight of them.
-    const anchor: Point = playerEstimate(c) ?? { x: p.x, y: p.y + 1.5, z: p.z };
-    const d = dist(c.self, anchor);
-    // One bearing, chosen as it turns away: out and round to one side, not a spiral.
-    s.angle ??= (d < .01 ? c.self.yaw + Math.PI : Math.atan2(c.self.x - anchor.x, c.self.z - anchor.z)) + s.side * .6;
-    const target = { x: anchor.x + Math.sin(s.angle) * t.withdrawDistance, z: anchor.z + Math.cos(s.angle) * t.withdrawDistance };
-    if ((d > t.withdrawDistance - 6 && !c.input.playerLooking) || c.now > s.until) s.done = true;
-    const pressure = 1 - smoothstep(d, 7, t.withdrawDistance);
-    return { intent: { target, speed: s.done ? 0 : lerp(t.roamSpeed * 1.4, t.withdrawSpeed, pressure), arrive: 3 }, gaze: anchor };
-  },
-};
-
-/** Stage 1's repertoire. Stage 2 adds entries here (or passes its own list); the selector needs no change. */
-export const STAGE_ONE_BEHAVIOURS: readonly Behaviour[] = [roam, investigate, shadow, ambush, hunt, strike, withdraw];
+/** Seconds it searches a spot on a day of the run: 20 s on day 1, 5 s longer each day. */
+export function searchSeconds(day: number, tuning: CreatureTuning = CREATURE_TUNING) { return tuning.searchSeconds + tuning.searchPerDay * (clamp(Math.round(day), 1, 99) - 1); }
 
 // ------------------------------------------------------------------------------------------------------------
 
 export type CreatureBrainOptions = {
   random: () => number;
-  /** Places worth patrolling between (the cabin, the relay, the mine...). */
+  /** Places worth patrolling between (the cabin, the relay, the mine...): the default round. */
   places?: readonly Vec2[];
+  /** Where it sleeps by day. Default: where it is at its first tick. */
+  lair?: Vec2;
+  /** The points of one round, asked for each time it has nothing to follow (the day's noisy places, then roads and paths). */
+  round?: () => readonly Vec2[];
   tuning?: Partial<CreatureTuning>;
-  behaviours?: readonly Behaviour[];
+  /** The buildings it besieges (creatureBuildings in ./buildings): a loud noise from inside one brings it to the walls. */
+  buildings?: readonly Building[];
 };
+/** What it is following: the place it made of the last noise it took up. */
+export type Lead = { x: number; z: number; source: string; grade: NoiseGrade; uncertainty: number; at: number };
+
+/** It arrives a little before the distance it counts as arrived, so a body that stops short still counts. */
+const ARRIVE = .8;
 
 export function createCreatureBrain(options: CreatureBrainOptions) {
   const tuning: CreatureTuning = { ...CREATURE_TUNING, ...options.tuning };
-  const behaviours = options.behaviours ?? STAGE_ONE_BEHAVIOURS, byId = new Map(behaviours.map(b => [b.id, b]));
   const random = options.random, places = options.places ?? [];
-  const heard: NoiseEvent[] = [];
-
-  let now = 0, current = behaviours[0].id, enteredAt = 0, decideIn = 0, states: Record<string, Scratch> = {};
-  let exposure = 0, sees = false, sightTime = 0, watched = 0, lastSeen: Sighting | undefined, lead: Lead | undefined, leadIds = 0;
+  const queue: NoiseEvent[] = [];
+  let lair: Vec2 | undefined = options.lair && { x: options.lair.x, z: options.lair.z };
+  let now = 0, mode: BehaviourId = 'round', modeAt = 0, started = false, wasNight: boolean | undefined, day = 1;
+  // Woken by day: it stays up (responding, then waiting out the quiet) until the lair takes it back.
+  let awakeByDay = false;
+  let target: Vec2 | undefined, respRank = 0, lastSoundAt = -Infinity, lead: Lead | undefined;
+  let turnUntil = 0, searchUntil = 0, nextClicks = 0, pauseUntil = Infinity, roundGoal: Vec2 | undefined, plan: Vec2[] = [], pendingStart: Vec2 | undefined;
+  let perceivedUntil = -Infinity, provokedUntil = -Infinity, breathing = false;
+  const carry: BrainEvent[] = [];
+  const buildings = options.buildings ?? [];
+  // A running source is on or off (brain.source); it is heard whenever the creature is inside its reach.
+  const sources = new Map<string, RunningSource & { inReach: boolean; takenAt: number }>();
+  let leadIsSource = false;
+  // Prowling: which way round it goes (1 or -1) and when it next turns back.
+  let prowlSide = 1, prowlTurnAt = 0;
+  type SiegePhase = 'approach' | 'door' | 'reach' | 'circle' | 'cross';
+  type Siege = {
+    b: Building; lastInside: number; quietFrom: number; phase: SiegePhase; phaseAt: number; until: number; doorId?: string; atDoor: number; pressure: Map<string, number>;
+    dir: 1 | -1; tick: number; nextTell: number; nextCross: number; nextClicks: number; goal?: Vec2;
+  };
+  let siege: Siege | undefined, ticks = 0;
+  let siegeIntent: Intent = { speed: 0 };
+  const alerts: { at: Vec2; uncertainty: number }[] = [];
   // The stun: its phase and how long it has been in it, how long the held phase lasts this time, when a beam that has
   // left its face lets it go, how many uses have worn it down, and the pace it was slowing from.
   let stunPhase: StunPhase = 'none', stunT = 0, stunHeldFor = 0, stunRelease = Infinity, stunSpent = 0, stunFrom = 0, outOfBeam = 0, beamTime = 0, flinchEnded = -Infinity;
-  let calmUntil = -Infinity, calmScale = 1, provokedUntil = -Infinity, dismissed = false, shaken = false, flank = 1, huntAllowed = true, huntAllowedAt = -Infinity, huntCooldownUntil = -Infinity;
-  let awayUntil = -Infinity, paced = 0, paceBudget = (tuning.paceBudget[0] + tuning.paceBudget[1]) / 2, ambushPlan: BrainContext['ambush'];
+  let last: BrainOutput | undefined, creature = { x: 0, z: 0, yaw: 0 };
   const between = (range: readonly number[]) => range[0] + random() * (range[1] - range[0]);
-  /** Off elsewhere for a while: nothing it was following is kept, and its next spell of pacing them is drawn afresh. */
-  const leave = (seconds: number) => { awayUntil = Math.max(awayUntil, now + seconds); paced = 0; paceBudget = between(tuning.paceBudget); ambushPlan = undefined; if (lead && lead.kind === 'sight') lead.investigated = true; decideIn = 0; };
-  let scores: Record<string, number> = {}, last: BrainOutput | undefined, lastInput: BrainInput | undefined, boldness = 0, huntDrive = 0, creature = { x: 0, z: 0, yaw: 0 };
+  const runSpeed = () => tuning.runMultiplier * STAMINA.sprintSpeed;
 
-  const stateOf = (id: string) => (states[id] ??= {});
-  const forget = () => { lastSeen = undefined; lead = undefined; exposure = 0; sees = false; sightTime = 0; watched = 0; heard.length = 0; };
+  function setMode(to: BehaviourId, events: BrainEvent[]) {
+    if (to === mode) return;
+    if (mode === 'siege') siege = undefined;
+    events.push({ type: 'behaviour', from: mode, to }); mode = to; modeAt = now;
+  }
+  const engaged = () => mode === 'drift' || mode === 'trot' || mode === 'run' || mode === 'prowl' || mode === 'search' || mode === 'siege';
+  const night = (input: BrainInput) => isNight(input.hours, day, tuning);
+
+  /** Nothing to follow any more: the round by night; by day, waiting out the quiet if it was woken, else back to the lair. */
+  function idle(input: BrainInput, events: BrainEvent[]) {
+    target = undefined; roundGoal = undefined; respRank = 0;
+    if (night(input)) setMode('round', events);
+    else setMode(awakeByDay && now < lastSoundAt + tuning.sleepQuiet ? 'wait' : 'return', events);
+  }
+  function wake(cause: string, events: BrainEvent[]) {
+    events.push({ type: 'wake', cause }); setMode('round', events);
+  }
+
+  /**
+   * It has heard something worth following, `grade` at `pos`. Is it taken up? The rule: while it is following something, a noise
+   * of the same or a louder grade always takes over (so a player can lead it by making noise elsewhere, and a sound kept up
+   * holds it); a fainter one takes over only if it is nearer to the creature than the current target is (the target counted as
+   * at least redirectNear away, so a creature standing at its spot still turns to a faint sound close beside it). Idle, it takes
+   * up anything. Taking up a loud or louder noise from something less than a response to a loud noise is the one place it calls.
+   */
+  function take(pos: Vec2, grade: NoiseGrade, source: string, input: BrainInput, events: BrainEvent[], error: number, call = true) {
+    const rank = RANK[grade], self = input.creature;
+    if (engaged() && target && rank < respRank && !(dist(self, pos) < Math.max(dist(self, target), tuning.redirectNear))) return false;
+    const a = random() * Math.PI * 2, r = Math.sqrt(random()) * error;
+    const loudBefore = mode === 'trot' || mode === 'run' || mode === 'search';
+    target = { x: pos.x + Math.sin(a) * r, z: pos.z + Math.cos(a) * r };
+    leadIsSource = sources.has(source);
+    respRank = rank; lastSoundAt = now; lead = { x: target.x, z: target.z, source, grade, uncertainty: error, at: now };
+    if (!night(input)) awakeByDay = true;
+    if (rank === 0) { if (mode !== 'drift') turnUntil = now + tuning.faintTurn; setMode('drift', events); }
+    else setMode(rank === 1 ? 'trot' : 'run', events);
+    if (rank >= 1 && !loudBefore && call) events.push({ type: 'call' });
+    return true;
+  }
+  /** Asleep, does this heard noise wake it: a very loud one anywhere it carries; a loud one near the lair, or any from day 4. */
+  const wakes = (n: NoiseEvent, grade: NoiseGrade) => grade === 'veryLoud' || (grade === 'loud' && (day >= tuning.lightSleepDay || dist(n, lair!) <= tuning.lairWakeRadius));
 
   function listen(input: BrainInput, events: BrainEvent[]) {
-    for (const noise of heard.splice(0)) {
-      if (!Number.isFinite(noise.x) || !Number.isFinite(noise.z)) continue;
-      const d = dist(input.creature, noise), strength = hearingStrength(noise.loudness, d, tuning);
-      if (strength <= 0) continue;
-      events.push({ type: 'heard', source: noise.source, strength });
-      const salience = Math.min(1.2, strength + noise.loudness * .5);
-      // What it is already following, worth less as it ages. A sighting goes stale fastest (the player moves on),
-      // which is what lets the generator or the radio pull it away from where it lost them.
-      const held = lead && !lead.investigated ? lead.salience * Math.max(0, 1 - (now - lead.at) / (lead.kind === 'sight' ? tuning.sightLeadFade : tuning.leadMemory)) : 0;
-      if (held > 0 && salience < held * .8) continue;
-      const error = tuning.hearingError + d * tuning.hearingErrorPerMetre + (1 - strength) * tuning.hearingErrorFaint;
-      const a = random() * Math.PI * 2, r = Math.sqrt(random()) * error;
-      lead = { id: ++leadIds, kind: 'sound', source: noise.source, x: noise.x + Math.sin(a) * r, z: noise.z + Math.cos(a) * r, uncertainty: error, salience, at: now, investigated: false };
+    const p = input.player, self = input.creature, weather = input.weather ?? 'still';
+    breathing = false;
+    for (const al of alerts.splice(0)) {
+      if (mode === 'asleep') wake('alert', events);
+      if (mode !== 'strike') take(al.at, 'loud', 'alert', input, events, al.uncertainty, false);
+    }
+    if (now < provokedUntil && !p.untouchable) {
+      if (mode === 'asleep') wake('provoked', events);
+      if (mode !== 'strike') take(p, 'veryLoud', 'provoked', input, events, 0, false);
+    }
+    // Running sources first: each is a kept-up noise heard for as long as it is in reach. One the creature is already following just
+    // keeps it there; one it is not following is taken up when it comes into reach, and again every sourceRetake seconds.
+    const incoming = queue.splice(0);
+    for (const [id, src] of sources) {
+      if (!hears(src.loudness, dist(self, src), weather)) { src.inReach = false; continue; }
+      if (engaged() && lead?.source === id && mode !== 'search') { lastSoundAt = now; src.takenAt = now; src.inReach = true; continue; }
+      if (!src.inReach || now - src.takenAt >= tuning.sourceRetake) { src.inReach = true; src.takenAt = now; incoming.push({ loudness: src.loudness, source: id, x: src.x, z: src.z, sustained: true }); }
+    }
+    for (const n of incoming) {
+      if (!Number.isFinite(n.x) || !Number.isFinite(n.z)) continue;
+      const d = dist(self, n);
+      if (!hears(n.loudness, d, weather)) continue;
+      const grade = noiseGrade(n.loudness, !!n.sustained);
+      events.push({ type: 'heard', source: n.source, grade, distance: d });
+      if (mode === 'asleep') { if (!wakes(n, grade)) continue; wake(grade === 'veryLoud' ? 'very loud noise' : 'loud noise', events); }
+      if (mode === 'strike') continue;
+      if (!p.untouchable && dist(n, p) <= tuning.playerNoiseRadius) perceivedUntil = now + tuning.catchWindow;
+      const within = buildings.length ? buildingAt(buildings, n.x, n.z, -.3) : undefined;
+      if (within) takeInside(within, n, grade, input, events);
+      else take(n, grade, n.source, input, events, grade === 'faint' ? tuning.errorFaint : grade === 'loud' ? tuning.errorLoud : tuning.errorVeryLoud);
+    }
+    // Close up it hears breathing, a faint noise at the player's exact place, unless the breath is held. Asleep, it does not.
+    if (mode !== 'asleep' && mode !== 'strike' && !p.untouchable && !p.breathHeld && hears(NOISE.breath, dist(self, p), weather)) {
+      breathing = true;
+      // Through a wall it still hears them: that keeps the siege up, and it needs no other lead.
+      if (mode === 'siege' && siege && buildingAt([siege.b], p.x, p.z, -.3)) { siege.lastInside = now; lastSoundAt = now; }
+      else take(p, 'faint', 'breath', input, events, 0);
     }
   }
 
-  function look(input: BrainInput, events: BrainEvent[]) {
-    const p = input.player, dt = input.dt;
-    const moving = Math.hypot(p.vx, p.vz) > .3;
-    let range = sightRange({ darkness: input.darkness, flashlightOn: p.flashlightOn, crouching: p.crouching, sprinting: p.sprinting, moving, indoors: p.indoors }, tuning);
-    const dx = p.x - input.creature.x, dz = p.z - input.creature.z, d = Math.hypot(dx, dz);
-    const off = Math.abs(Math.atan2(Math.sin(Math.atan2(dx, dz) - input.creature.yaw), Math.cos(Math.atan2(dx, dz) - input.creature.yaw)));
-    if (off > tuning.sightFov) range *= tuning.sightBehind;
-    // Provoked (the developer hunt), it knows where the player is wherever they hide.
-    const told = now < provokedUntil;
-    const visible = !p.untouchable && (told || (input.lineOfSight && d < range) || d < tuning.touchRange);
-    if (told && visible) exposure = Math.max(exposure, 1);
-    if (visible) exposure = Math.min(1.5, exposure + dt / lerp(tuning.recogniseNear, tuning.recogniseFar, clamp(d / range, 0, 1) ** 2));
-    else exposure = Math.max(0, exposure - dt * tuning.forgetRate);
-    const was = sees;
-    sees = visible && exposure >= 1;
-    if (sees && !was) events.push({ type: 'spotted' });
-    if (sees) {
-      sightTime += dt;
-      lastSeen = { x: p.x, y: p.y, z: p.z, vx: p.vx, vz: p.vz, at: now };
-      if (!lead || lead.kind !== 'sight' || lead.investigated) lead = { id: ++leadIds, kind: 'sight', source: 'sight', x: p.x, y: p.y + 1.5, z: p.z, uncertainty: 1, salience: 1.2, at: now, investigated: false };
-      else { lead.x = p.x; lead.y = p.y + 1.5; lead.z = p.z; lead.at = now; }
-    } else sightTime = Math.max(0, sightTime - dt * .5);
-    watched = input.playerLooking && !p.untouchable ? watched + dt : Math.max(0, watched - dt * 2);
+  /**
+   * A noise heard from inside a building. Where it is already besieging that building it just keeps the siege up. Otherwise a faint
+   * one draws it to the walls like any faint sound; a loud one (or louder) begins the siege, by the same rule as `take` for whether
+   * it breaks off what it was doing.
+   */
+  function takeInside(b: Building, n: NoiseEvent, grade: NoiseGrade, input: BrainInput, events: BrainEvent[]) {
+    const rank = RANK[grade], self = input.creature;
+    if (mode === 'siege' && siege && siege.b === b) {
+      siege.lastInside = now; lastSoundAt = now; respRank = Math.max(respRank, rank);
+      lead = { x: n.x, z: n.z, source: n.source, grade, uncertainty: 0, at: now };
+      return;
+    }
+    if (rank === 0) { take(ringPoint(b, bearingOf(b, self.x, self.z), tuning.siegeRing), grade, n.source, input, events, tuning.errorFaint); return; }
+    if (engaged() && target && rank < respRank && !(dist(self, n) < Math.max(dist(self, target), tuning.redirectNear))) return;
+    const loudBefore = mode === 'trot' || mode === 'run' || mode === 'search' || mode === 'siege';
+    siege = {
+      b, lastInside: now, quietFrom: now, phase: 'approach', phaseAt: now, until: Infinity, atDoor: 0, pressure: new Map(), dir: random() < .5 ? 1 : -1, tick: -1,
+      nextTell: now, nextCross: now + between(tuning.crossEvery), nextClicks: now + tuning.clicksFirst,
+    };
+    leadIsSource = false; respRank = Math.max(rank, 1); lastSoundAt = now;
+    lead = { x: n.x, z: n.z, source: n.source, grade, uncertainty: 0, at: now };
+    if (!night(input)) awakeByDay = true;
+    setMode('siege', events);
+    if (!loudBefore) events.push({ type: 'call' });
+  }
+  const outsidePoint = (b: Building, self: Vec2, bearing = bearingOf(b, self.x, self.z)) => ringPoint(b, bearing, tuning.siegeRing);
+  /** The noise inside has stopped: it searches outside, where it stands, and then moves on. */
+  function leaveSiege(input: BrainInput, events: BrainEvent[]) {
+    target = outsidePoint(siege!.b, input.creature); respRank = 1; lastSoundAt = now; leadIsSource = false;
+    beginSearch(events);
+  }
+  /** Whether an open doorway of the besieged building is within reach of the player, with the creature close enough to it to reach in. */
+  function throughOpening(input: BrainInput) {
+    if (mode !== 'siege' || !siege) return false;
+    const p = input.player, self = input.creature;
+    for (const o of input.openings ?? []) {
+      if (o.building !== siege.b.id || o.open < tuning.openingOpen) continue;
+      if (dist(p, o) <= tuning.openingReach && dist(self, o) <= tuning.openingStrikeFrom) return true;
+    }
+    return false;
+  }
+  /**
+   * One tick of the siege: where it goes and what it does at the building. It comes to the walls (approach); works at a shut
+   * door a while (door: scratches and knocks, and forces it once its pressure, which builds only while the noise inside is kept up,
+   * reaches forceSeconds, or forceBarredSeconds if barred); goes round the walls (circle) and now and then straight across to the far
+   * side (cross: over the roof wherever the navigation can climb it, so the feet are heard above); and at an open doorway it waits,
+   * listening, for anyone within reach of its arms (the strike itself is decided in tick). Quiet inside for siegeQuiet: it leaves.
+   */
+  function siegeStep(input: BrainInput, events: BrainEvent[]) {
+    const s = siege;
+    if (!s) { idle(input, events); return; }
+    // advance runs twice a tick (before and after listening): time passes once.
+    const dt = s.tick === ticks ? 0 : input.dt; s.tick = ticks;
+    const self = input.creature, b = s.b, openings = (input.openings ?? []).filter(o => o.building === b.id);
+    // The quiet is counted from when it gets there: a noise that drew it from afar need not be kept up all the way.
+    // (Until it is there, whatever the phase: a doorway open from the start sends it straight to it.)
+    const local = toLocal(b, self.x, self.z), away = Math.hypot(Math.max(0, Math.abs(local.x) - b.hx), Math.max(0, Math.abs(local.z) - b.hz));
+    if (s.phase === 'approach' || away > tuning.siegeNear) s.quietFrom = now;
+    if (now - Math.max(s.lastInside, s.quietFrom) >= tuning.siegeQuiet) { leaveSiege(input, events); return; }
+    lastSoundAt = Math.max(lastSoundAt, s.lastInside);
+    const kept = now - s.lastInside < tuning.keptUp;
+    const wide = openings.filter(o => o.open >= tuning.openingOpen), shut = openings.filter(o => o.open < tuning.openingOpen);
+    const nearest = (list: readonly Opening[], at: Vec2) => list.reduce<Opening | undefined>((best, o) => !best || dist(o, at) < dist(best, at) ? o : best, undefined);
+    const go = (phase: SiegePhase, extra: Partial<Siege> = {}) => { s.phase = phase; s.phaseAt = now; s.atDoor = 0; s.goal = undefined; Object.assign(s, extra); };
+    const nextVisit = () => {
+      const o = nearest(shut, self);
+      if (o) go('door', { doorId: o.id }); else go('circle', { until: now + between(tuning.circleSeconds) });
+    };
+    // The noise inside keeps up: every shut door is under pressure, whether or not it is at that door this moment (it hammers, scratches, leans).
+    // It forces one when it is at it and the pressure is enough; a door that is ready draws it back from the rounds.
+    const limit = (o: Opening) => o.barred ? tuning.forceBarredSeconds : tuning.forceSeconds;
+    if (kept) for (const o of shut) s.pressure.set(o.id, (s.pressure.get(o.id) ?? 0) + dt);
+    const ready = shut.filter(o => (s.pressure.get(o.id) ?? 0) >= limit(o));
+    // A doorway stands open: that is where it works, whatever else it was doing (it goes back to the walls if the door is shut again).
+    if (wide.length) {
+      if (s.phase !== 'reach' || !wide.some(o => o.id === s.doorId)) go('reach', { doorId: nearest(wide, lead ?? self)!.id });
+    } else if (s.phase === 'reach') nextVisit();
+    else if (ready.length && s.phase !== 'door' && s.phase !== 'approach') go('door', { doorId: nearest(ready, self)!.id });
+    const bearing = bearingOf(b, self.x, self.z);
+    let goal: Vec2 | undefined, speed = tuning.siegeSpeed;
+    switch (s.phase) {
+      case 'approach': {
+        goal = outsidePoint(b, self, bearing); speed = respRank >= 2 ? runSpeed() : tuning.trotSpeed;
+        if (dist(self, goal) <= 4) nextVisit();
+        break;
+      }
+      case 'door': {
+        const o = openings.find(q => q.id === s.doorId && q.open < tuning.openingOpen);
+        if (!o) { nextVisit(); break; }
+        goal = standAt(b, o, tuning.openingStand); speed = tuning.trotSpeed;
+        if (dist(self, goal) <= 2.4) {
+          s.atDoor += dt; speed = 0;
+          if (now >= s.nextTell) { events.push({ type: 'doorTell', kind: random() < .6 ? 'scratch' : 'knock', door: o.id, x: o.x, z: o.z }); s.nextTell = now + between(tuning.tellEvery); }
+          if ((s.pressure.get(o.id) ?? 0) >= limit(o)) {
+            events.push({ type: 'forceDoor', door: o.id, barred: o.barred, x: o.x, z: o.z }); s.pressure.set(o.id, 0);
+            go('reach', { doorId: o.id });
+          }
+          if (s.phase === 'door' && s.atDoor >= tuning.doorSpell && !ready.includes(o)) go('circle', { until: now + between(tuning.circleSeconds), dir: random() < .5 ? 1 : -1 });
+        }
+        break;
+      }
+      case 'circle': {
+        goal = outsidePoint(b, self, bearing + s.dir * .7);
+        if (now >= s.until) { if (now >= s.nextCross) { go('cross', { until: now + 14 }); s.nextCross = now + between(tuning.crossEvery); } else nextVisit(); }
+        break;
+      }
+      case 'cross': {
+        goal = outsidePoint(b, self, bearing + Math.PI); speed = tuning.trotSpeed;
+        if (dist(self, goal) <= 3 || now >= s.until) go('circle', { until: now + between(tuning.circleSeconds), dir: random() < .5 ? 1 : -1 });
+        break;
+      }
+      case 'reach': {
+        const o = openings.find(q => q.id === s.doorId && q.open >= tuning.openingOpen);
+        if (!o) { nextVisit(); break; }
+        goal = standAt(b, o, tuning.openingStand); speed = dist(self, goal) > 2 ? tuning.trotSpeed : 0;
+        if (now >= s.nextClicks) { events.push({ type: 'clicks' }); s.nextClicks = now + between(tuning.clicksEvery); }
+        break;
+      }
+    }
+    // Still far off, it comes at the pace the noise called for (a very loud one: a run); the work at the building is for when it is there.
+    if (away > tuning.siegeNear && speed > 0) speed = Math.max(speed, respRank >= 2 ? runSpeed() : tuning.trotSpeed);
+    s.goal = goal; target = goal;
+    siegeIntent = { target: goal, speed, arrive: 1.6 * ARRIVE };
+  }
+
+  const defaultRound = (): Vec2[] => {
+    if (places.length) {
+      const order = places.map(q => ({ x: q.x, z: q.z })); for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(random() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+      return order.map(q => { const a = random() * Math.PI * 2, d = 4 + random() * 8; return { x: q.x + Math.sin(a) * d, z: q.z + Math.cos(a) * d }; });
+    }
+    const home = lair ?? creature;
+    return Array.from({ length: tuning.roundPoints }, () => { const a = random() * Math.PI * 2, d = between(tuning.roundRadius); return { x: home.x + Math.sin(a) * d, z: home.z + Math.cos(a) * d }; });
+  };
+
+  /** Where in its day it is, and what has finished: the mode changes that need no sound. */
+  function advance(input: BrainInput, events: BrainEvent[]) {
+    const self = input.creature, isNightNow = night(input);
+    if (!started) {
+      started = true; lair ??= { x: self.x, z: self.z };
+      if (isNightNow) setMode('round', events);
+      else { mode = dist(self, lair) <= tuning.lairArrive ? 'asleep' : 'return'; modeAt = now; }
+      wasNight = isNightNow;
+    }
+    if (wasNight !== isNightNow) {
+      awakeByDay = false; wasNight = isNightNow;
+      if (!isNightNow && mode !== 'asleep' && mode !== 'strike') { target = undefined; roundGoal = undefined; respRank = 0; setMode('return', events); }
+    }
+    if (mode === 'strike') return;
+    if (isNightNow && (mode === 'asleep' || mode === 'return' || mode === 'wait')) { if (mode === 'asleep') wake('dusk', events); else setMode('round', events); }
+    if (!isNightNow && mode === 'round') idle(input, events);
+    if (!isNightNow && !awakeByDay && mode !== 'asleep' && mode !== 'return') { target = undefined; roundGoal = undefined; respRank = 0; setMode('return', events); }
+    if (isNightNow && mode === 'round' && pendingStart) {
+      // The night starts at the loudest place of the day: it goes there as it would to a loud noise, but it has not heard it.
+      target = pendingStart; pendingStart = undefined; respRank = 1; lastSoundAt = now; roundGoal = undefined; setMode('trot', events);
+    }
+    switch (mode) {
+      case 'drift': if (now - lastSoundAt >= tuning.faintForget) idle(input, events); break;
+      case 'trot': if (target && dist(self, target) <= tuning.trotArrive) beginSearch(events); break;
+      case 'run':
+        if (target && leadIsSource && dist(self, target) <= tuning.prowlStart && now - lastSoundAt < tuning.sourceStayQuiet) {
+          prowlSide = random() < .5 ? -1 : 1; prowlTurnAt = now + between(tuning.prowlTurn); setMode('prowl', events);
+        } else if (target && dist(self, target) <= tuning.runArrive && now - lastSoundAt >= (leadIsSource ? tuning.sourceStayQuiet : tuning.stayQuiet)) beginSearch(events);
+        break;
+      case 'prowl':
+        if (!leadIsSource || now - lastSoundAt >= tuning.sourceStayQuiet) beginSearch(events);
+        else if (now >= prowlTurnAt) { prowlSide = -prowlSide; prowlTurnAt = now + between(tuning.prowlTurn); }
+        break;
+      case 'siege': siegeStep(input, events); break;
+      case 'search': if (now >= searchUntil) idle(input, events); break;
+      case 'wait': if (now >= lastSoundAt + tuning.sleepQuiet) setMode('return', events); break;
+      case 'return': if (lair && dist(self, lair) <= tuning.lairArrive) { if (isNightNow) idle(input, events); else { awakeByDay = false; setMode('asleep', events); events.push({ type: 'sleep' }); } } break;
+      case 'round': {
+        if (!roundGoal) {
+          if (!plan.length) plan = [...(options.round?.() ?? defaultRound())].map(q => ({ x: q.x, z: q.z }));
+          roundGoal = plan.shift(); pauseUntil = Infinity;
+        }
+        if (roundGoal && pauseUntil === Infinity && dist(self, roundGoal) <= tuning.roundArrive) pauseUntil = now + between(tuning.roundPause);
+        if (roundGoal && now >= pauseUntil) { roundGoal = undefined; pauseUntil = Infinity; }
+        break;
+      }
+      default: break;
+    }
+  }
+  function beginSearch(events: BrainEvent[]) {
+    searchUntil = now + searchSeconds(day, tuning); nextClicks = now + tuning.clicksFirst; setMode('search', events);
+  }
+
+  /** What each behaviour asks of the body. */
+  function act(input: BrainInput, events: BrainEvent[]): { intent: Intent; gaze?: Point } {
+    const self = input.creature;
+    // Looking about: a sweep either side of where it is facing, or, searching, either side of the way to the last thing it heard.
+    const sweep = (t: number, base = self.yaw) => { const a = base + Math.sin(t * 1.4) * 1.3; return { x: self.x + Math.sin(a) * 9, z: self.z + Math.cos(a) * 9 }; };
+    switch (mode) {
+      case 'asleep': return { intent: { speed: 0 } };
+      case 'return': return { intent: { target: lair, speed: tuning.returnSpeed, arrive: tuning.lairArrive * ARRIVE }, gaze: lair };
+      case 'wait': return { intent: { speed: 0 }, gaze: sweep(now) };
+      case 'round': {
+        if (!roundGoal || pauseUntil !== Infinity) return { intent: { speed: 0 }, gaze: sweep(now) };
+        return { intent: { target: roundGoal, speed: dist(self, roundGoal) > tuning.roundFar ? tuning.roundFarSpeed : tuning.roundSpeed, arrive: tuning.roundArrive * ARRIVE }, gaze: roundGoal };
+      }
+      case 'drift': return { intent: { target, speed: now < turnUntil ? 0 : tuning.faintSpeed, arrive: tuning.faintArrive }, gaze: target };
+      case 'trot': return { intent: { target, speed: tuning.trotSpeed, arrive: tuning.trotArrive * ARRIVE }, gaze: target };
+      case 'run': return { intent: { target, speed: runSpeed(), arrive: tuning.runArrive * ARRIVE }, gaze: target };
+      case 'prowl': {
+        if (!target) return { intent: { speed: 0 }, gaze: sweep(now) };
+        // A point a little further round the ring than it is now, the ring widening and closing like a search pattern.
+        const [r0, r1] = tuning.prowlRing, u = ((now - modeAt) / tuning.prowlWiden) % 1, ring = r0 + (r1 - r0) * (1 - Math.abs(1 - 2 * u));
+        const bearing = Math.atan2(self.x - target.x, self.z - target.z) + prowlSide * Math.min(.9, 7 / ring);
+        const goal = { x: target.x + Math.sin(bearing) * ring, z: target.z + Math.cos(bearing) * ring };
+        return { intent: { target: goal, speed: tuning.prowlSpeed, arrive: .5 }, gaze: goal };
+      }
+      case 'search':
+        if (now >= nextClicks) { events.push({ type: 'clicks' }); nextClicks = now + between(tuning.clicksEvery); }
+        return { intent: { target, speed: 0 }, gaze: sweep(now - modeAt, lead && dist(self, lead) > 1 ? Math.atan2(lead.x - self.x, lead.z - self.z) : self.yaw) };
+      case 'siege': return { intent: siegeIntent, gaze: lead && { x: lead.x, z: lead.z } };
+      default: return { intent: { speed: 0 }, gaze: input.player };
+    }
   }
 
   const stunning = () => stunPhase === 'slowing' || stunPhase === 'held';
   /**
    * The torch. Pinned for stunPin, it slows to a halt over stunSlow, is held (shorter each use, never less than the
    * last entry), and gets going again over stunStart. The beam must stay on it while it is held. Out of the beam
-   * it gets its nerve back, a step at a time.
+   * it gets its nerve back, a step at a time. Light holds it; nothing else does.
    */
   function stun(input: BrainInput, events: BrainEvent[]) {
     const dt = input.dt, held = tuning.stunHeld;
     if (stunPhase === 'none') {
       if (input.beamOnIt) outOfBeam = 0;
       else if (stunSpent > 0 && (outOfBeam += dt) >= tuning.stunRecharge / Math.max(1, held.length - 1)) { stunSpent--; outOfBeam = 0; }
-      if (input.beamOnIt && !input.player.untouchable && current !== 'strike' && now - flinchEnded >= tuning.stunGrace) {
+      if (input.beamOnIt && !input.player.untouchable && mode !== 'strike' && mode !== 'asleep' && now - flinchEnded >= tuning.stunGrace) {
         beamTime += dt;
         if (beamTime >= tuning.stunPin) {
           stunHeldFor = held[Math.min(stunSpent, held.length - 1)];
@@ -657,7 +664,6 @@ export function createCreatureBrain(options: CreatureBrainOptions) {
       if (stunT >= Math.min(stunHeldFor, stunRelease)) {
         events.push({ type: 'stun', phase: 'starting', seconds: stunT });
         stunPhase = 'starting'; stunT = 0; flinchEnded = now;
-        if (current === 'hunt' && now >= provokedUntil && random() < tuning.stunBreakOff * (1 - tuning.stunBreakDrive * huntDrive)) { shaken = true; decideIn = 0; }
       }
     } else if (stunT >= tuning.stunStart) { stunPhase = 'none'; stunT = 0; beamTime = 0; outOfBeam = 0; events.push({ type: 'stun', phase: 'over' }); }
   }
@@ -679,163 +685,101 @@ export function createCreatureBrain(options: CreatureBrainOptions) {
     }
     return { intent, stun: { phase: 'none', recoil: 0, backstep: 0 } };
   }
-  /** How much of its hunting drive the host allows: none while withheld, then rising from huntPermitFloor. */
-  const huntPermit = () => !huntAllowed || now - huntAllowedAt < tuning.huntPermitDelay ? 0 : lerp(tuning.huntPermitFloor, 1, smoothstep(now - huntAllowedAt - tuning.huntPermitDelay, 0, tuning.huntPermitRamp));
 
-  function context(input: BrainInput, events: BrainEvent[], id: string): BrainContext {
-    return {
-      now, dt: input.dt, random, tuning, input, self: input.creature,
-      sees, sightTime, lastSeen, lastSeenAge: lastSeen ? now - lastSeen.at : Infinity,
-      lead, leadAge: lead ? now - lead.at : Infinity,
-      boldness, huntDrive, watched,
-      flinching: stunning(), sinceFlinch: stunning() ? 0 : now - flinchEnded,
-      dismissed, shaken, flank, current, inCurrent: now - enteredAt,
-      away: now < awayUntil, paced, paceBudget, ambush: ambushPlan, leave, endAmbush: () => { ambushPlan = undefined; },
-      distanceToPlayer: dist(input.creature, input.player), places,
-      state: stateOf(id), stateOf,
-      setFlank: side => { flank = side; }, clearDismissed: () => { dismissed = false; shaken = false; },
-      emit: e => events.push(e),
-    };
-  }
-
-  function switchTo(id: string, input: BrainInput, events: BrainEvent[]) {
-    const from = current;
-    byId.get(from)?.exit?.(context(input, events, from));
-    if (from === 'hunt' && id !== 'strike') { huntCooldownUntil = now + tuning.huntCooldown; if (!sees || shaken) leave(between(tuning.awayAfterHunt)); }
-    if ((from === 'hunt' && id !== 'strike') || (from === 'shadow' && (id === 'investigate' || id === 'roam'))) {
-      if (!sees) {
-        events.push({ type: 'lost-player', from });
-        // A lost chase takes the edge off for a while, unless it is already calmer than that (after a death).
-        if (from === 'hunt' && !(now < calmUntil && calmScale <= tuning.calmLossScale)) { calmUntil = now + tuning.calmAfterLoss; calmScale = tuning.calmLossScale; }
-      }
-    }
-    current = id; enteredAt = now; states[id] = {};
-    byId.get(id)!.enter?.(context(input, events, id));
-    events.push({ type: 'behaviour', from, to: id });
-  }
-
-  function decide(input: BrainInput, events: BrainEvent[]) {
-    let best = current, bestScore = -Infinity;
-    scores = {};
-    for (const b of behaviours) {
-      const s = b.score(context(input, events, b.id)) + (b.id === current ? tuning.hysteresis : 0);
-      scores[b.id] = s;
-      if (s > bestScore) { bestScore = s; best = b.id; }
-    }
-    if (best === current) return;
-    const running = byId.get(current)!, held = scores[current] ?? -Infinity;
-    if (now - enteredAt < running.commit && bestScore < held + tuning.interruptMargin) return;
-    switchTo(best, input, events);
-  }
+  const resetStun = () => { stunPhase = 'none'; stunT = stunHeldFor = stunSpent = stunFrom = outOfBeam = beamTime = 0; stunRelease = Infinity; flinchEnded = -Infinity; };
+  const forget = () => {
+    queue.length = 0; alerts.length = 0; lead = undefined; target = undefined; roundGoal = undefined; respRank = 0; perceivedUntil = -Infinity; siege = undefined;
+    for (const src of sources.values()) src.inReach = false;
+    if (engaged()) { mode = 'round'; modeAt = now; }
+  };
 
   return {
     get tuning() { return tuning; },
-    get behaviour() { return current; },
+    get behaviour() { return mode; },
+    get lair() { return lair && { ...lair }; },
+    /**
+     * A running source: something that makes a sound for as long as it runs (a generator, a pump, the pad's generator, the helicopter).
+     * `source(id, { x, z, loudness })` switches it on (or moves it), `source(id, null)` off. While it runs the creature hears it
+     * whenever it is inside heardWithin(loudness) as a kept-up, very loud noise: it runs there and stays; when it stops it searches.
+     */
+    source(id: string, spec: RunningSource | null) {
+      if (!spec) { sources.delete(id); return; }
+      if (![spec.x, spec.z, spec.loudness].every(Number.isFinite)) return;
+      const at = sources.get(id);
+      if (at) { at.x = spec.x; at.z = spec.z; at.loudness = spec.loudness; } else sources.set(id, { x: spec.x, z: spec.z, loudness: spec.loudness, inReach: false, takenAt: -Infinity });
+    },
+    /** The running sources now (id, place, loudness), for logs and tests. */
+    sources() { return [...sources].map(([id, v]) => ({ id, x: v.x, z: v.z, loudness: v.loudness })); },
     /** Queue a noise; it is heard (or not) from wherever the creature is on the next tick. */
-    hear(noise: NoiseEvent) { heard.push({ loudness: noise.loudness, source: noise.source, x: noise.x, z: noise.z }); if (heard.length > 64) heard.shift(); },
+    hear(noise: NoiseEvent) { queue.push({ loudness: noise.loudness, source: noise.source, x: noise.x, z: noise.z, sustained: noise.sustained }); if (queue.length > 64) queue.shift(); },
     tick(input: BrainInput): BrainOutput {
-      const dt = Math.max(0, Math.min(input.dt, .25)), events: BrainEvent[] = [];
+      const dt = Math.max(0, Math.min(input.dt, .25)), events: BrainEvent[] = carry.splice(0);
       input = dt === input.dt ? input : { ...input, dt };
-      now += dt; creature = { ...input.creature }; lastInput = input;
-      const calm = now < calmUntil ? calmScale : 1, provoked = now < provokedUntil;
-      const pressure = tuning.pressureBoldness * smoothstep(now, tuning.pressureFrom, tuning.pressureFull);
-      boldness = provoked ? 1 : Math.max(baseBoldness(input.hours, now, tuning), pressure) * calm;
-      huntDrive = provoked ? 1 : now < huntCooldownUntil ? 0 : smoothstep(boldness, tuning.huntBoldnessMin, tuning.huntBoldnessFull) * huntPermit();
+      day = clamp(Math.round(input.day ?? 1), 1, 99);
+      now += dt; ticks++; creature = { ...input.creature };
+      advance(input, events);
       listen(input, events);
-      look(input, events);
-      stun(input, events);
-      // A hunt that has gone on too long is given up: it withdraws, and the cooldown (set as it ends) keeps it from starting another straight away.
-      if (current === 'hunt' && !shaken && now >= provokedUntil && now - enteredAt > tuning.huntLimit && !stunning()) { shaken = true; decideIn = 0; }
-      // A loud noise calls it back from wherever it had gone.
-      if (now < awayUntil && lead && !lead.investigated && lead.kind === 'sound' && lead.salience >= tuning.recallSalience && lead.at > awayUntil - 400 && now - lead.at < 1) awayUntil = now;
-      // Its spell of pacing the player runs out: it gets ahead of them if they are going somewhere, or it goes away.
-      if (current === 'shadow') {
-        paced += dt;
-        if (paced >= paceBudget && !stunning()) {
-          const seen = lastSeen, pace = seen ? Math.hypot(seen.vx, seen.vz) : 0;
-          if (seen && pace > .8 && !input.player.indoors && random() < tuning.ambushChance) {
-            const hx = seen.vx / pace, hz = seen.vz / pace, side = flank || 1, reach = tuning.ambushAhead + pace * 14;
-            ambushPlan = {
-              from: { x: seen.x, z: seen.z },
-              via: { x: seen.x + hx * reach * .45 + hz * side * tuning.ambushWide, z: seen.z + hz * reach * .45 - hx * side * tuning.ambushWide },
-              at: { x: seen.x + hx * reach, z: seen.z + hz * reach }, until: now + tuning.ambushWait, reached: false,
-            };
-            events.push({ type: 'ambush' }); decideIn = 0;
-          } else leave(between(tuning.awayAfterPace));
-        }
-      }
-      decideIn -= dt;
-      // A grab cannot wait for the next decision tick.
-      const reachable = current === 'hunt' && input.reach < tuning.grabReach;
-      if (decideIn <= 0 || reachable) { decideIn = tuning.decisionInterval; decide(input, events); }
-      const ctx = context(input, events, current), action = byId.get(current)!.act(ctx);
-      const flinching = stunning(), shaped = stunned(action.intent);
-      const intent = shaped.intent;
+      // A noise may have taken it up or woken it; settle what that means before it moves.
+      advance(input, events);
+      if (mode !== 'asleep') stun(input, events); else beamTime = 0;
+      const p = input.player;
+      const perceives = mode !== 'asleep' && !p.untouchable && (now < provokedUntil || breathing || now < perceivedUntil);
+      // The catch: only a player it perceives right now, in reach, and it is not held by the light.
+      // Besieging a building it cannot get its head into: a wall is between it and anyone inside, so only an open doorway lets it reach.
+      const walled = mode === 'siege' && !!siege && !!buildingAt([siege.b], p.x, p.z, -.3);
+      if (perceives && mode !== 'strike' && ((input.reach < tuning.grabReach && !walled) || throughOpening(input)) && !stunning()) { setMode('strike', events); events.push({ type: 'strike' }); }
+      const action = act(input, events), flinching = stunning(), shaped = stunned(action.intent);
       let gaze = action.gaze;
+      // Close enough to hear the breath, its face finds it: the breath is at the player's place, which it has heard. Never otherwise.
+      if (breathing && mode !== 'strike') gaze = { x: p.x, y: p.y + 1.3, z: p.z };
       if (flinching) {
         // Pinned by the beam: its face turns aside from the light.
-        const p = input.player, ax = input.creature.x - p.x, az = input.creature.z - p.z, l = Math.hypot(ax, az) || 1;
-        gaze = { x: input.creature.x + (-az / l) * 6 * flank + ax / l * 3, y: p.y + 4, z: input.creature.z + (ax / l) * 6 * flank + az / l * 3 };
+        const ax = input.creature.x - p.x, az = input.creature.z - p.z, l = Math.hypot(ax, az) || 1;
+        gaze = { x: input.creature.x + (-az / l) * 6 + ax / l * 3, y: p.y + 4, z: input.creature.z + (ax / l) * 6 + az / l * 3 };
       }
-      last = { behaviour: current, intent, gaze, events, flinching, stun: shaped.stun, sees, boldness };
+      last = { behaviour: mode, intent: shaped.intent, gaze, events, flinching, stun: shaped.stun, asleep: mode === 'asleep', perceives };
       return last;
     },
-    /** No hunting (the host's scripted opening owns the creature) until permitHunting. */
-    holdHunting() { huntAllowed = false; },
-    /** Hunting allowed again: rare at first, its full drive after huntPermitRamp (or at once, with ramp false). */
-    permitHunting(ramp = true) { huntAllowed = true; huntAllowedAt = ramp ? now : -Infinity; },
-    /** The player was taken and woke elsewhere: forget them and stay calm for a while. */
-    struck() {
-      forget(); beamTime = 0; stunPhase = 'none'; stunT = 0;
-      calmUntil = now + tuning.calmAfterDeath; calmScale = tuning.calmScale; provokedUntil = -Infinity; dismissed = false; huntCooldownUntil = -Infinity;
-      awayUntil = now + between(tuning.awayAfterHunt); paced = 0; ambushPlan = undefined;
-      current = 'roam'; enteredAt = now; states = {}; decideIn = 0;
-    },
-    /** The host moved the body (a spawn or relocation): drop half-finished plans, keep what it knows. */
-    relocated() { states = {}; decideIn = 0; },
-    /** Developer dismiss: break off, forget the player, and stay calm for a while. */
-    dismiss() { dismissed = true; provokedUntil = -Infinity; calmUntil = now + tuning.calmAfterDeath; calmScale = tuning.calmScale; decideIn = 0; forget(); },
-    /** Everything it knew about the player and the noises it heard, gone. */
+    /** The night's start: the loudest place of the day (null for none). It goes there first, once, when it has nothing to follow. */
+    dusk(start: Vec2 | null) { pendingStart = start ? { x: start.x, z: start.z } : undefined; },
+    /** Where it sleeps by day. */
+    setLair(at: Vec2) { lair = { x: at.x, z: at.z }; },
+    /** The player was taken and woke elsewhere: it forgets what it was following and starts again from nothing. */
+    struck() { forget(); resetStun(); provokedUntil = -Infinity; if (mode === 'strike') { mode = 'round'; modeAt = now; } plan = []; started = false; },
+    /** The host moved the body (a spawn or relocation): drop the half-finished walk, keep what it knows. */
+    relocated() { roundGoal = undefined; if (mode === 'strike') { mode = 'round'; modeAt = now; started = false; } },
+    /** Developer dismiss: break off and forget. */
+    dismiss() { provokedUntil = -Infinity; forget(); if (mode === 'strike') { mode = 'round'; modeAt = now; } started = false; },
+    /** Everything it was following and the noises it heard, gone. */
     forget,
-    /** Developer hunt: full courage, and it knows exactly where the player is. */
-    provoke(player: PlayerPercept) {
-      provokedUntil = now + tuning.provokeSeconds; calmUntil = -Infinity; dismissed = false; awayUntil = -Infinity; paced = 0;
-      lastSeen = { x: player.x, y: player.y, z: player.z, vx: 0, vz: 0, at: now };
-      exposure = 1; sightTime = tuning.huntSightTimid;
-      lead = { id: ++leadIds, kind: 'sight', source: 'sight', x: player.x, y: player.y + 1.5, z: player.z, uncertainty: 1, salience: 1.2, at: now, investigated: false };
-      decideIn = 0;
+    /** Developer hunt: it knows exactly where the player is, and runs at them. */
+    provoke() { provokedUntil = now + tuning.provokeSeconds; awakeByDay = true; },
+    /** Give it something to investigate (a developer "natural" spawn hands it the player's rough position): a loud noise, no call. */
+    alert(at: Vec2, uncertainty = 8) { alerts.push({ at: { x: at.x, z: at.z }, uncertainty }); },
+    /** Run a behaviour now, whatever it was doing (hosts and tests). */
+    force(id: BehaviourId) {
+      if (!BEHAVIOURS.includes(id)) throw new Error(`Unknown creature behaviour "${id}"`);
+      if (id === 'siege' && !siege) return;   // a siege needs a building and a noise inside it: begin one by making a noise there
+      mode = id; modeAt = now; roundGoal = undefined; started = true;
+      if (id === 'search') { searchUntil = now + searchSeconds(day, tuning); nextClicks = now + tuning.clicksFirst; target ??= { x: creature.x, z: creature.z }; }
     },
-    /** Give it something to investigate (a developer "natural" spawn hands it the player's rough position). */
-    alert(at: Vec2, uncertainty = 8) {
-      awayUntil = -Infinity;
-      lead = { id: ++leadIds, kind: 'sound', source: 'alert', x: at.x, z: at.z, uncertainty, salience: .8, at: now, investigated: false };
-      decideIn = 0;
-    },
-    /** Run a behaviour now, whatever the scores say (hosts and tests). */
-    force(id: string, input = lastInput) {
-      if (!byId.has(id)) throw new Error(`Unknown creature behaviour "${id}"`);
-      if (input) switchTo(id, input, []);
-      else { current = id; enteredAt = now; states[id] = {}; }
-      decideIn = tuning.decisionInterval;
-    },
-    /** A new night: everything forgotten, courage back to the start of the evening. */
+    /** A new night: everything forgotten (the lair stays). */
     reset() {
-      now = 0; current = behaviours[0].id; enteredAt = 0; decideIn = 0; states = {}; heard.length = 0;
-      exposure = 0; sees = false; sightTime = 0; watched = 0; lastSeen = undefined; lead = undefined;
-      stunPhase = 'none'; stunT = stunHeldFor = stunSpent = stunFrom = outOfBeam = beamTime = 0; stunRelease = Infinity; flinchEnded = -Infinity;
-      calmUntil = provokedUntil = -Infinity; calmScale = 1; dismissed = shaken = false; flank = 1; scores = {}; last = undefined;
-      huntAllowed = true; huntAllowedAt = -Infinity; huntCooldownUntil = -Infinity;
-      awayUntil = -Infinity; paced = 0; ambushPlan = undefined;
+      queue.length = 0; alerts.length = 0; carry.length = 0; now = 0; mode = 'round'; modeAt = 0; started = false; wasNight = undefined; awakeByDay = false;
+      siege = undefined; for (const src of sources.values()) src.inReach = false; leadIsSource = false;
+      target = undefined; respRank = 0; lastSoundAt = -Infinity; lead = undefined; turnUntil = searchUntil = nextClicks = 0; pauseUntil = Infinity; roundGoal = undefined; plan = [];
+      pendingStart = undefined; perceivedUntil = provokedUntil = -Infinity; breathing = false; resetStun(); last = undefined;
     },
     inspect() {
       return {
-        clock: now, behaviour: current, inBehaviour: now - enteredAt, scores: { ...scores }, boldness, huntDrive, huntPermit: huntPermit(),
-        sees, exposure, sightTime, watched, creature: { ...creature },
-        lastSeen: lastSeen && { ...lastSeen, age: now - lastSeen.at }, lead: lead && { ...lead, age: now - lead.at },
+        clock: now, behaviour: mode, inBehaviour: now - modeAt, asleep: mode === 'asleep', night: wasNight, day, lair: lair && { ...lair }, awakeByDay,
+        lead: lead && { ...lead, age: now - lead.at }, target: target && { ...target }, response: mode === 'asleep' ? undefined : respRank, pendingStart: pendingStart && { ...pendingStart },
+        roundGoal: roundGoal && { ...roundGoal }, roundLeft: plan.length, perceived: Math.max(0, perceivedUntil - now), breathing, provoked: Math.max(0, provokedUntil - now),
+        searchLeft: mode === 'search' ? Math.max(0, searchUntil - now) : 0, quietFor: now - lastSoundAt, creature: { ...creature },
         flinch: { active: stunning(), phase: stunPhase, inPhase: stunT, held: stunHeldFor, spent: stunSpent, nextHeld: tuning.stunHeld[Math.min(stunSpent, tuning.stunHeld.length - 1)], outOfBeam },
-        away: Math.max(0, awayUntil - now), paced, paceBudget, ambush: ambushPlan && { ...ambushPlan },
-        calm: Math.max(0, calmUntil - now), cooldown: Math.max(0, huntCooldownUntil - now), provoked: Math.max(0, provokedUntil - now), dismissed, shaken, flank,
         intent: last?.intent,
+        siege: siege && { building: siege.b.id, phase: siege.phase, inPhase: now - siege.phaseAt, door: siege.doorId, quietFor: now - siege.lastInside, pressure: Object.fromEntries(siege.pressure) },
+        sources: [...sources].map(([id, v]) => ({ id, x: v.x, z: v.z, loudness: v.loudness })),
       };
     },
   };

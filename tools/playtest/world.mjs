@@ -35,6 +35,11 @@ export const game = await quietly(async () => ({
   brain: await import('../../game/sim/creature/creature-brain.ts'),
   director: await import('../../game/sim/creature/creature-director.ts'),
   lives: await import('../../game/sim/player/lives.ts'),
+  run: await import('../../game/sim/run/run.ts'),
+  dayNoise: await import('../../game/sim/run/day-noise.ts'),
+  noiseScale: await import('../../game/sim/noise/noise-scale.ts'),
+  surface: await import('../../game/sim/world/surface.ts'),
+  routes: await import('../../game/sim/world/island-routes.ts'),
   sky: await import('../../game/render/world/sky.ts'),
   sighting: await import('../../game/sim/creature/creature-sighting.ts'),
   visibility: await import('../../game/sim/creature/encounter-visibility.ts'),
@@ -48,7 +53,8 @@ const smoothstep = (v, a, b) => { const t = Math.max(0, Math.min(1, (v - a) / (b
 export const darknessAt = hours => 1 - smoothstep(game.sky.solarDirection(hours).y, -.14, .16);
 
 /** The world the creature and the bot share. One per run. */
-export async function createHeadlessWorld({ creatureSeed = 7741, trace } = {}) {
+/** `opening`: play the old scripted opening (it was built for a 16:00 start; the game now has it off, so the default is off). */
+export async function createHeadlessWorld({ creatureSeed = 7741, trace, opening = false } = {}) {
   const scene = new THREE.Scene(), collisions = game.collision.createCollisionWorld();
   // The forest's trunks exactly as game/render/world/forest.ts streams them: every tree within 94 m, rebuilt every 4.5 m walked.
   const layout = game.placement.naturalLayout({ heightAt, exclusion: W.vegetationExclusion, biomeAt: W.biomeAt, riverX: W.riverX, riverPresence: W.riverPresence, roadZ: W.roadZ, radius: W.WORLD_RADIUS });
@@ -91,14 +97,19 @@ export async function createHeadlessWorld({ creatureSeed = 7741, trace } = {}) {
     hush() {}, flashlightClick() {},
   };
   const places = game.layout.POI_PLACEMENTS.filter(p => ['cabin', 'hut', 'generator', 'mast', 'lookout', 'logstack', 'camp', 'chapel', 'mine'].includes(p.asset)).map(p => ({ x: p.x, z: p.z }));
+  // The lair and the round as the engine builds them (game/core/engine.ts): asleep in the lair by day; at night the day's noisy places, then the island's routes.
+  const lairPoi = game.layout.POI_PLACEMENTS.find(p => p.id === game.layout.LAIR_ID), lair = lairPoi && { x: lairPoi.x, z: lairPoi.z };
+  const dayNoise = game.dayNoise.createDayNoise();
+  let routes;
+  const round = () => [...dayNoise.places(6).map(p => ({ x: p.x, z: p.z })), ...(routes ??= game.routes.islandRoutes(lair))];
   const encounters = await quietly(async () => {
-    const e = game.encounters.createEncounters(scene, heightAt, audio, collisions, () => view, W.riverSurfaceAt, { places, seed: creatureSeed, doorAt: game.v2.doorAt, trace });
+    const e = game.encounters.createEncounters(scene, heightAt, audio, collisions, () => view, W.riverSurfaceAt, { places, seed: creatureSeed, doorAt: game.v2.doorAt, trace, opening: opening ? undefined : false, lair, round });
     for (let i = 0; i < 200 && !e.modelStatus().ready; i++) await new Promise(r => setTimeout(r, 25));
     return e;
   });
   if (!encounters.modelStatus().ready) throw new Error('the Listener model did not load');
   return {
-    scene, collisions, world2, encounters, view, sounds, audio, streamForest,
+    scene, collisions, world2, encounters, view, sounds, audio, streamForest, dayNoise, lair,
     setClock(t) { clock = t; },
     dispose() { quietly(async () => { encounters.dispose(); world2.dispose(); }); },
   };

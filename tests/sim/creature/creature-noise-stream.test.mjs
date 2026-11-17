@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 // game/render/props/world-v2.ts uses extensionless and JSON imports that only the bundler understands.
 import '../../helpers/register-ts-hooks.mjs';
-const { createWorldV2, indoorsAt, cabinWakePoint, GENERATOR_HUM } = await import('../../../game/render/props/world-v2.ts');
+const { createWorldV2, indoorsAt, cabinWakePoint, bedPlan, bedWakePoint, splashLoudness, GENERATOR_HUM } = await import('../../../game/render/props/world-v2.ts');
 const { createCollisionWorld } = await import('../../../game/sim/world/collision.ts');
 const { POI_PLACEMENTS, placeLocal } = await import('../../../game/sim/world/world-layout.ts');
 const { initialState } = await import('../../../game/sim/objectives/objectives.ts');
@@ -29,7 +29,8 @@ test('one noise stream: what the engine emits (footsteps, the torch) reaches the
     w.world.noise.emit({ type: 'noise', loudness: .13, source: 'footstep', x: 3, z: -4 });
     assert.deepEqual(w.heard.at(-1), { type: 'noise', loudness: .13, source: 'footstep', x: 3, z: -4 });
     // The objectives' own noises go to the same listeners, given a place.
-    w.world.debug.dispatch({ type: 'pickup', player: 'local', item: 'jerry-camp' });
+    // The seed lays the parts: a can of fuel is wherever it was put this run.
+    w.world.debug.dispatch({ type: 'pickup', player: 'local', item: Object.keys(w.world.debug.state.items).find(id => w.world.debug.state.items[id].kind === 'jerry') });
     const pickup = w.heard.at(-1);
     assert.equal(pickup.source, 'pickup'); assert.ok(Number.isFinite(pickup.x) && Number.isFinite(pickup.z));
     w.unsubscribe(); w.world.noise.emit({ type: 'noise', loudness: 1, source: 'footstep', x: 0, z: 0 });
@@ -69,4 +70,20 @@ test('indoors means inside a roofed building, not on its porch; the wake point i
   // A camera with this yaw looks along (-sin, -cos): toward the cabin.
   const look = { x: -Math.sin(wake.yaw), z: -Math.cos(wake.yaw) }, to = { x: cabin.x - wake.x, z: cabin.z - wake.z };
   assert.ok((look.x * to.x + look.z * to.z) / Math.hypot(to.x, to.z) > .99, 'facing it');
+});
+
+test('the player wakes by the bed: inside the cabin, clear of every solid, facing the room; the generator hum is kept up at 150 m; a splash is about 45 m', async () => {
+  const cabin = POI_PLACEMENTS.find(p => p.id === 'cabin'), bed = bedPlan(), wake = bedWakePoint();
+  assert.ok(bed); assert.deepEqual(wake, bed.stand);
+  assert.equal(indoorsAt(wake.x, wake.z), true);
+  assert.ok(Math.hypot(wake.x - bed.x, wake.z - bed.z) > 1 && Math.hypot(wake.x - bed.x, wake.z - bed.z) < 2.5, 'beside the bed');
+  const { solidContact } = await import('../../../game/sim/world/collision.ts');
+  const assets = (await import('../../../game/data/world-assets.json')).default.cabin;
+  // The cabin's colliders are in its own frame: put the wake point back into it and test the body (.24 m) against every solid that reaches head height.
+  const c = Math.cos(cabin.yaw), s = Math.sin(cabin.yaw), dx = wake.x - cabin.x, dz = wake.z - cabin.z, lx = dx * c - dz * s, lz = dx * s + dz * c;
+  for (const col of assets.colliders) if (col.minY < 1.7 && col.maxY > .6 && col.tag !== 'cabin floor') assert.ok(solidContact(col, lx, lz, .24).depth <= 0, `standing inside "${col.tag}"`);
+  const look = { x: -Math.sin(wake.yaw), z: -Math.cos(wake.yaw) }, toRoom = { x: cabin.x - wake.x, z: cabin.z - wake.z };
+  assert.ok((look.x * toRoom.x + look.z * toRoom.z) / Math.hypot(toRoom.x, toRoom.z) > .7, 'looking into the room, not at a wall');
+  assert.equal(GENERATOR_HUM.loudness, 1.5); assert.equal(GENERATOR_HUM.sustained, true);
+  assert.ok(Math.abs(splashLoudness(.5) - .375) < 1e-9 && splashLoudness(1) <= .6 && splashLoudness(.18) >= .25);
 });

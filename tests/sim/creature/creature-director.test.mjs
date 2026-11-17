@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createOpeningDirector, OPENING } from '../../../game/sim/creature/creature-director.ts';
-import { createRandom } from '../../../game/sim/creature/creature-brain.ts';
+// The brain imports the noise scale and stamina extensionless (as game/ code does): load it through the test hooks.
+import '../../helpers/register-ts-hooks.mjs';
+const { createRandom } = await import('../../../game/sim/creature/creature-brain.ts');
 
 /**
  * A stand-in host: `seenAfter` seconds into each encounter the creature is recognised, and `goneAfter` seconds later it

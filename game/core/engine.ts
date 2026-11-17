@@ -2,7 +2,7 @@ import { guardUnlitLights } from '../render/gpu/light-guards';
 import * as THREE from 'three';
 import { WORLD_V2, WORLD_SEED } from '../sim/world/world-flags';
 import { ROAD } from '../sim/world/road-profile';
-import { createWorldV2, doorAt } from '../render/props/world-v2';
+import { createWorldV2, doorAt, bedPlan, bedWakePoint } from '../render/props/world-v2';
 import { channelOffset } from '../sim/world/world-noise';
 import {readSettings,keyLabel,type Action} from './settings';
 import { createTerrain, heightAt, exclusion, riverX, roadZ, roadDistance, pathX } from '../render/world/terrain';
@@ -10,6 +10,8 @@ import { createForest } from '../render/world/forest';
 import { createAtmosphere } from '../render/world/atmosphere';
 import { ForestAudio } from '../audio/audio';
 import { createEncounters } from '../render/creature/encounters';
+import { creatureBuildings } from '../sim/creature/buildings';
+import worldAssets from '../data/world-assets.json';
 import { createStory } from '../render/props/story';
 import { createStableSunShadow, installSunBlend } from '../render/world/shadows';
 import { renderRatio, configureAuto } from './quality';
@@ -26,15 +28,29 @@ import { biomeAt, riverSurfaceAt, WORLD_DESTINATIONS, terrainHeightStats } from 
 import { createFlashlight } from '../render/props/flashlight';
 import { createTapTracker } from './tap';
 import type { EncounterView } from '../sim/creature/encounter-visibility';
-import { footstepLoudness, FLASHLIGHT_CLICK_LOUDNESS, type FootSurface, type NoiseEvent as CreatureNoise } from '../sim/creature/creature-brain';
+import type { NoiseEvent as CreatureNoise } from '../sim/creature/creature-brain';
+import { NOISE, footstepNoise } from '../sim/noise/noise-scale';
+import { createRun, RUN, type RunEvent, type SleepResult } from '../sim/run/run';
+import { createDayNoise } from '../sim/run/day-noise';
+import { createBreathHold } from '../sim/player/breath-hold';
+import { surfaceAt, stepSurfaceOf } from '../sim/world/surface';
 import type { CreatureSenses, CreatureMode } from '../render/creature/encounters';
-import { guideKind, hasRoom, type ObjectiveEvent } from '../sim/objectives/objectives';
+import { guideKind, hasRoom, canSprint, heldItem, heldKind, isHeavy, type ObjectiveEvent } from '../sim/objectives/objectives';
 import { createObjectiveHud, OBJECTIVE_KEY } from '../ui/objective-hud';
 import { createInventory, INVENTORY_KEY } from '../ui/inventory';
+import { createIslandMap } from '../ui/island-map';
+import { createPlaceBanner, createBannerTracker } from '../ui/place-banner';
+import { placeAt } from '../sim/world/places';
 import { createPerfOverlay, PERF_OVERLAY_KEY } from '../ui/perf-overlay';
 import { objectiveText } from '../sim/objectives/objective-text';
-import { POI_PLACEMENTS } from '../sim/world/world-layout';
-import { initialLives, loseLife, respawnHours, deathCard, grabTimeline, GRAB, NIGHT_START_HOURS, type DeathOutcome } from '../sim/player/lives';
+import { POI_PLACEMENTS, LAIR_ID, placeLocal } from '../sim/world/world-layout';
+import { createBicycle, BICYCLE } from '../sim/player/bicycle';
+import { createBicycleView } from '../render/props/bicycle';
+import { createBicycleAudio } from '../audio/bicycle-audio';
+import { angleDelta } from '../render/props/bicycle-math';
+import { islandRoutes as islandRoutesFrom } from '../sim/world/island-routes';
+// Lives are retired (the run keeps everything and only loses time, game/sim/run/run.ts); lives.ts stays for the timing of being taken.
+import { grabTimeline, GRAB } from '../sim/player/lives';
 import { createPerfProbe, drawList, shadowInstanceCulling, textureReport } from '../dev/perf-probe';
 import { perfOn, perfSwitches } from './perf-flags';
 import { createGpuWarmup } from '../render/gpu/gpu-warmup';
@@ -108,7 +124,9 @@ export async function createGame(container:HTMLElement,hud?:LoadingHud):Promise<
   const sunShadow=createStableSunShadow(sun,renderer.capabilities.maxTextureSize,()=>perfOn('sunShadowThrottle'),sunProbe,renderer);
   scene.add(sun,sun.target,sunProbe);
   startupMark('renderer');const sky=createSky(renderer,scene,sun,hemi);startupMark('sky');
-  const player=new THREE.Vector3(pathX(12),heightAt(pathX(12),12),12);
+  // A new game starts at 07:00 on day 1, waking beside the cabin's bed (the trail spawn only if the model has none).
+  const home=WORLD_V2?bedWakePoint():undefined;
+  const player=home?new THREE.Vector3(home.x,heightAt(home.x,home.z),home.z):new THREE.Vector3(pathX(12),heightAt(pathX(12),12),12);
   // The sun's shadows over the whole island (far-shadow.ts): the distant ground and the forest cast into it and sample it.
   const farShadow=WORLD_V2?createFarShadow(renderer):undefined;
   startupMark('far shadow');await buildStage('Shaping the land',.01);const terrain=createTerrain(scene,player,renderer,farShadow);startupMark('terrain');
@@ -129,6 +147,12 @@ export async function createGame(container:HTMLElement,hud?:LoadingHud):Promise<
   let forestCollisionVersion=-1,terrainCollisionVersion=-1;
   startupMark('collisions');const atmosphere=createAtmosphere(renderer,scene,camera,terrain.water,sun);startupMark('atmosphere');
   const audio=new ForestAudio();audio.setVolumes(settings);
+  // The run (game/sim/run/run.ts): five days, dawn 06:00, a start at 07:00 on day 1. Being taken or sleeping moves the run's own time
+  // (caught(), sleep()) and the clock is set to where it says: advance() is never called across such a jump, or it would count it twice.
+  const gameRun=createRun(),dayNoise=createDayNoise(),breathHold=createBreathHold();
+  let hours:number=RUN.startHour;
+  /** The objectives' clock: absolute game hours that never go back (a night past midnight belongs to the day it began in, so it adds 24). */
+  const absHours=()=>(gameRun.day-1+(hours<RUN.dawnHour?1:0))*24+hours;
   // One stream of sounds for the creature. The rebuilt world owns it (the objectives' noises go there); the
   // classic world has only what the engine adds: footsteps and the torch switch.
   type Noise=Extract<ObjectiveEvent,{type:'noise'}>;
@@ -137,8 +161,15 @@ export async function createGame(container:HTMLElement,hud?:LoadingHud):Promise<
     emit:(e:Noise)=>{if(world2)world2.noise.emit(e);else for(const listener of classicNoise)listener(e);},
     subscribe:(listener:(e:Noise)=>void)=>{if(world2)return world2.noise.subscribe(listener);classicNoise.add(listener);return()=>{classicNoise.delete(listener);};},
   };
-  const flashlight=createFlashlight(scene,camera,heightAt,collisions,()=>{audio.flashlightClick();noise.emit({type:'noise',loudness:FLASHLIGHT_CLICK_LOUDNESS,source:'flashlight',x:player.x,z:player.z});});
-  await buildStage('Putting up the buildings',.04);const world2=WORLD_V2?createWorldV2({scene,camera,container,heightAt,farShadow,collisions,flashlight,water:terrain.water,viewHeight:()=>renderer.domElement.height,riverX,exclusion,interactKey:()=>keyLabel(settings.bindings.interact)}):undefined;startupMark('world props');
+  const flashlight=createFlashlight(scene,camera,heightAt,collisions,()=>{audio.flashlightClick();noise.emit({type:'noise',loudness:NOISE.torchClick,source:'flashlight',x:player.x,z:player.z});});
+  // The run's machines as world-v2 reports them (the relay's and the pad's generators, the helicopter while its rotors turn): synced
+  // each frame into the creature's running sources and, for a generator, the game's own engine voice (syncMachines).
+  const machines=new Map<string,{x:number;y:number;z:number;kind:'generator'|'helicopter'}>();
+  await buildStage('Putting up the buildings',.04);const world2=WORLD_V2?createWorldV2({scene,camera,container,heightAt,farShadow,collisions,flashlight,water:terrain.water,viewHeight:()=>renderer.domElement.height,riverX,exclusion,interactKey:()=>keyLabel(settings.bindings.interact),onSleep:()=>trySleep(),
+    onMachine:(id,at,kind)=>{if(at)machines.set(id,{x:at.x,y:at.y,z:at.z,kind});else machines.delete(id);return kind==='generator';},
+    onEscaped:()=>{gameRun.won();console.info(`SILENCE: escaped on day ${gameRun.day}.`);}}):undefined;startupMark('world props');
+  // Standing on the cabin's floor, not under it: the colliders are registered by now.
+  if(home)player.y=characterSupportAt(player.x,player.z,player.y+.5,heightAt,collisions);
   // The objective in the top-left corner (rebuilt world only): always shown. O hides or shows it, and so does the Settings checkbox;
   // both are the one saved setting, so the choice is still there after a reload.
   const saveSettings=()=>{try{localStorage.setItem('silence-settings',JSON.stringify(settings));}catch{}};
@@ -156,9 +187,13 @@ export async function createGame(container:HTMLElement,hud?:LoadingHud):Promise<
       else start();
     },
   }):undefined;
+  // M: the paper map (game/ui/island-map.ts), freeing the mouse like the backpack; the game goes on behind it. A place's name shows on walking in.
+  let mapOpen=false,mapAt=-1e9;
+  const islandMap=world2?createIslandMap(container,{onOpenChange:open=>{mapOpen=open;if(open){if(document.pointerLockElement===renderer.domElement)document.exitPointerLock();}else if(!inventoryOpen)start();}}):undefined;
+  const placeBanner=world2?createPlaceBanner(container):undefined,bannerTracker=createBannerTracker();
   // Sprint stamina (game/sim/player/stamina.ts) and its bar, which only shows while stamina is below full (game/ui/stamina-hud.ts).
   const stamina=createStamina(),staminaHud=createStaminaHud(container);
-  const interact=(pickupOnly=false)=>grab?false:world2?world2.activate(pickupOnly)||(!pickupOnly&&flashlight.toggle()):flashlight.interact(pickupOnly);
+  const interact=(pickupOnly=false)=>grab?false:bike.mounted?(!pickupOnly&&flashlight.toggle()):world2?world2.activate(pickupOnly)||(!pickupOnly&&flashlight.toggle()):flashlight.interact(pickupOnly);
   const mouseTap=createTapTracker(),touchTap=createTapTracker();
   let touchTapId:number|undefined,lastTouch=-Infinity;
   const reflectionView={position:new THREE.Vector3(),forward:new THREE.Vector3(),right:new THREE.Vector3(),up:new THREE.Vector3(),verticalFov:camera.fov,aspect:camera.aspect};
@@ -172,10 +207,39 @@ export async function createGame(container:HTMLElement,hud?:LoadingHud):Promise<
     for(const axis of ['forward','right','up'] as const){reflectionView[axis].copy(encounterView[axis]);reflectionView[axis].addScaledVector(n,-2*reflectionView[axis].dot(n));}
     return encounterView;
   };
-  // It patrols the places the player needs: the rebuilt world's landmarks, or the classic destinations.
+  // The places the old patrol walked, kept as the brain's fallback round: the rebuilt world's landmarks, or the classic destinations.
   const creaturePlaces=WORLD_V2?POI_PLACEMENTS.filter(p=>['cabin','hut','generator','mast','lookout','logstack','camp','chapel','mine'].includes(p.asset)).map(p=>({x:p.x,z:p.z})):WORLD_DESTINATIONS.map(d=>({x:d.x,z:d.z}));
-  startupMark('player and HUD');const encounters=createEncounters(scene,heightAt,audio,collisions,readEncounterView,riverSurfaceAt,{places:creaturePlaces,seed:WORLD_SEED||7741,doorAt:world2?doorAt:undefined});startupMark('creature');
-  const unsubscribeNoise=noise.subscribe(e=>{if(e.x!==undefined&&e.z!==undefined)encounters.hear({loudness:e.loudness,source:e.source,x:e.x,z:e.z} satisfies CreatureNoise);});
+  // Where it sleeps by day: the place this island's seed picked (world-layout LAIR_ID).
+  const lairPoi=WORLD_V2?POI_PLACEMENTS.find(p=>p.id===LAIR_ID):undefined,lair=lairPoi&&{x:lairPoi.x,z:lairPoi.z};
+  // Its night's round: the day's noisy places (the player's own doing, loudest first) and then the island's paths and roads from the lair
+  // outward (game/sim/world/island-routes.ts), built on the first dusk.
+  let routePoints:{x:number;z:number}[]|undefined;
+  const islandRoutes=()=>routePoints??=WORLD_V2?islandRoutesFrom(lair):[];
+  const creatureRound=()=>[...dayNoise.places(6).map(p=>({x:p.x,z:p.z})),...islandRoutes()];
+  // The scripted opening (a glimpse, then the tree) was built for a 16:00 start on the trail; the run starts at 07:00 in the cabin with the
+  // Listener asleep in its lair, so the opening is off (opening:false). Its code stays in creature-director.ts and encounters.ts.
+  startupMark('player and HUD');const encounters=createEncounters(scene,heightAt,audio,collisions,readEncounterView,riverSurfaceAt,{places:creaturePlaces,seed:WORLD_SEED||7741,doorAt:world2?doorAt:undefined,opening:false,lair,round:creatureRound,
+    buildings:WORLD_V2?creatureBuildings(POI_PLACEMENTS,worldAssets as unknown as Parameters<typeof creatureBuildings>[1]):undefined,doors:world2?.debug.doors});startupMark('creature');
+  // What syncMachines last told the creature and the speakers was running, and when each was last written into the day's noise.
+  const machinesOn=new Map<string,{x:number;y:number;z:number;recordIn:number}>();
+  /**
+   * The machines into the creature's hearing and the speakers. A generator is heard to 150 m for as long as it runs; the helicopter,
+   * as the design has it, by the whole island ("the helicopter is the noise, and it brings the Listener running"). Each also goes in
+   * the day's noise every few seconds while it runs, so the loudest place of the day can be a machine left running.
+   */
+  function syncMachines(dt:number){
+    for(const [id,m] of machines){
+      const loudness=m.kind==='helicopter'?NOISE.island:NOISE.generator;
+      encounters.source(id,{x:m.x,z:m.z,loudness});
+      if(m.kind==='generator')audio.engine(id,m,true,'generator');
+      let on=machinesOn.get(id);if(!on){on={x:m.x,y:m.y,z:m.z,recordIn:0};machinesOn.set(id,on);}
+      on.x=m.x;on.y=m.y;on.z=m.z;
+      if((on.recordIn-=dt)<=0){on.recordIn=7;dayNoise.record({x:m.x,z:m.z,loudness,sustained:true,hours:absHours()});}
+    }
+    for(const [id,on] of machinesOn)if(!machines.has(id)){encounters.source(id,null);audio.engine(id,on,false);machinesOn.delete(id);}
+  }
+  // Every noise reaches the Listener and goes into the day's log (game/sim/run/day-noise.ts), which picks its first stop at dusk.
+  const unsubscribeNoise=noise.subscribe(e=>{if(e.x!==undefined&&e.z!==undefined){encounters.hear({loudness:e.loudness,source:e.source,x:e.x,z:e.z,sustained:e.sustained} satisfies CreatureNoise);dayNoise.record({x:e.x,z:e.z,loudness:e.loudness,sustained:e.sustained,hours:absHours()});}});
   const creature=scene.getObjectByName('something-between-the-trees')!;
   const velocity=new THREE.Vector3();
   let jumpVelocity=0, airborne=false, jumpRequested=false;
@@ -183,45 +247,178 @@ export async function createGame(container:HTMLElement,hud?:LoadingHud):Promise<
   let lastSpeed=0,wasClimbing=false;
   const forward=new THREE.Vector3(0,0,-1);
   const keys=new Set<string>();
-  let yaw=Math.atan2(player.x-pathX(player.z-8),8),pitch=-.045,elapsed=0,walkingPhase=0,cameraHeight=1.69;
+  let yaw=home?home.yaw:Math.atan2(player.x-pathX(player.z-8),8),pitch=home?-.08:-.045,elapsed=0,walkingPhase=0,cameraHeight=1.69;
   const startPoint={x:player.x,z:player.z,yaw};
-  // Three lives. Being taken: the camera is wrenched to its face, it screeches, black, a line of text, and the
-  // player wakes at the cabin later in the night (or, the third time, the night starts again).
-  let lives=initialLives(),grab:{t:number;outcome:DeathOutcome;respawned:boolean}|undefined,wokeAt=-Infinity,stride=0;
+  // The bicycle (game/sim/player/bicycle.ts rules, game/render/props/bicycle.ts parts, game/audio/bicycle-audio.ts sounds): one, parked by the
+  // cabin's door facing out, back there each dawn. E on it rides, E again gets off; W pedals, S brakes, A and D steer, Z rings the bell.
+  // While ridden the bicycle owns the heading and the speed, the engine owns the position (the same collision, a wider body), and the camera
+  // sits at the rider's eye on the saddle, rolled by a share of the lean. A heavy part in hand can be strapped to the rack.
+  const cabinSeat=WORLD_V2?POI_PLACEMENTS.find(p=>p.id==='cabin'):undefined;
+  const bikeSpot=cabinSeat?(([x,z])=>({x,z,yaw:cabinSeat.yaw}))(placeLocal(cabinSeat,-3.7,8.2)):undefined;
+  const bike=createBicycle(bikeSpot??{x:player.x,z:player.z}),bikeAudio=createBicycleAudio();
+  const bikeSurface=()=>surfaceAt(player.x,player.z);
+  const bikeView=world2&&bikeSpot?createBicycleView({scene,ground:(x,z)=>characterSupportAt(x,z,(bike.mounted?player.y:heightAt(x,z))+.3,heightAt,collisions,.05)}):undefined;
+  const BIKE_BODY=.45,LOOK_LIMIT=100*Math.PI/180;
+  let rideHeading=0,rideSpeed=0,rideInput={throttle:0,brake:0,steer:0},strappedId:string|undefined,wasRolling=false;
+  const resetBike=()=>{
+    if(!bikeView||!bikeSpot)return;
+    bike.home();strappedId=undefined;rideSpeed=0;bikeView.park(bikeSpot.x,bikeSpot.z,bikeSpot.yaw);
+  };
+  if(bikeView&&bikeSpot)resetBike();
+  const ringBell=()=>{
+    const loudness=bike.ring();if(loudness<=0)return;
+    bikeAudio.bell();noise.emit({type:'noise',loudness,source:'bell',x:player.x,z:player.z});
+  };
+  function mountBike(){
+    if(!bikeView||bike.mounted||grab||flying||world2?.climbing||airborne)return false;
+    const stand={x:bike.position.x,z:bike.position.z};
+    // Getting on takes the bicycle's own place, facing where the player looks.
+    if(!bike.mount({x:player.x,z:player.z},bikeSurface(),yaw))return false;
+    bike.place(stand.x,stand.z);player.x=stand.x;player.z=stand.z;player.y=characterSupportAt(stand.x,stand.z,player.y+.3,movementGround,collisions);
+    velocity.set(0,0,0);rideHeading=yaw;rideSpeed=0;rideInput={throttle:0,brake:0,steer:0};
+    return true;
+  }
+  function dismountBike(){
+    if(!bikeView||!bike.dismount())return;
+    const at=bikeView.yaw,right=new THREE.Vector3(-Math.cos(at),0,Math.sin(at)),back=new THREE.Vector3(-Math.sin(at),0,-Math.cos(at));
+    // Beside it on a free spot: the right, the left, behind, ahead; the bicycle itself stays where it stands.
+    const free=(x:number,z:number)=>surfaceAt(x,z)!=='water'&&!collisions.nearby(x,z,.5).some(c=>!(c.minY>player.y+1.69+.025||c.maxY<player.y-.12)&&solidContact(c,x,z,.3).depth>0);
+    const spots=[[right,.95],[right,-.95],[back,1.25],[back,-1.25]] as const;
+    for(const[direction,distance]of spots){
+      const x=player.x+direction.x*distance,z=player.z+direction.z*distance;
+      if(free(x,z)){player.x=x;player.z=z;player.y=characterSupportAt(x,z,player.y+.3,movementGround,collisions);break;}
+    }
+    bikeView.park(bike.position.x,bike.position.z,at);rideSpeed=0;velocity.set(0,0,0);
+  }
+  // Heavy parts in hand go on the rack (the part stays "carried" in the objectives' state, so the rules for a heavy load stay the same,
+  // and is drawn on the rack hook for as long as it is strapped); letting go of it any other way (dropping it) frees the rack.
+  let aimBike:()=>void=()=>{};
+  if(world2&&bikeView){
+    const itemName=(kind:string|undefined)=>kind==='jerry'?'jerry can':kind??'part';
+    const ride=new THREE.Vector3(),rack=new THREE.Vector3(),me=()=>world2.localPlayer,state=()=>world2.objectiveState;
+    const aim=()=>{bikeView.promptPoint(ride);bikeView.rackPoint(rack);};
+    aimBike=aim;
+    const ui=world2.debug.interaction;
+    ui.register({id:'bicycle:ride',position:ride,range:2.6,keyOnly:true,label:'Left click to ride the bicycle',
+      enabled:()=>!grab&&!bike.mounted&&bike.canMount({x:player.x,z:player.z},bikeSurface()),activate:()=>{mountBike();}});
+    ui.register({id:'bicycle:strap',position:rack,range:2.6,keyOnly:true,label:()=>`Left click to strap the ${itemName(heldKind(state(),me()))} to the rack`,
+      enabled:()=>!grab&&!bike.mounted&&!bike.loadKind&&isHeavy(heldKind(state(),me()))&&Math.hypot(player.x-bike.position.x,player.z-bike.position.z)<=BICYCLE.reach,
+      activate:()=>{const kind=heldKind(state(),me());if(kind&&bike.strap(kind))strappedId=heldItem(state(),me());}});
+    ui.register({id:'bicycle:unstrap',position:rack,range:2.6,keyOnly:true,label:()=>`Left click to take the ${itemName(bike.loadKind??undefined)} off the rack`,
+      enabled:()=>!grab&&!bike.mounted&&!!bike.loadKind&&Math.hypot(player.x-bike.position.x,player.z-bike.position.z)<=BICYCLE.reach,
+      activate:()=>{bike.unstrap();strappedId=undefined;}});
+  }
+  const strapQuaternion=new THREE.Quaternion(),strapPosition=new THREE.Vector3();
+  /** After the world's frame (which puts a carried part at the hand): a strapped part goes to the rack instead. */
+  function placeStrapped(){
+    if(!world2||!bikeView||!bike.loadKind)return;
+    if(heldItem(world2.objectiveState,world2.localPlayer)!==strappedId){bike.unstrap();strappedId=undefined;return;}
+    const group=scene.getObjectByName(`Pickup ${strappedId}`);if(!group)return;
+    bikeView.rack(strapPosition,strapQuaternion);group.position.copy(strapPosition);group.quaternion.copy(strapQuaternion);
+  }
+  // Being taken: the camera is wrenched to its face, it screeches, black, a line of text, and the player wakes by the cabin's bed at the
+  // next dawn with everything they carried (no lives, nothing dropped). Sleeping is the same black without the face, and the lost
+  // run is the black that stays. `grab` is whichever of the three is playing.
+  type Scene={t:number;kind:'caught'|'sleep'|'lost';respawned:boolean;sleep?:Extract<SleepResult,{ok:true}>};
+  let grab:Scene|undefined,wokeAt=-Infinity,stride=0,breathHeldNow=false,reloading=false;
   const head=new THREE.Vector3(),lastFoot=new THREE.Vector3(player.x,player.y,player.z);
   const blackout=document.createElement('div');blackout.style.cssText='position:absolute;inset:0;background:#000;z-index:4;pointer-events:none;opacity:0;display:flex;align-items:center;justify-content:center';
   const card=document.createElement('div');card.style.cssText='opacity:0;text-align:center;color:#c9ccc2;font:300 15px/1.6 system-ui,sans-serif;letter-spacing:.34em;text-transform:uppercase';
   const cardTitle=document.createElement('div'),cardLine=document.createElement('div');cardLine.style.cssText='margin-top:12px;font-size:11px;letter-spacing:.42em;color:#868d82';
   card.appendChild(cardTitle);card.appendChild(cardLine);blackout.appendChild(card);container.appendChild(blackout);
+  // A short line over the view (why the bed refused you) and the day's name at a dawn the player is awake for: both fade by themselves.
+  const noticeStyle='position:absolute;left:50%;transform:translateX(-50%);max-width:84%;text-align:center;pointer-events:none;z-index:20;opacity:0;transition:opacity 500ms ease;color:#dcd8c9;text-shadow:0 1px 3px #000,0 0 14px rgba(0,0,0,.75)';
+  const notice=document.createElement('div'),banner=document.createElement('div');notice.setAttribute('role','status');
+  notice.style.cssText=noticeStyle+';bottom:24%;font:400 15px/1.35 system-ui,sans-serif;letter-spacing:.05em';
+  banner.style.cssText=noticeStyle+';top:36%;font:300 20px/1.6 system-ui,sans-serif;letter-spacing:.4em;text-transform:uppercase;transition-duration:900ms';
+  container.appendChild(notice);container.appendChild(banner);
+  let noticeUntil=0,bannerUntil=0;
+  const say=(text:string,seconds=3.2)=>{notice.textContent=text;notice.style.opacity='1';noticeUntil=performance.now()+seconds*1000;};
+  const showDay=(day:number,seconds=4)=>{banner.textContent=`Day ${day}`;banner.style.opacity='1';bannerUntil=performance.now()+seconds*1000;};
+  const ramp=(v:number,a:number,b:number)=>Math.max(0,Math.min(1,(v-a)/(b-a)));
+  /** The black and the card of a scene: the grab's own timeline, with a sleep fading out over the same first second instead of cutting. */
+  const screenOf=(g:Scene)=>{const t=grabTimeline(g.t);return g.kind==='sleep'&&g.t<GRAB.wake?{...t,black:Math.max(t.black,ramp(g.t,0,GRAB.black))}:t;};
   const grabFacing=new THREE.Vector3(),grabFrom=new THREE.Vector3(),grabEnd=new THREE.Vector3();
-  function beginGrab(){
-    if(grab)return;
-    // Whatever was in hand falls where they were taken, and stays there.
-    world2?.drop();
-    const r=loseLife(lives);lives=r.state;grab={t:0,outcome:r.outcome,respawned:false};
-    const words=deathCard(lives,r.outcome);cardTitle.textContent=words.title;cardLine.textContent=words.line;
+  function startScene(kind:Scene['kind'],t=0,sleep?:Scene['sleep']){
+    grab={t,kind,respawned:kind==='lost',sleep};
     keys.clear();velocity.set(0,0,0);drag=false;touchMove.set(0,0);
   }
-  /** Under black: wake at the cabin later in the night, or start the night again. The creature goes far away. */
+  function beginGrab(){
+    if(grab)return;
+    cardTitle.textContent='It found you.';cardLine.textContent='';
+    startScene('caught');
+  }
+  /** The run is over: the black stays, a line, and the island is laid out again (a page reload with a new seed in the address). */
+  function beginLost(){
+    if(grab?.kind==='lost')return;
+    cardTitle.textContent='The sixth dawn.';cardLine.textContent='The island keeps you.';
+    // From a scene already under black the black does not restart; from play it fades in first.
+    startScene('lost',grab&&screenOf(grab).black>=1?1.8:0);
+  }
+  function newIsland(){
+    if(reloading)return;reloading=true;
+    const params=new URLSearchParams(location.search);params.set('seed',String(1+Math.floor(Math.random()*999998)));
+    location.search=params.toString();
+  }
+  /** What the run says happened: each dawn rolls the day's noise log and (awake) names the day; each dusk sends the Listener out. */
+  function onRunEvents(events:RunEvent[],atWake=false){
+    for(const e of events){
+      if(e.type==='dawn'){dayNoise.dawn();if(!atWake)showDay(e.day);}
+      else if(e.type==='dusk'){const l=dayNoise.loudest();encounters.dusk(l?{x:l.x,z:l.z}:null);}
+      else beginLost();
+    }
+  }
+  /** The clock to an hour of a day (developer hooks, the menu's time slider): the run is put to that moment without events. */
+  function setClock(h:number,day=gameRun.day){
+    const d=Math.min(RUN.days,Math.max(1,Math.round(day))),first=((RUN.dawnHour-RUN.startHour)%24+24)%24||24;
+    hours=((h%24)+24)%24;
+    gameRun.restore({day:d,elapsed:(d<=1?0:first+24*(d-2))+((hours-(d<=1?RUN.startHour:RUN.dawnHour))%24+24)%24,duskSeen:false,status:'running'});
+    if(gameRun.phase==='night'){const l=dayNoise.loudest();encounters.dusk(l?{x:l.x,z:l.z}:null);}
+    world2?.time(absHours(),true);
+  }
+  /** Under black: wake by the bed with the clock where the run says, or (the sixth dawn) lose. The creature goes back to its lair and round. */
   function wake(now:number){
-    const over=grab?.outcome==='game-over';
+    const g=grab!;let door=false;
     world2?.letGo();
-    if(over){lives=initialLives();hours=NIGHT_START_HOURS;world2?.restart();flashlight.reset();}
-    else hours=respawnHours(hours);
-    const at=over?startPoint:world2?.wakePoint()??startPoint;
+    if(g.kind==='caught'){
+      const r=gameRun.caught();onRunEvents(r.events,true);
+      if(r.outcome==='lost')return;
+      hours=r.wakeHour;cardTitle.textContent='It found you.';cardLine.textContent=`Day ${gameRun.day}`;
+    }else{
+      const r=g.sleep!;onRunEvents(r.events,true);
+      if(r.outcome==='lost')return;
+      if(r.outcome==='dawn'){hours=r.wakeHour;cardTitle.textContent=`Day ${gameRun.day}`;cardLine.textContent='You slept.';}
+      else{hours=r.interruptedAt;cardTitle.textContent='Something is at the door.';cardLine.textContent='';door=true;}
+    }
+    const at=world2?.wakePoint()??startPoint;
     teleport(at.x,at.z);if(!flying)player.y=characterSupportAt(player.x,player.z,player.y+.5,heightAt,collisions);
     yaw=at.yaw;pitch=-.08;lastFoot.copy(player);stride=0;
-    if(over)encounters.restart(player,elapsed);else encounters.relocate(player,elapsed);
-    wokeAt=now;shadowDirty=true;stamina.reset();
+    encounters.relocate(player,elapsed);
+    // The Listener at the door: it is a very loud knock to it (250 m), so it runs to the door from wherever it was put and searches there.
+    const doorPoint=door?world2?.doorPoint():undefined;
+    if(doorPoint)encounters.hear({loudness:2.5,source:'door',x:doorPoint.x,z:doorPoint.z});
+    wokeAt=now;shadowDirty=true;stamina.reset();breathHold.reset();resetBike();
+    world2?.time(absHours(),true);
+  }
+  /** The bed: sleep till dawn if the night allows it, else a line saying why not. */
+  function trySleep(){
+    if(!world2||grab||!isActive())return;
+    const bed=bedPlan();if(!bed)return;
+    const c=encounters.probe(),near=Math.hypot(c.x-bed.x,c.z-bed.z)<=60,restless=['run','trot','prowl','search','strike'].includes(String(c.behaviour));
+    const r=gameRun.sleep({doorBarred:world2.cabinDoorBarred(),quiet:!(near||restless),loudHereToday:dayNoise.loudNear(bed.x,bed.z,40)});
+    if(!r.ok){say(r.reason==='daytime'?'Too early to sleep':r.reason==='door-open'?'Bar the door first':r.reason==='not-quiet'?'Not now: it is close':'');return;}
+    cardTitle.textContent='';cardLine.textContent='';
+    startScene('sleep',0,r);
   }
   /** What the creature is told about the player each frame, beyond where they are. */
   const senses=(dt:number,crouch:boolean,hurry:boolean,inWater:boolean,climbing:boolean):CreatureSenses=>({
     // A teleport is not a velocity.
     ...(Math.hypot(player.x-lastFoot.x,player.z-lastFoot.z)>dt*12?{vx:0,vz:0}:{vx:(player.x-lastFoot.x)/Math.max(dt,.001),vz:(player.z-lastFoot.z)/Math.max(dt,.001)}),
     sprinting:hurry&&!crouch,crouching:crouch,flashlightOn:flashlight.active,inWater,onLadder:climbing,
-    indoors:world2?.indoors(player)??false,untouchable:flying||!!grab,blackout:!!grab&&grabTimeline(grab.t).black>=1,
+    indoors:world2?.indoors(player)??false,untouchable:flying||!!grab,blackout:!!grab&&(grab.kind==='lost'||screenOf(grab).black>=1),
+    day:gameRun.day,breathHeld:breathHeldNow,
   });
-  let hours=16,cycleSpeed=1,flying=false;
+  let cycleSpeed=1,flying=false;
   let disposed=false,raf=0,last=performance.now(),frameAverage=16.67;
   let pointerWasLocked=false,pointerLockPending=false;
   let drag=false,mouseX=0,mouseY=0;
@@ -273,13 +470,15 @@ export async function createGame(container:HTMLElement,hud?:LoadingHud):Promise<
     if((e.code==='F2'||e.code==='Backquote')&&!e.repeat){e.preventDefault();admin.show('developer');return;}
     if(admin.open){if(e.code==='Escape'){e.preventDefault();admin.close();}return;}
     if(['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','ShiftLeft','ShiftRight','ControlLeft','ControlRight','KeyF','Space'].includes(e.code))e.preventDefault();
-    if(e.code==='Escape'&&!e.repeat&&inventoryOpen){e.preventDefault();inventory?.close();return;}
+    if(e.code==='Escape'&&!e.repeat&&(inventoryOpen||mapOpen)){e.preventDefault();inventory?.close();islandMap?.close();return;}
     if(e.code==='Escape'&&!e.repeat){e.preventDefault();admin.show();return;}
     if(Object.values(settings.bindings).includes(e.code))e.preventDefault();
     keys.add(e.code);
-    if(e.code===settings.bindings.interact&&!e.repeat){start();if(isActive()&&interact(true))shadowDirty=true;}
-    if(e.code===settings.bindings.rise&&!e.repeat&&isActive()&&!grab){if(world2?.climbing)world2.letGo();else if(!flying&&!airborne)jumpRequested=true;}
+    if(e.code===settings.bindings.interact&&!e.repeat){start();if(bike.mounted){if(isActive()&&!grab)dismountBike();}else if(isActive()&&interact(true))shadowDirty=true;}
+    if(e.code===settings.bindings.bell&&!e.repeat&&isActive()&&!grab&&bike.mounted)ringBell();
+    if(e.code===settings.bindings.rise&&!e.repeat&&isActive()&&!grab&&bike.allows('jump')){if(world2?.climbing)world2.letGo();else if(!flying&&!airborne)jumpRequested=true;}
     if(e.code===settings.bindings.drop&&!e.repeat&&isActive()&&!grab&&world2?.drop())shadowDirty=true;
+    if(e.code===settings.bindings.map&&!e.repeat&&isActive()&&!grab){e.preventDefault();islandMap?.toggle();}
     if(e.code===OBJECTIVE_KEY&&!e.repeat&&isActive()&&!grab&&!Object.values(settings.bindings).includes(e.code))objectiveHud?.toggle();
     if(e.code===INVENTORY_KEY&&!e.repeat&&isActive()&&!grab&&!Object.values(settings.bindings).includes(e.code)){e.preventDefault();inventory?.toggle();}
     if(e.code===PERF_OVERLAY_KEY&&!e.repeat&&!Object.values(settings.bindings).includes(e.code)){settings.perfOverlay=!settings.perfOverlay;saveSettings();}
@@ -304,7 +503,7 @@ export async function createGame(container:HTMLElement,hud?:LoadingHud):Promise<
     }else if(pointerWasLocked){
       pointerWasLocked=false;
       // Let go of on purpose, for the backpack: not a pause.
-      if(inventoryOpen)return;
+      if(inventoryOpen||mapOpen)return;
       // Chrome can consume Escape while releasing the mouse, without a keydown.
       admin.show();
     }
@@ -359,8 +558,8 @@ export async function createGame(container:HTMLElement,hud?:LoadingHud):Promise<
   const teleport=(x:number,z:number)=>{player.set(x,heightAt(x,z)+(flying?5:0),z);velocity.set(0,0,0);jumpVelocity=0;airborne=false;jumpRequested=false;};
   const admin=createAdmin(container,{
     settings,volumeChanged:()=>audio.setVolumes(settings),listening:(on)=>audio.listen(on),settingsChanged:()=>{try{localStorage.setItem('silence-settings',JSON.stringify(settings));}catch{}diagnosticRatio=undefined;resize();filterTextures();},
-    getState:()=>({hours,cycleSpeed,flying,position:player.toArray(),fps:Math.round(1000/frameAverage),solids:collisions.stats().solids}),
-    setHours:(h)=>{hours=((h%24)+24)%24;},setSpeed:(speed)=>{cycleSpeed=speed;},
+    getState:()=>({hours,day:gameRun.day,cycleSpeed,flying,position:player.toArray(),fps:Math.round(1000/frameAverage),solids:collisions.stats().solids}),
+    setHours:(h)=>{setClock(h);},setSpeed:(speed)=>{cycleSpeed=speed;},
     setFlying:(value)=>{flying=value;jumpVelocity=0;airborne=false;jumpRequested=false;velocity.set(0,0,0);if(!flying)player.y=characterSupportAt(player.x,player.z,player.y,heightAt,collisions);},
     spawn:(mode)=>{camera.getWorldDirection(forward);encounters.spawn(player,forward,mode);},dismiss:()=>{encounters.dismiss(elapsed);shadowDirty=true;},teleport,
     visibility:(open)=>{
@@ -478,9 +677,22 @@ export async function createGame(container:HTMLElement,hud?:LoadingHud):Promise<
     /** The pause menu's creature spawns: 'natural', 'hunt', 'tree', 'idle', 'walk' or 'run'. */
     creatureSpawn(mode:CreatureMode='natural'){camera.getWorldDirection(forward);encounters.spawn(player,forward,mode);},
     creatureHunt(){this.creatureSpawn('hunt');},
-    lives(){return{...lives,grab:grab?{...grab}:undefined};},
+    /** The run: day, clock, status, the day's noise (its loudest place and noisiest ones), the breath, and the scene playing (caught, sleep or lost). */
+    run(){return{...gameRun.state(),hours,absHours:absHours(),noise:{loudest:dayNoise.loudest(),places:dayNoise.places(6)},breath:breathHold.state,scene:grab?{...grab,sleep:undefined}:undefined,doorBarred:world2?.cabinDoorBarred()??false};},
+    /** Put the run on day `n` (1 to 5) at clock hour `hour`, no events (a night: `setDay(2, 19.5)`). It changes where the run is, not the noise log. */
+    setDay(n:number,hour=RUN.startHour){setClock(hour,n);return this.run();},
+    /** Press the bed as the player would: sleeps (or says why not). */
+    sleepNow(){trySleep();return this.run();},
+    /** Show the line that appears over the view, and the day's name. */
+    sayDay(){showDay(gameRun.day);},
     /** Raise the torch without fetching it from the bench. */
     equipTorch(){flashlight.devEquip();},
+    /** The bicycle: its state, the view's parts, and where it stands. Dev only. */
+    bike(){return{mounted:bike.mounted,speed:bike.speed,heading:bike.heading,position:{...bike.position},load:bike.loadKind,lean:bikeView?.lean,steer:bikeView?.steer,wheel:bikeView?.wheelAngle,crank:bikeView?.crankAngle,roll:bikeView?.roll,loaded:bikeView?.loaded,surface:bikeSurface()};},
+    /** Stand at the bicycle and get on it (facing the way you look). Returns whether it worked. */
+    rideNow(){if(!bikeView||bike.mounted)return bike.mounted;teleport(bike.position.x,bike.position.z);player.y=characterSupportAt(player.x,player.z,player.y+.5,movementGround,collisions);return mountBike();},
+    dismountNow(){dismountBike();return !bike.mounted;},
+    ringBell(){ringBell();},
     /** Where its face is, for aiming the torch at it. */
     creatureHead(){return encounters.headPosition(new THREE.Vector3()).toArray();},
     /** Be taken now, as if it had reached you. */
@@ -488,6 +700,8 @@ export async function createGame(container:HTMLElement,hud?:LoadingHud):Promise<
     creatureStep(dt:number,time:number,speed:number){return encounters.previewStep(dt,time,speed);},
     setRatio(r:number){diagnosticRatio=r;pixelRatio=r;renderer.setPixelRatio(r);resize();},
     graphics(){const gl=renderer.getContext();return{device:describeDevice(device),policy:device.policy,timer:!!gl.getExtension('EXT_disjoint_timer_query_webgl2'),version:gl.getParameter(gl.VERSION),size:renderer.getDrawingBufferSize(new THREE.Vector2()).toArray(),memory:renderer.info.memory,anisotropy:Math.min(anisotropy,settings.anisotropy),settings:{...settings,bindings:undefined},shadowSize:sunShadow.size,antialias:settings.aa,pacing:'requestAnimationFrame'};},
+    /** Open, close or (no argument) toggle the paper map; returns whether it is open. */
+    map(open?:boolean){if(open===undefined)islandMap?.toggle();else if(open)islandMap?.open();else islandMap?.close();return islandMap?.isOpen;},
     inventory(){const rows:{name:string,triangles:number,instances:number}[]=[];scene.traverse(o=>{if(o instanceof THREE.Mesh){const count=o instanceof THREE.InstancedMesh?o.count:1;rows.push({name:o.name||o.parent?.name||o.type,triangles:((o.geometry.index?.count??o.geometry.attributes.position.count)/3)*count,instances:count});}});return rows.sort((a,b)=>b.triangles-a.triangles).slice(0,25);},
     async record(seconds=6){profileRows.length=0;profileUntil=performance.now()+seconds*1000;await new Promise(r=>setTimeout(r,seconds*1000+50));return profileRows.slice();},
     async benchmark(excluded:string[]=[],frames=10){
@@ -519,8 +733,8 @@ export async function createGame(container:HTMLElement,hud?:LoadingHud):Promise<
       });return{maxGap,minGap,vertices,trunks};
     },
     sceneStats(){const rocks:{x:number,y:number,z:number,d:number}[]=[];const m=new THREE.Matrix4(),v=new THREE.Vector3();scene.traverse(o=>{if(o instanceof THREE.InstancedMesh&&!Array.isArray(o.material)&&o.material.name==='Scanned mossy stone'){for(let i=0;i<o.count;i++){o.getMatrixAt(i,m);v.setFromMatrixPosition(m);rocks.push({x:v.x,y:v.y,z:v.z,d:v.distanceTo(player)});}}});return {rocks:rocks.sort((a,b)=>a.d-b.d).slice(0,5),plants:scene.getObjectByName('Photographic forest understory')?.userData,treeSample:forest.colliders.filter(t=>Math.hypot(t.x-player.x,t.z-player.z)<12).slice(0,6)};},
-    setTime(t:number){elapsed=Math.max(0,t);hours=(16+t/60)%24;},
-    setHours(h:number){hours=((h%24)+24)%24;},
+    setTime(t:number){elapsed=Math.max(0,t);setClock(RUN.startHour+t/60,1);},
+    setHours(h:number){setClock(h);},
     setFlying(value:boolean){flying=value;},
     collisionProbe(x:number,z:number){return collisions.nearby(x,z,5);},
     move(dx:number,dz:number){const p=moveCharacter(player,dx,dz,1.69,heightAt,collisions);player.set(p.x,p.y,p.z);return player.toArray();},
@@ -672,13 +886,26 @@ export async function createGame(container:HTMLElement,hud?:LoadingHud):Promise<
     frameAverage=frameAverage*.98+rawDelta*1000*.02;
     // One complete, continuous day every 24 active minutes; test tools can accelerate it.
     const active=isActive(),simulate=active;
-    if(simulate){elapsed+=dt;hours=(hours+dt*cycleSpeed/60)%24;}
+    // The clock runs on through a catch (the run counts it) but stands still while a sleep fades out: the run has already moved to dawn.
+    if(simulate){
+      elapsed+=dt;
+      if(!grab||grab.kind==='caught'){hours=(hours+dt*cycleSpeed/60)%24;onRunEvents(gameRun.advance(hours));}
+      world2?.time(absHours());
+    }
+    if(noticeUntil&&now>noticeUntil){notice.style.opacity='0';noticeUntil=0;}
+    if(bannerUntil&&now>bannerUntil){banner.style.opacity='0';bannerUntil=0;}
     if(grab){
       if(simulate)grab.t+=dt;
-      const g=grabTimeline(grab.t);
-      if(g.respawn&&!grab.respawned){grab.respawned=true;wake(now);}
-      blackout.style.opacity=String(g.black);card.style.opacity=String(g.card);
-      if(g.done){grab=undefined;blackout.style.opacity=card.style.opacity='0';}
+      if(grab.kind==='lost'){
+        // The run is over: black, the line, and then the island laid out again. The black never lifts.
+        blackout.style.opacity=String(ramp(grab.t,0,1.8));card.style.opacity=String(ramp(grab.t,2.2,3.2));
+        if(grab.t>8)newIsland();
+      }else{
+        const g=screenOf(grab);
+        if(g.respawn&&!grab.respawned){grab.respawned=true;wake(now);}
+        // A wake that was the lost run starts that scene at once; leave the screen to it.
+        const after=grab as Scene|undefined;if(after&&after.kind!=='lost'){blackout.style.opacity=String(g.black);card.style.opacity=String(g.card);if(g.done){grab=undefined;blackout.style.opacity=card.style.opacity='0';}}
+      }
     }
     const skyState=sky.update(hours,player,elapsed),darkness=skyState.darkness;
     // Indoors the eye opens further and barely closes (grade.ts indoorEye); eased over about a second each way so the step at the
@@ -690,13 +917,20 @@ export async function createGame(container:HTMLElement,hud?:LoadingHud):Promise<
     diagnostic.darkness=darkness;diagnostic.elapsed=elapsed;
     if(probe)probe.marks.sky=performance.now();
     // Taken: no walking away.
+    if(bike.mounted&&(grab||flying))dismountBike();
     const directionZ=grab?0:(held('forward')?1:0)-(held('back')?1:0)-touchMove.y;
     const directionX=grab?0:(held('right')?1:0)-(held('left')?1:0)+touchMove.x;
-    const crouch=!grab&&!flying&&!world2?.climbing&&held('crouch');
+    const crouch=!grab&&!flying&&!world2?.climbing&&bike.allows('crouch')&&held('crouch');
     // Asked to sprint: the key, or on touch a firm push on the stick. Whether the player really sprints is up to the stamina model
     // (game/sim/player/stamina.ts): it needs breath, movement and no crouching, flying or ladder, and it drives speed, field of view, noise and breathing.
-    const hurry=!grab&&((touchMove.lengthSq()>0&&touchPushed)||held('sprint'));
+    // A full jerry can is carried at a walk (objectives.ts canSprint).
+    const heavy=world2?!canSprint(world2.objectiveState,world2.localPlayer):false;
+    const hurry=!grab&&!heavy&&bike.allows('sprint')&&((touchMove.lengthSq()>0&&touchPushed)||held('sprint'));
     const run=stamina.update(active?dt:0,hurry&&!crouch&&!flying&&!wasClimbing,lastSpeed);
+    // The breath (B): held, the Listener cannot hear it at 3 m; let go by force it is a gasp, which is a noise of its own.
+    const bh=breathHold.update(active&&!grab&&!flying?dt:0,!grab&&!flying&&held('breath'),run.exhausted);
+    breathHeldNow=bh.held;
+    if(bh.gasp){audio.gasp();noise.emit({type:'noise',loudness:bh.noise,source:'gasp',x:player.x,z:player.z});}
     const waterDistance=WORLD_V2?channelOffset(player.x,player.z):Math.abs(player.x-riverX(player.z));
     let moveSpeed=crouch?.95:gaitSpeed(run.blend);
     const waterY=riverSurfaceAt(player.x,player.z);
@@ -719,6 +953,26 @@ export async function createGame(container:HTMLElement,hud?:LoadingHud):Promise<
     const climb=world2?.climb({dt:active?dt:0,forward:active?THREE.MathUtils.clamp(directionZ,-1,1):0,player,enabled:!flying});
     if(climb){jumpVelocity=0;airborne=false;jumpRequested=false;player.set(climb.x,climb.y,climb.z);velocity.set(0,0,0);}
     else if(flying)player.addScaledVector(velocity,dt);
+    else if(bike.mounted){
+      // On the bicycle: W pedals, S brakes, A and D steer (positive is left, as the heading is); the bicycle decides speed and heading.
+      rideInput={throttle:Math.max(0,directionZ),brake:Math.max(0,-directionZ),steer:-directionX};
+      const ride=bike.update(active?dt:0,rideInput,bikeSurface());
+      if(ride.events.includes('dismounted-water'))say('The bicycle will not ride through water.');
+      else{
+        rideSpeed=ride.speed;
+        const next=moveCharacter(player,-Math.sin(ride.heading)*ride.speed*dt,-Math.cos(ride.heading)*ride.speed*dt,1.69,movementGround,collisions,BIKE_BODY);
+        const moved=Math.hypot(next.x-player.x,next.z-player.z);
+        player.x=next.x;player.z=next.z;player.y=THREE.MathUtils.damp(player.y,next.y,18,dt);
+        // A wall or a trunk takes the speed it stopped; the bicycle cannot go on at 5 m/s with its nose against it.
+        if(dt>0&&moved<ride.speed*dt*.9)bike.limitSpeed(moved/dt);
+        bike.place(player.x,player.z);
+        if(simulate&&ride.noise>0)noise.emit({type:'noise',loudness:ride.noise,source:'bicycle',x:player.x,z:player.z});
+        // The view turns with the bicycle, and the head may turn about 100 degrees either way from straight ahead.
+        yaw+=angleDelta(ride.heading,rideHeading);rideHeading=ride.heading;
+        const look=angleDelta(yaw,ride.heading);if(Math.abs(look)>LOOK_LIMIT)yaw=ride.heading+Math.sign(look)*LOOK_LIMIT;
+      }
+      velocity.set(0,0,0);
+    }
     else{
       const next=moveCharacter(player,velocity.x*dt,velocity.z*dt,crouch?1.05:1.69,movementGround,collisions);
       if(inWater||waterY!==undefined){const wade=limitWading(oldX,oldZ,next.x,next.z);next.x=wade.x;next.z=wade.z;}
@@ -736,25 +990,32 @@ export async function createGame(container:HTMLElement,hud?:LoadingHud):Promise<
     lastSpeed=speed;wasClimbing=!!climb;
     // Every footfall goes into the creature's noise stream, as loud as the gait and the ground make it. Wading
     // is left to the rebuilt world's splashes, which are already in the stream.
-    if(simulate&&!swimming&&!airborne&&!flying&&!climb&&!grab&&speed>.25&&!(world2&&inWater)){
+    if(simulate&&!bike.mounted&&!swimming&&!airborne&&!flying&&!climb&&!grab&&speed>.25&&!(world2&&inWater)){
       stride+=speed*dt;
       if(stride>.82){
         stride%=.82;
-        const surface:FootSurface=inWater?'water':(WORLD_V2?roadDistance(player.x,player.z)<ROAD.footstep:Math.abs(player.z-roadZ(player.x))<2.7)?'road':offTrail<.25?'forest':'dirt';
-        const loudness=footstepLoudness({speed,sprinting:run.sprinting,crouching:crouch,surface})*(world2?.indoors(player)?.5:1);
+        // The ground is one query (sim/world/surface.ts); indoors it is a wooden floor, and the walls do not stop the sound.
+        const surface=inWater?'water':world2?.indoors(player)?'wood':WORLD_V2?stepSurfaceOf(surfaceAt(player.x,player.z)):Math.abs(player.z-roadZ(player.x))<2.7?'road':offTrail<.25?'forest':'dirt';
+        const loudness=footstepNoise({speed,sprinting:run.sprinting,crouching:crouch,surface});
         if(loudness>0)noise.emit({type:'noise',loudness,source:'footstep',x:player.x,z:player.z});
       }
     }
     // Past a jog the stride rate grows slowly: at a full sprint the head bobs a few times a second, not seven.
     walkingPhase+=(Math.min(speed,3.4)+Math.max(0,speed-3.4)*.25)*dt*(crouch?2.7:3.7);
     cameraHeight=THREE.MathUtils.damp(cameraHeight,crouch&&!swimming?1.05:1.69,7,dt);
-    const motion=flying||swimming||airborne?0:THREE.MathUtils.clamp(speed/1.8,0,1);
+    const motion=flying||swimming||airborne||bike.mounted?0:THREE.MathUtils.clamp(speed/1.8,0,1);
     const bob=Math.sin(walkingPhase*2)*.017*motion;
     const breath=Math.sin(now*.0013)*.0028;
+    if(bikeView){
+      if(!bike.mounted){rideInput={throttle:0,brake:0,steer:0};rideSpeed=0;}
+      bikeView.update(active?dt:0,{mounted:bike.mounted,x:bike.position.x,z:bike.position.z,heading:bike.heading,speed:rideSpeed,steer:rideInput.steer,throttle:rideInput.throttle,brake:rideInput.brake});
+      aimBike();
+    }
     camera.position.set(player.x,player.y+cameraHeight+bob+breath+(climb?.bob??0),player.z);
+    if(bike.mounted&&bikeView)bikeView.eye(camera.position);
     // Being taken: the head is wrenched round to its face, and shaken.
     let jolt=0;
-    if(grab&&!grab.respawned){
+    if(grab&&grab.kind==='caught'&&!grab.respawned){
       encounters.headPosition(head);
       // It drags the camera to its face. The camera ends a fixed distance in front of the face, on the side the face is on
       // (never behind the head or inside the body, wherever the player was standing when caught), and the view is turned
@@ -781,7 +1042,7 @@ export async function createGame(container:HTMLElement,hud?:LoadingHud):Promise<
     }
     // Eyes open slowly, after loading and after waking at the cabin.
     const awakening=loading?0:Math.min(THREE.MathUtils.smoothstep((now-loadCompleteAt)/1000,0,3.2),THREE.MathUtils.smoothstep((now-wokeAt)/1000,0,3.2));
-    camera.rotation.set(THREE.MathUtils.lerp(-1.18,pitch,awakening)+Math.sin(walkingPhase)*.0018*motion+jolt*.5,yaw,Math.cos(walkingPhase)*.003*motion+jolt,'YXZ');
+    camera.rotation.set(THREE.MathUtils.lerp(-1.18,pitch,awakening)+Math.sin(walkingPhase)*.0018*motion+jolt*.5,yaw,Math.cos(walkingPhase)*.003*motion+jolt+(bikeView?.roll??0),'YXZ');
     // The settings' field of view eases in as before; sprinting adds a few degrees on top, eased by the stamina model's own blend.
     // The projection matrix is rebuilt only on a frame where the value really changed.
     baseFov=Math.abs(baseFov-settings.fov)<.001?settings.fov:THREE.MathUtils.damp(baseFov,settings.fov,2,dt);
@@ -793,10 +1054,16 @@ export async function createGame(container:HTMLElement,hud?:LoadingHud):Promise<
     if(probe){const m=probe.marks;m.terrain0=startTerrain;m.forest0=startForest;m.forest1=endForest;}
     const storyChanged=story.update(player);
     const worldChanged=world2?world2.update({dt,time:elapsed,player,darkness,active:active&&!grab,simulate}):false;
-    if(objectiveHud&&world2)objectiveHud.update({now,allowed:active&&!grab,text:objectiveText(world2.objectiveState,guideKind(world2.objectiveState,world2.localPlayer),{dropKey:coarse?undefined:keyLabel(settings.bindings.drop),room:hasRoom(world2.objectiveState,world2.localPlayer)})});
+    syncMachines(simulate?dt:0);
+    if(objectiveHud&&world2)objectiveHud.update({now,allowed:active&&!grab,text:objectiveText(world2.objectiveState,guideKind(world2.objectiveState,world2.localPlayer),{dropKey:coarse?undefined:keyLabel(settings.bindings.drop),room:hasRoom(world2.objectiveState,world2.localPlayer)}),day:`Day ${gameRun.day} of ${RUN.days}`});
     // The backpack panel follows what is carried (a pickup or a drop with it open), and goes away with play (a menu, being taken).
     if(inventoryOpen){if(!active||grab)inventory?.close();else inventory?.refresh();}
-    if(probe)probe.marks.world1=performance.now();
+    // The map and the place's name, four times a second: the pencil rings follow the parts still lying out; the name fires on entering a place.
+    if(islandMap&&world2){
+      if(mapOpen&&(!active||grab))islandMap.close();
+      if(now-mapAt>250){mapAt=now;const here=placeAt(player.x,player.z);islandMap.update(player.x,player.z,world2.objectiveState.items);if(active&&!grab&&bannerTracker.update(here?.id,now/1000)&&here)placeBanner?.show(here.title);}
+    }
+    placeStrapped();if(probe)probe.marks.world1=performance.now();
     const creatureWasVisible=creature.visible;
     if(forest.collisionVersion!==forestCollisionVersion){forestCollisionVersion=forest.collisionVersion;collisions.replace('forest',forest.solidColliders);}
     if(terrain.collisionVersion!==terrainCollisionVersion){terrainCollisionVersion=terrain.collisionVersion;collisions.replace('terrain',terrain.solidColliders);}
@@ -842,7 +1109,8 @@ export async function createGame(container:HTMLElement,hud?:LoadingHud):Promise<
     renderer.shadowMap.needsUpdate=drawSun||flashlight.light.shadow.needsUpdate;
     shadowDirty=false;
     if(probe)probe.marks.shadow1=performance.now();
-    audio.update(dt,{position:camera.position,direction:forward,speed:active&&!airborne&&!flying&&!climb&&!swimming?speed:0,sprinting:active&&run.sprinting,stamina:run.value,winded:run.exhausted,darkness,surface:inWater?'water':world2?.indoors(player)?'wood':(WORLD_V2?roadDistance(player.x,player.z)<ROAD.footstep:Math.abs(player.z-roadZ(player.x))<2.7)?'road':'dirt',riverDistance:waterDistance});
+    audio.update(dt,{position:camera.position,direction:forward,speed:active&&!bike.mounted&&!airborne&&!flying&&!climb&&!swimming?speed:0,sprinting:active&&run.sprinting,stamina:run.value,winded:run.exhausted,breathHeld:bh.held,darkness,surface:inWater?'water':world2?.indoors(player)?'wood':(WORLD_V2?roadDistance(player.x,player.z)<ROAD.footstep:Math.abs(player.z-roadZ(player.x))<2.7)?'road':'dirt',riverDistance:waterDistance});
+    if(bikeView){bikeAudio.attach(audio['context'],audio['master']);const rolling=bike.mounted&&active&&!grab;if(rolling||wasRolling)bikeAudio.roll(rolling?rideSpeed:0,bikeSurface());wasRolling=rolling;}
     if(probe)probe.marks.audio1=performance.now();
     renderer.info.reset();
     if(texturesDirty){filterTextures();texturesDirty=false;}
@@ -900,7 +1168,7 @@ export async function createGame(container:HTMLElement,hud?:LoadingHud):Promise<
     window.removeEventListener('mouseup',mouseUp);window.removeEventListener('mousemove',mouseMove);window.removeEventListener('keydown',keyDown);window.removeEventListener('keyup',keyUp);window.removeEventListener('blur',blur);window.removeEventListener('focus',focus);window.removeEventListener('resize',resize);window.visualViewport?.removeEventListener('resize',resize);densityQuery?.removeEventListener('change',densityChanged);window.removeEventListener('orientationchange',clearInput);
     document.removeEventListener('pointerlockchange',lockChange);document.removeEventListener('pointerlockerror',lockError);document.removeEventListener('visibilitychange',visibilityChange);
     renderer.domElement.removeEventListener('mousedown',mouseDown);renderer.domElement.removeEventListener('touchstart',touchStart);renderer.domElement.removeEventListener('touchmove',touchUpdate);renderer.domElement.removeEventListener('touchend',touchEnd);renderer.domElement.removeEventListener('touchcancel',touchEnd);
-    unsubscribeNoise();blackout.remove();objectiveHud?.dispose();inventory?.dispose();staminaHud.dispose();world2?.dispose();admin.dispose();slicer.dispose();perfOverlay.dispose();flashlight.dispose();sunShadow.dispose();sky.dispose();audio.dispose();encounters.dispose();forest.dispose();farForest?.dispose();farScatter?.dispose();farPlants?.dispose();farShadow?.dispose();story.dispose();terrain.dispose();atmosphere.dispose();
+    unsubscribeNoise();blackout.remove();notice.remove();banner.remove();objectiveHud?.dispose();inventory?.dispose();islandMap?.dispose();placeBanner?.dispose();staminaHud.dispose();world2?.dispose();bikeView?.dispose();bikeAudio.dispose();admin.dispose();slicer.dispose();perfOverlay.dispose();flashlight.dispose();sunShadow.dispose();sky.dispose();audio.dispose();encounters.dispose();forest.dispose();farForest?.dispose();farScatter?.dispose();farPlants?.dispose();farShadow?.dispose();story.dispose();terrain.dispose();atmosphere.dispose();
     scene.traverse(object=>{if(object instanceof THREE.Mesh){object.geometry.dispose();const mats=Array.isArray(object.material)?object.material:[object.material];for(const mat of mats){for(const v of Object.values(mat))if(v instanceof THREE.Texture)v.dispose();mat.dispose();}}});
     renderer.dispose();renderer.domElement.remove();
   };

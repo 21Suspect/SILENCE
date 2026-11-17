@@ -1,8 +1,12 @@
 /**
- * Reads the bot's night logs (tools/playtest/bot.mjs) and checks the guarantees from docs/creature-ai-plan.md,
- * "Amendment: scripted opening": both encounters seen in time, no grab before the opening ends, nothing placed or
- * removed in view, presence sounds sparse and never while it is looked at, no long dead air in free roam, the stun's
- * three phases the right length. Per play style it reports when things happen and how often.
+ * Reads the bot's night logs (tools/playtest/bot.mjs) and checks the guarantees from docs/creature-ai-plan.md:
+ * nothing placed or removed in view, presence sounds sparse and never while it is looked at, no long dead air in free
+ * roam, the stun's three phases the right length. Per play style it reports when things happen and how often.
+ *
+ * The game no longer plays the scripted opening (a glimpse by 3:00, the tree by 6:00, no grab before it ends): the run starts
+ * at 07:00 with the Listener asleep in its lair, so those guarantees describe a creature that no longer exists. They are still judged for
+ * a log made with the opening on (log.openingScripted), and skipped for the rest. Being taken is no longer a death with three lives:
+ * it ends the night (you wake at dawn with everything), so the per-style bands are on how many nights end in a catch.
  */
 import { OPENING } from '../../game/sim/creature/creature-director.ts';
 
@@ -51,26 +55,34 @@ export function judgeRun(log) {
   const seen = phase => log.opening.find(e => e.event === 'seen' && e.phase === phase);
   const variantAt = phase => { const s = log.opening.find(e => e.type === 'seen' && e.kind === (phase === 'glimpse' ? 'glimpse' : 'tree')); return s?.variant; };
   const free = log.opening.find(e => e.type === 'phase' && e.to === 'free');
-  const e1 = seen('glimpse'), e2 = seen('tree'), indoorsRun = log.style === 'indoors';
-  const freeAt = free?.t ?? Infinity, end = log.duration;
+  const e1 = seen('glimpse'), e2 = seen('tree'), indoorsRun = log.style === 'indoors', scripted = log.openingScripted !== false;
+  // Without the opening the creature is free from the first second.
+  const freeAt = scripted ? free?.t ?? Infinity : 0, end = log.duration;
   // 1-2. The encounters, by their deadlines (the opening's clock pauses only while indoors and unseen).
-  if (!e1 || e1.at > RULES.glimpseBy + 1e-6) v('glimpse-late', e1 ? `seen at ${mmss(e1.at)} (opening clock)` : 'never seen');
-  if (!e2 || e2.at > RULES.treeBy + 1e-6) v('tree-late', e2 ? `seen at ${mmss(e2.at)} (opening clock)` : 'never seen');
-  if (indoorsRun) {
+  if (scripted && (!e1 || e1.at > RULES.glimpseBy + 1e-6)) v('glimpse-late', e1 ? `seen at ${mmss(e1.at)} (opening clock)` : 'never seen');
+  if (scripted && (!e2 || e2.at > RULES.treeBy + 1e-6)) v('tree-late', e2 ? `seen at ${mmss(e2.at)} (opening clock)` : 'never seen');
+  if (scripted && indoorsRun) {
     const waited = log.timeline.some(e => e.type === 'transition' && e.kind === 'treeline');
     if (!waited && log.indoorsSeconds > 60) v('indoors-not-presented', 'it never waited at the treeline in view of the door');
   }
-  if (!free) v('never-free', 'the opening never ended');
+  if (scripted && !free) v('never-free', 'the opening never ended');
   // 3. No grab before the opening ends.
-  for (const g of log.grabs) if (g.phase !== 'free') v('grab-in-opening', `grabbed at ${mmss(g.t)} in ${g.phase}`);
+  if (scripted) for (const g of log.grabs) if (g.phase !== 'free') v('grab-in-opening', `grabbed at ${mmss(g.t)} in ${g.phase}`);
   // 4. Never placed or removed in view: the bot's own check, and the host's.
   for (const p of log.visibilityPops) v('pop-in-view', `${p.appeared ? 'appeared' : 'vanished'} in view at ${mmss(p.t)}, ${p.distance.toFixed(0)} m (${p.phase} ${p.script ?? ''})`);
   for (const e of log.timeline) if (e.type === 'transition' && e.inView && e.action !== 'strike') v('host-in-view', `${e.action} ${e.kind} flagged in view at ${mmss(e.t)}`);
   // 5. Presence sounds: never two within 30 s; clicks and knocks never while it is looked at.
   const presence = log.sounds.filter(s => s.presence).sort((a, b) => a.t - b.t);
   let minGap = Infinity;
-  for (let i = 1; i < presence.length; i++) { const gap = presence[i].t - presence[i - 1].t; minGap = Math.min(minGap, gap); if (gap < RULES.presenceGap - 1e-6) v('presence-gap', `${presence[i - 1].kind} then ${presence[i].kind} ${gap.toFixed(1)} s apart at ${mmss(presence[i].t)}`); }
-  for (const s of log.sounds) if (AMBIENT.has(s.kind) && s.seen) v('sound-while-seen', `${s.kind} while looked at, at ${mmss(s.t)}`);
+  if (scripted) for (let i = 1; i < presence.length; i++) { const gap = presence[i].t - presence[i - 1].t; minGap = Math.min(minGap, gap); if (gap < RULES.presenceGap - 1e-6) v('presence-gap', `${presence[i - 1].kind} then ${presence[i].kind} ${gap.toFixed(1)} s apart at ${mmss(presence[i].t)}`); }
+  if (scripted) for (const s of log.sounds) if (AMBIENT.has(s.kind) && s.seen) v('sound-while-seen', `${s.kind} while looked at, at ${mmss(s.t)}`);
+  // 5a. The blind Listener (no opening): it clicks only while it searches, which it does every 3.5 to 6 s (the old guarantees of "30 s between
+  // presence sounds" and "no sound while it is looked at" described a creature that stalked by sight; it cannot see, and its clicks are how a player
+  // knows it is searching). So the rule is that clicks belong to a search: the behaviour log must say it was searching.
+  if (!scripted) {
+    const changes = [...log.behaviours].sort((a, b) => a.t - b.t), at = t => { let b; for (const c of changes) { if (c.t <= t + 1e-6) b = c.to; else break; } return b; };
+    for (const s of log.sounds) if (s.kind === 'clicks' && changes.length && changes[0].t <= s.t && at(s.t) !== 'search') v('clicks-outside-search', `clicks while ${at(s.t)} at ${mmss(s.t)}`);
+  }
   // 5b. Each reactive sound means something once. One hiss per stun engagement (not again within hissQuiet unless a hunt began), one
   // roar per hunt (not within roarGap of the last, in free roam), and ambient sounds in free roam never right after a loud one or a sighting.
   const sorted = [...log.sounds].sort((a, b) => a.t - b.t), freeFrom = free?.t ?? Infinity;
@@ -150,6 +162,14 @@ export function summarize(logs) {
   const expectations = [];
   const expect = (style, ok, text) => expectations.push({ style, ok, text });
   for (const s of perStyle) {
+    const unscripted = runs.some(r => r.log.style === s.style && r.log.openingScripted === false);
+    if (unscripted) {
+      // The sound-rate bands and the lives-era death bands were tuned to the sighted creature and its scripted opening (docs/creature-ai-plan.md). A night now ends
+      // at the first catch (the player wakes at dawn with everything), so what is asked is how often a style is caught: the careless are, the careful mostly are not.
+      if (s.style === 'careless') expect(s.style, s.deaths.died >= Math.ceil(s.runs * .6), `is caught in most nights (${s.deaths.died}/${s.runs})`);
+      if (s.style === 'smart') expect(s.style, s.deaths.died <= Math.ceil(s.runs * .5), `is caught in at most half of the nights (${s.deaths.died}/${s.runs})`);
+      continue;
+    }
     if (s.style === 'careless') expect(s.style, s.deaths.died >= Math.ceil(s.runs * .6), `dies in most nights (${s.deaths.died}/${s.runs})`);
     const band = RULES.deaths[s.style];
     if (band) expect(s.style, s.deaths.mean >= band[0] && s.deaths.mean <= band[1], `deaths per night in ${band[0]}-${band[1]} (mean ${s.deaths.mean.toFixed(2)})`);

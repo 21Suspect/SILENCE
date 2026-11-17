@@ -1135,3 +1135,48 @@ function scatter(): PoiPlacement[] {
 }
 
 export const SCATTER_PLACEMENTS: PoiPlacement[] = scatter();
+
+// ---- the helicopter's places (data only: nothing here is drawn or added to POI_PLACEMENTS) ----------------------------------
+/** The places a lair can be: where parts and things lie on the design's list. One is chosen per world seed. */
+export const LAIR_CANDIDATES = ['hunter-camp', 'ruin', 'well', 'shrine', 'graves', 'fold'] as const;
+/** The id of the place the creature sleeps at by day this run: picked by the world seed among {@link LAIR_CANDIDATES}. */
+export const LAIR_ID: string = (() => {
+  const ids = LAIR_CANDIDATES.filter(id => POI_PLACEMENTS.some(p => p.id === id));
+  return ids[Math.min(ids.length - 1, Math.floor(hash(WORLD_SEED * .0291 + 7.1, WORLD_SEED * .0113 + 13.3) * ids.length))];
+})();
+
+/**
+ * Where the helicopter lands: a flat, open spot 80 to 250 m from the relay hut (far enough that the call and the pad are two
+ * trips, near enough that the call's noise and the pad's lights are one night's work), on the hut's side of the stream, on dry
+ * ground with a walk to it (not beyond 90 m of the road or the main trail), clear of every place by 45 m and of the routes by 25.
+ * Not a POI: there is no pad model yet, so the renderer is never handed it. `yaw` turns the pad's front towards the nearest route.
+ */
+export const LANDING_PAD: { x: number; z: number; yaw: number } = (() => {
+  const hut = poi('relay-hut'), flatPad = (x: number, z: number) => 1 - Math.min(1, landSlope(x, z, 12) * 5);
+  const side = (x: number, z: number) => Math.sign(x - riverX(z));
+  // Trees within the pad's footprint: the mean tree density on a ring 14 m out and at the middle.
+  const openness = (x: number, z: number) => {
+    let sum = treeDensity(x, z);
+    for (let k = 0; k < 8; k++) sum += treeDensity(x + Math.cos(k * .785) * 14, z + Math.sin(k * .785) * 14);
+    return 1 - Math.min(1, sum / 9);
+  };
+  let best = -Infinity, at = { x: hut.x - 120, z: hut.z };
+  for (let gx = -40; gx <= 40; gx++) for (let gz = -40; gz <= 40; gz++) {
+    const x = gx * 11 + (hash(gx + 301, gz) - .5) * 8, z = gz * 11 + (hash(gz - 301, gx + 3) - .5) * 8, d = dist(hut, { x, z });
+    if (d < 80 || d > 250 || !buildable(x, z, 30) || offRiver(x, z) < 40 || sideChannelOffset(x, z) < 50 || side(x, z) !== side(hut.x, hut.z)) continue;
+    const road = offRoad(x, z), trail = offPath(x, z);
+    if (road < 25 || trail < 25 || Math.min(road, trail) > 90) continue;
+    if (POI_PLACEMENTS.some(p => !p.asset.startsWith('minerock') && dist(p, { x, z }) < 45)) continue;
+    const flat = flatPad(x, z);
+    if (flat < .6) continue;
+    const s = flat * 3 + openness(x, z) * 2 - Math.abs(d - 150) / 100 - Math.min(road, trail) * .01 + hash(gx * 2.7 + 301, gz * 1.9) * .2;
+    if (s > best) { best = s; at = { x, z }; }
+  }
+  const toward = nearestRoute(at.x, at.z);
+  return { ...at, yaw: Math.atan2(toward[0] - at.x, toward[1] - at.z) };
+})();
+
+// The landing pad is drawn: the 12 m slab as a place of its own, with its ground levelled (the site is only flat to about 1 m in 14, a slab
+// buried on one side or standing on posts on the other is not a pad) and the trees stood back. Pushed here, after the pad was sited (which
+// kept 45 m clear of every place) and before the terrain reads the placements, so the terrain and the forest see it like any building.
+POI_PLACEMENTS.push({ id: 'landing-pad', asset: 'helipad', ...LANDING_PAD, pad: { radius: 9, falloff: 13 }, footprint: { cx: 0, cz: 0, hx: 6.4, hz: 6.4 }, clearing: 13, draw: 500 });

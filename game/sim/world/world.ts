@@ -60,7 +60,7 @@ if(WORLD_V2)for(const line of TRAIL_LINES)for(let k=0;k<line.length-1;k++){
   }
 }
 let nearestTrailSegment=-1,nearestTrailT=0;
-function trailDistanceV2(x:number,z:number){
+export function trailDistanceV2(x:number,z:number){
   const bucket=trailCells.get(`${Math.floor(x/12)},${Math.floor(z/12)}`);if(!bucket)return Infinity;
   let best=Infinity;
   for(const i of bucket){

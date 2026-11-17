@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SILENCE / NEW SOUNDS</title>
+    <style>
+      body { margin: 0; background: #0d1210; color: #dfe6dc; font: 16px/1.5 system-ui, sans-serif; padding: 40px 24px; }
+      .page { max-width: 720px; margin: 0 auto; }
+      h1 { font-size: 22px; letter-spacing: .18em; font-weight: 500; margin: 0 0 6px; }
+      h2 { font-size: 16px; font-weight: 600; margin: 0 0 2px; }
+      p { color: #8fa196; margin: 0 0 26px; }
+      section p { font-size: 13px; margin: 0 0 10px; }
+      section { margin: 0 0 30px; }
+      .row { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 8px; align-items: center; }
+      .row > span { width: 150px; color: #aebbb2; font-size: 14px; }
+      button { padding: 9px 14px; background: #1b2420; color: inherit; border: 1px solid #34413a; border-radius: 6px; font: inherit; font-size: 14px; cursor: pointer; }
+      button:hover { border-color: #7f9588; }
+      button[aria-pressed="true"] { background: #2c3a33; border-color: #b6c9bd; }
+      #status { position: sticky; top: 0; background: #0d1210; padding: 8px 0; color: #8fa196; font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <!-- Dev soundboard for the sounds made for the new gameplay (the creature's feet, its body, doors, engines, the bicycle). It plays
+         them through the same code the game uses (game/audio/creature-steps.ts, engines.ts, bicycle-audio.ts), positioned around you
+         as in play: use headphones. Run `npm run dev` and open /tools/sounds/creature.html. The older takes are on /tools/sounds/. -->
+    <div class="page">
+      <h1>SILENCE / NEW SOUNDS</h1>
+      <p>The sounds made for the new gameplay, played by the game's own code and placed around you as in play. Headphones.</p>
+      <div id="status">Click anything to start the audio.</div>
+      <div id="groups"></div>
+    </div>
+    <script type="module" src="./creature.js"></script>
+  </body>
+</html>

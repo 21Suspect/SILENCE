@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { initialState, applyAction, replay, heldItem, firstEmptySlot, insertedFuses, hasPack, carries, hasRoom, PACK_SLOTS } from '../../../game/sim/objectives/objectives.ts';
+import '../../helpers/register-ts-hooks.mjs';
+const { initialState, applyAction, replay, heldItem, firstEmptySlot, insertedFuses, hasPack, carries, hasRoom, PACK_SLOTS } = await import('../../../game/sim/objectives/objectives.ts');
 
 const me = 'p1', you = 'p2';
 const run = (state, ...actions) => replay(actions, state);
@@ -65,9 +66,9 @@ test('dropping puts the item back so a wrong first pick cannot soft-lock the run
   assert.equal(applyAction(s, { type: 'pickup', player: me, item: 'jerry-camp' }).events[0].reason, 'hands-full');
   const dropped = applyAction(s, { type: 'drop', player: me, at: { x: 3, z: -4 } });
   s = dropped.state;
-  assert.deepEqual(s.items['fuse-mine'], { kind: 'fuse', poi: 'mine', status: 'world', at: { x: 3, z: -4 } });
+  assert.deepEqual(s.items['fuse-mine'], { kind: 'fuse', poi: 'mine', status: 'world', part: 'call-fuse-1', at: { x: 3, z: -4 } });
   assert.equal(heldItem(s, me), undefined);
-  assert.deepEqual(dropped.events.find(e => e.type === 'noise'), { type: 'noise', loudness: .12, source: 'drop', x: 3, z: -4 });
+  assert.deepEqual(dropped.events.find(e => e.type === 'noise'), { type: 'noise', loudness: .2, source: 'drop', x: 3, z: -4 });
   assert.equal(applyAction(s, { type: 'pickup', player: me, item: 'jerry-camp' }).events[0].type, 'picked-up');
   // Picking it up again clears the drop spot; dropping without a place sends it home.
   s = run(s, { type: 'pickup', player: me, item: 'fuse-mine' }, { type: 'drop', player: me }).state;
@@ -79,17 +80,17 @@ test('a drop remembers the height it was made at, so a fuse set down on a cabin 
   const held = run(initialState(), { type: 'pickup', player: me, item: 'fuse-mine' }).state;
   const r = applyAction(held, { type: 'drop', player: me, at: { x: 1, z: 2, y: .42 } });
   assert.deepEqual(r.state.items['fuse-mine'].at, { x: 1, z: 2, y: .42 });
-  assert.deepEqual(r.events[1], { type: 'noise', loudness: .12, source: 'drop', x: 1, z: 2 });
+  assert.deepEqual(r.events[1], { type: 'noise', loudness: .2, source: 'drop', x: 1, z: 2 });
   assert.deepEqual(applyAction(held, { type: 'drop', player: me, at: { x: 1, z: 2, y: 'up' } }).state.items['fuse-mine'].at, { x: 1, z: 2 }, 'junk heights are ignored');
 });
 
-test('fuel is required before the pull, the pull before the fuse box, power before transmitting', () => {
+test('fuel is required before the pull, power and all three fuses before transmitting', () => {
   const s0 = initialState(), reason = (s, action) => applyAction(s, action).events[0].reason;
   assert.equal(reason(s0, { type: 'refuel', player: me }), 'wrong-item');
   assert.equal(reason(s0, { type: 'pull-start', player: me }), 'no-fuel');
   assert.equal(reason(s0, { type: 'transmit', player: me }), 'no-power');
   const withFuse = run(s0, { type: 'pickup', player: me, item: 'fuse-mine' }).state;
-  assert.equal(reason(withFuse, { type: 'insert-fuse', player: me, slot: 0 }), 'no-power', 'a dead generator powers nothing');
+  assert.equal(reason(withFuse, { type: 'insert-fuse', player: me, slot: 0 }), undefined, 'the fuse box needs no power');
   assert.equal(reason(withFuse, { type: 'refuel', player: me }), 'wrong-item', 'a fuse is not fuel');
 
   const fueled = run(s0, winning[0], winning[1]).state;
@@ -125,15 +126,18 @@ test('events: pull-start is loud, power-restored fires once, everything is JSON 
   assert.equal(byType('signal-sent').length, 1);
   assert.deepEqual(byType('fuse-inserted').map(e => e.inserted), [1, 2, 3]);
   const start = events.find(e => e.type === 'noise' && e.source === 'generator-start');
-  assert.ok(start.loudness >= .9 && start.poi === 'generator');
+  assert.equal(start.loudness, 1.5, 'a generator is heard at 150 m');
+  assert.equal(start.poi, 'generator');
   const noises = byType('noise');
   assert.ok(noises.length >= 8);
-  for (const n of noises) assert.ok(n.loudness >= 0 && n.loudness <= 1 && typeof n.source === 'string');
+  for (const n of noises) assert.ok(n.loudness >= 0 && n.loudness <= 1.5 && typeof n.source === 'string');
   assert.ok(Math.max(...noises.filter(n => n.source !== 'generator-start').map(n => n.loudness)) < start.loudness, 'the generator is the loudest thing you can do');
   assert.deepEqual(JSON.parse(JSON.stringify(events)), events);
   assert.equal(state.phase, 'signalSent');
-  // The objective is over: nothing else changes the world.
-  assert.equal(applyAction(state, { type: 'drop', player: me }).events[0].reason, 'complete');
+  assert.equal(byType('signal-sent')[0].arrives, 6, 'called at hour 0, the helicopter is due at the first dawn');
+  // The call is made but the run goes on: the pad is still to ready. Only boarding ends it.
+  assert.equal(applyAction(state, { type: 'drop', player: me }).events[0].reason, 'empty-hands');
+  assert.equal(applyAction({ ...state, phase: 'escaped' }, { type: 'drop', player: me }).events[0].reason, 'complete');
 });
 
 test('replaying recorded JSON gives the same state and events on any client', () => {
@@ -195,9 +199,9 @@ test('the backpack is worn, not carried: it gives an empty pack of twelve and le
 test('with a backpack the hand fills first, then the pack slot by slot; without one a full hand refuses', () => {
   const without = run(initialState(), { type: 'pickup', player: me, item: 'fuse-mine' }, { type: 'pickup', player: me, item: 'fuse-lookout' });
   assert.equal(without.events.at(-1).reason, 'hands-full');
-  const { state: s, events } = withPack({ type: 'pickup', player: me, item: 'fuse-mine' }, { type: 'pickup', player: me, item: 'fuse-lookout' }, { type: 'pickup', player: me, item: 'jerry-camp' });
+  const { state: s, events } = withPack({ type: 'pickup', player: me, item: 'fuse-mine' }, { type: 'pickup', player: me, item: 'fuse-lookout' }, { type: 'pickup', player: me, item: 'fuse-logstack' });
   assert.equal(heldItem(s, me), 'fuse-mine');
-  assert.deepEqual(s.packs[me].slice(0, 3), ['fuse-lookout', 'jerry-camp', null]);
+  assert.deepEqual(s.packs[me].slice(0, 3), ['fuse-lookout', 'fuse-logstack', null]);
   assert.equal(s.items['fuse-lookout'].status, 'packed');
   assert.deepEqual(events.filter(e => e.type === 'picked-up').map(e => e.to), [undefined, 'hand', 0, 1]);
 });
@@ -212,18 +216,18 @@ test('a full pack and a full hand refuse a thirteenth pickup', () => {
 });
 
 test('moving swaps between the hand and any slot, and between slots', () => {
-  let { state: s } = withPack({ type: 'pickup', player: me, item: 'fuse-mine' }, { type: 'pickup', player: me, item: 'jerry-camp' });
+  let { state: s } = withPack({ type: 'pickup', player: me, item: 'fuse-mine' }, { type: 'pickup', player: me, item: 'fuse-logstack' });
   // hand: fuse, slot 0: jerry
   s = applyAction(s, { type: 'move', player: me, from: 0, to: 'hand' }).state;
-  assert.equal(heldItem(s, me), 'jerry-camp');
+  assert.equal(heldItem(s, me), 'fuse-logstack');
   assert.equal(s.packs[me][0], 'fuse-mine');
-  assert.equal(s.items['jerry-camp'].status, 'held');
+  assert.equal(s.items['fuse-logstack'].status, 'held');
   assert.equal(s.items['fuse-mine'].status, 'packed');
   s = applyAction(s, { type: 'move', player: me, from: 0, to: 11 }).state;
   assert.deepEqual([s.packs[me][0], s.packs[me][11]], [null, 'fuse-mine']);
   s = applyAction(s, { type: 'move', player: me, from: 'hand', to: 5 }).state;
   assert.equal(heldItem(s, me), undefined, 'moving into an empty slot empties the hand');
-  assert.equal(s.packs[me][5], 'jerry-camp');
+  assert.equal(s.packs[me][5], 'fuse-logstack');
   const event = applyAction(s, { type: 'move', player: me, from: 5, to: 6 }).events[0];
   assert.deepEqual(event, { type: 'moved', player: me, from: 5, to: 6 });
 });
@@ -241,12 +245,12 @@ test('moves that make no sense are refused and change nothing', () => {
 
 test('dropping from a pack slot puts that item on the ground and frees the slot; the hand is untouched', () => {
   const at = { x: 3, z: -4, y: .4 };
-  let { state: s } = withPack({ type: 'pickup', player: me, item: 'fuse-mine' }, { type: 'pickup', player: me, item: 'jerry-camp' });
+  let { state: s } = withPack({ type: 'pickup', player: me, item: 'fuse-mine' }, { type: 'pickup', player: me, item: 'fuse-logstack' });
   const r = applyAction(s, { type: 'drop', player: me, slot: 0, at });
   s = r.state;
   assert.equal(s.packs[me][0], null);
-  assert.equal(s.items['jerry-camp'].status, 'world');
-  assert.deepEqual(s.items['jerry-camp'].at, at);
+  assert.equal(s.items['fuse-logstack'].status, 'world');
+  assert.deepEqual(s.items['fuse-logstack'].at, at);
   assert.equal(heldItem(s, me), 'fuse-mine');
   assert.deepEqual(r.events.map(e => e.type), ['dropped', 'noise']);
   assert.equal(applyAction(s, { type: 'drop', player: me, slot: 0 }).events[0].reason, 'empty-slot');
@@ -254,16 +258,92 @@ test('dropping from a pack slot puts that item on the ground and frees the slot;
 });
 
 test('the generator and the fuse box take what they need from the pack when the hand holds something else', () => {
-  let { state: s } = withPack({ type: 'pickup', player: me, item: 'fuse-mine' }, { type: 'pickup', player: me, item: 'jerry-camp' });
-  assert.ok(carries(s, me, 'jerry'));
-  s = applyAction(s, { type: 'refuel', player: me }).state;
-  assert.ok(s.generator.fuel);
-  assert.equal(heldItem(s, me), 'fuse-mine', 'the fuse stays in hand');
-  assert.equal(s.packs[me][0], null);
-  s = run(s, { type: 'pull-start', player: me }, { type: 'move', player: me, from: 'hand', to: 7 }).state;
+  // The can rides in the hands, so the fuse goes in the pack; using the can frees the hand.
+  let { state: s } = withPack({ type: 'pickup', player: me, item: 'jerry-camp' }, { type: 'pickup', player: me, item: 'fuse-mine' });
+  assert.equal(s.packs[me][0], 'fuse-mine');
+  assert.ok(carries(s, me, 'fuse'));
+  s = run(s, { type: 'refuel', player: me }, { type: 'pull-start', player: me }).state;
+  assert.ok(s.generator.running);
   assert.equal(heldItem(s, me), undefined);
   s = applyAction(s, { type: 'insert-fuse', player: me, slot: 0 }).state;
   assert.equal(insertedFuses(s), 1);
-  assert.equal(s.packs[me][7], null);
+  assert.equal(s.packs[me][0], null);
   assert.equal(applyAction(s, { type: 'insert-fuse', player: me, slot: 1 }).events[0].reason, 'wrong-item');
+});
+
+// --- the quiet order of play: fuses first, power only for the radio, fuel that burns ---------------------------------------
+const GEN = await import('../../../game/sim/objectives/objectives.ts');
+const { GENERATOR_FUEL_HOURS, GENERATOR_REFUEL_MAX, generatorHours } = GEN;
+const fuses = [0, 1, 2].flatMap(slot => [{ type: 'pickup', player: me, item: ['fuse-mine', 'fuse-lookout', 'fuse-logstack'][slot] }, { type: 'insert-fuse', player: me, slot }]);
+const fuelUp = [{ type: 'pickup', player: me, item: 'jerry-camp' }, { type: 'refuel', player: me }];
+const reasonOf = (s, a) => applyAction(s, a).events[0].reason;
+const t = hours => ({ type: 'time', hours });
+
+test('fuses go into the box with no power at all, in any order, and the radio still waits for the generator', () => {
+  assert.equal(GENERATOR_FUEL_HOURS, 4);
+  const s = run(initialState(), ...fuses).state;
+  assert.equal(insertedFuses(s), 3); assert.equal(s.generator.running, false);
+  assert.equal(s.phase, 'gather', 'three fuses and no fuel is still the start of the call');
+  assert.equal(reasonOf(s, { type: 'transmit', player: me }), 'no-power');
+  const fused = run(s, ...fuelUp).state;
+  assert.equal(fused.phase, 'fueled');
+  const started = run(fused, { type: 'pull-start', player: me });
+  assert.equal(started.state.phase, 'powered'); assert.ok(started.events.some(e => e.type === 'generator-started'));
+  assert.equal(applyAction(started.state, { type: 'transmit', player: me }).state.phase, 'signalSent');
+});
+
+test('the radio is refused with the generator running but fuses missing, and with all fuses but a silent generator', () => {
+  const running = run(initialState(), ...fuelUp, { type: 'pull-start', player: me }).state;
+  assert.equal(reasonOf(running, { type: 'transmit', player: me }), 'not-ready');
+  const twoFuses = run(running, ...fuses.slice(0, 4)).state;
+  assert.equal(insertedFuses(twoFuses), 2); assert.equal(reasonOf(twoFuses, { type: 'transmit', player: me }), 'not-ready');
+  const off = run(run(initialState(), ...fuses, ...fuelUp, { type: 'pull-start', player: me }).state, { type: 'stop-generator', player: me }).state;
+  assert.equal(insertedFuses(off), 3); assert.equal(reasonOf(off, { type: 'transmit', player: me }), 'no-power');
+});
+
+test('a can fills the generator, and a full one refuses another', () => {
+  const s = run(initialState(), ...fuelUp).state;
+  assert.equal(generatorHours(s), GENERATOR_FUEL_HOURS);
+  const second = structuredClone(s); second.items['fuse-mine'].kind = 'jerry';
+  const held = run(second, { type: 'pickup', player: me, item: 'fuse-mine' }).state;
+  assert.equal(reasonOf(held, { type: 'refuel', player: me }), 'already-fueled');
+  const burnt = run(run(held, { type: 'pull-start', player: me }).state, t(1)).state; // 3 h left, under the limit
+  assert.ok(generatorHours(burnt) <= GENERATOR_REFUEL_MAX);
+  const topped = applyAction(burnt, { type: 'refuel', player: me });
+  assert.equal(generatorHours(topped.state), GENERATOR_FUEL_HOURS); assert.equal(topped.events[0].type, 'refueled');
+  assert.equal(topped.state.generator.running, true, 'refuelling does not stop it');
+});
+
+test('the generator burns fuel only while it runs, and stops by itself with an event when it is dry', () => {
+  const fueled = run(initialState(), ...fuelUp).state;
+  assert.equal(generatorHours(run(fueled, t(3)).state), 4, 'standing still, it burns nothing');
+  const running = run(fueled, { type: 'pull-start', player: me }).state;
+  const mid = run(running, t(1.5)).state;
+  assert.ok(Math.abs(generatorHours(mid) - 2.5) < 1e-9); assert.equal(mid.generator.running, true);
+  const dry = replay([t(9)], running);
+  assert.equal(dry.state.generator.running, false); assert.equal(dry.state.generator.fuel, false); assert.equal(generatorHours(dry.state), 0);
+  assert.deepEqual(dry.events.filter(e => e.type === 'generator-dry'), [{ type: 'generator-dry' }]);
+  assert.equal(dry.state.clock, 9, 'the clock goes on past the moment it ran dry');
+  assert.equal(dry.state.phase, 'gather');
+  assert.equal(reasonOf(dry.state, { type: 'pull-start', player: me }), 'no-fuel');
+  // Off for a while, then on: only the running hours count.
+  const stopped = run(run(running, t(1)).state, { type: 'stop-generator', player: me }).state;
+  assert.ok(Math.abs(generatorHours(run(stopped, t(5)).state) - 3) < 1e-9);
+});
+
+test('stop-generator switches it off and keeps the fuel; the cord starts it again', () => {
+  const running = run(initialState(), ...fuelUp, { type: 'pull-start', player: me }).state;
+  const r = applyAction(running, { type: 'stop-generator', player: me });
+  assert.deepEqual(r.events, [{ type: 'generator-stopped', player: me }]);
+  assert.equal(r.state.generator.running, false); assert.equal(generatorHours(r.state), 4); assert.equal(r.state.phase, 'fueled');
+  assert.equal(reasonOf(r.state, { type: 'stop-generator', player: me }), 'not-running');
+  assert.equal(applyAction(r.state, { type: 'pull-start', player: me }).state.generator.running, true);
+});
+
+test('an old save with fuel: true and no hours is a full can, and survives the next action', () => {
+  const old = { ...initialState(), generator: { fuel: true, running: true } };
+  assert.equal(generatorHours(old), GENERATOR_FUEL_HOURS);
+  const later = applyAction(old, t(1)).state;
+  assert.ok(Math.abs(later.generator.hours - 3) < 1e-9);
+  assert.deepEqual(JSON.parse(JSON.stringify(later)), later);
 });

@@ -1,13 +1,15 @@
 import * as THREE from 'three';
 import type { SolidCollider } from '../../sim/world/collision';
 import { obstacleClearance, type createCreatureNavigation } from '../../sim/creature/creature-navigation';
-import { createSpiderGait, type Contact, type LimbClearance, type RestPose, type SpiderCommand, type SpiderSurface } from './spider-gait';
+import { createSpiderGait, type Contact, type FootPlant, type LimbClearance, type RestPose, type SpiderCommand, type SpiderSurface } from './spider-gait';
 import { createSpiderRig, SPIDER_SCALE as S, LEG_SEGMENTS, twoBone } from './spider-rig';
 import layout from '../../data/spider-rig.json';
 
 const clamp = THREE.MathUtils.clamp, sstep = THREE.MathUtils.smoothstep, lerp = THREE.MathUtils.lerp, damp = THREE.MathUtils.damp;
 type Query = { nearby: (x: number, z: number, radius?: number) => SolidCollider[] };
 type Trunk = SolidCollider & { kind: 'capsule' };
+/** A foot landing, and what it landed on: the ground, a tree trunk (it is climbing one), or a building (it is over a wall or roof). */
+export type ListenerPlant = FootPlant & { on: 'ground' | 'tree' | 'building' };
 
 const arm = (side: 'L' | 'R') => {
   const up = layout.bones.find(b => b.name === `upperarm_${side}`)!, fo = layout.bones.find(b => b.name === `forearm_${side}`)!;
@@ -163,6 +165,16 @@ export function createListener(scene: THREE.Scene, heightAt: (x: number, z: numb
     get ready() { return rig.ready; },
     movementAllowance: gait.movementAllowance,
     get limitedBy() { return gait.limitedBy; },
+    /** Every time a swinging foot lands, with the surface kind. The object is reused: read it, do not keep it. */
+    onPlant(handler: ((plant: ListenerPlant) => void) | undefined) {
+      gait.onPlant(handler && (p => { const e = p as ListenerPlant; e.on = climbing && groundBlend < .5 ? 'tree' : navigation.climbing ? 'building' : 'ground'; handler(e); }));
+    },
+    /** The same for a foot lifting off: the claw leaving the ground. */
+    onLift(handler: ((plant: ListenerPlant) => void) | undefined) {
+      gait.onLift(handler && (p => { const e = p as ListenerPlant; e.on = climbing && groundBlend < .5 ? 'tree' : navigation.climbing ? 'building' : 'ground'; handler(e); }));
+    },
+    /** How fast the body is going, smoothed (m/s). */
+    get speed() { return gait.speed; },
     get stepRate() { return gait.frequency; },
     /** The fastest the legs can carry the body right now, metres per second. */
     get legCapacity() { return gait.capacity; },
@@ -190,11 +202,13 @@ export function createListener(scene: THREE.Scene, heightAt: (x: number, z: numb
       width = damp(width, navigation.stanceWidth, 2.2, Math.max(dt, 1 / 240));
       command.surface = groundSurface; command.rest = undefined; command.hug = 0; command.swingPath = undefined; command.reachSpeed = undefined;
       command.pace = pace;
+      // The body lies along whatever the feet stand on (a hillside, the cutting by the bridge), not level over it; buildings and trunks bring their own frame.
+      command.follow = 1;
       command.width = width; command.length = 1; command.ride = lerp(1.9, 1.56, sstep(gait.speed, 1.5, 7)) * S;
       const surfaceClimb=navigation.climbing;
       if(surfaceClimb){
         const frame=surfaceClimb.frame();up.set(frame.up.x,frame.up.y,frame.up.z).normalize();forward.set(frame.forward.x,frame.forward.y,frame.forward.z).normalize();
-        command.surface=buildingSurface;command.hug=1-up.y;command.ride=lerp(1.05*S,command.ride,up.y);command.width=.8;command.reachSpeed=5;
+        command.follow=0;command.surface=buildingSurface;command.hug=1-up.y;command.ride=lerp(1.05*S,command.ride,up.y);command.width=.8;command.reachSpeed=5;
       }
       const safe = Math.max(dt, 1 / 240);
       rearing = damp(rearing, rear, rear > rearing ? 7 : 4, safe); recoiling = damp(recoiling, recoil, recoil > recoiling ? 9 : 4, safe);
@@ -216,7 +230,7 @@ export function createListener(scene: THREE.Scene, heightAt: (x: number, z: numb
       up.set(0, 1, 0).applyQuaternion(rotation); forward.set(0, 0, 1).applyQuaternion(rotation);
       anchor.copy(position).addScaledVector(up, inset * (1 - landed));
       command.surface = trunkSurface; command.rest = dismountRest; command.hug = 1 - landed; command.reachSpeed = 5;
-      command.pace = undefined;
+      command.pace = undefined; command.follow = 0;
       command.swingPath = landed < .6 ? aroundTrunk : undefined;
       command.width = lerp(.6, 1, landed); command.length = lerp(1.08, 1, landed); command.ride = lerp(1.02, 1.9 * S, landed); command.crouch = 0; command.tension = 0;
       lookWeight = 1; neckLift = .75 * (1 - landed); armReach = sstep(watching, 1, 3) * (1 - landed);

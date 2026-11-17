@@ -40,7 +40,7 @@ test('the element is a quiet top-left corner in the interaction prompt\'s type, 
   const { root, container } = make();
   assert.equal(container.children[0], root);
   const css = root.style.cssText;
-  assert.match(css, /position:absolute/); assert.match(css, /left:max\(16px/); assert.match(css, /top:max\(14px/);
+  assert.match(css, /position:absolute/); assert.match(css, /left:max\(16px/); assert.match(css, /top:calc\(max\(14px/); // below the day line
   assert.match(css, /opacity:0/); assert.match(css, new RegExp(`transition:opacity ${OBJECTIVE_FADE * 1000}ms`));
   assert.match(css, /pointer-events:none/, 'mouse clicks go through it');
   assert.match(css, /font:400 \d+px\/[\d.]+ system-ui,sans-serif/); assert.match(css, /letter-spacing:\.05em/); assert.match(css, /color:#dcd8c9/);
@@ -238,4 +238,23 @@ test('a hidden tab or a long stall does not skip the hint timer past the visible
   advance(.2);
   frame({ now: 1e9 }); // a huge jump in the clock counts as a quarter second at most
   assert.equal(root.style.opacity, '1'); assert.equal(hud.shown, true); assert.equal(hud.hint, 'O to hide');
+});
+
+test('the checklist shows under the title, ticked lines are quieter, and a changed list swaps softly', () => {
+  const { hud, root, frame, advance, writes, clear } = make();
+  const LISTED = { title: 'Find three fuses for the relay hut', lines: ['Fuse 1: around the mine', '✓ Fuse 2: fitted', 'Fuse 3: in hand', 'Fuel: around the camp'] };
+  advance(.2, { text: LISTED });
+  assert.equal(root.style.opacity, '1'); assert.equal(hud.title, LISTED.title); assert.deepEqual(hud.lines, LISTED.lines);
+  const rows = root.children[0].children.slice(2);
+  assert.equal(rows.length, 4, 'four rows, built once');
+  assert.match(rows[1].style.cssText, /color:#77786d/, 'a ticked line is dimmer'); assert.doesNotMatch(rows[0].style.cssText, /#77786d/);
+  assert.match(rows[0].style.cssText, /display:block/);
+  clear(); advance(1, { text: { ...LISTED, lines: [...LISTED.lines] } });
+  assert.equal(writes.length, 0, 'the same words again write nothing');
+  advance(.3, { text: { title: 'Take the fuel to the generator', lines: ['Generator: 4.0 h of fuel'] } });
+  assert.deepEqual(hud.lines, ['Generator: 4.0 h of fuel']);
+  assert.match(rows[1].style.cssText, /display:none/, 'unused rows are hidden');
+  advance(.3, { text: { title: 'You are away', detail: 'The island is behind you' } });
+  assert.deepEqual(hud.lines, []); assert.equal(hud.detail, 'The island is behind you');
+  frame({ text: LISTED, allowed: false }); assert.equal(root.style.opacity, '0', 'a menu still covers it at once');
 });

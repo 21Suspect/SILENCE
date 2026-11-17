@@ -1,6 +1,6 @@
 """Halves the normal and occlusion/roughness/metal maps inside the prop GLBs, leaving the colour map at full size.
 
-    python3 shrink_textures.py [asset ...]        (needs cwebp and dwebp on PATH; no arguments = every GLB in public/world)
+    python3 shrink_textures.py [asset ...]        (cwebp and dwebp on PATH, or inside Blender; no arguments = every GLB in public/world)
 
 Why: every prop used to ship three maps of the same size. On the GPU a 4096 map costs about 85 MB with its mips, so the
 ten big buildings alone held 2.5 GB. What the eye reads as sharpness is the colour map; the normal and ORM maps carry
@@ -10,6 +10,7 @@ come out the same; running it again on a file that is already shrunk changes not
 """
 import json
 import os
+import shutil
 import struct
 import subprocess
 import sys
@@ -18,6 +19,26 @@ import tempfile
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
 WORLD = os.path.join(ROOT, "public/world")
 MIN_SIDE = 2048          # maps this big or bigger are halved; smaller ones are already cheap
+
+
+def _halve(webp, size, quality):
+    """The WebP at half its size: with libwebp's tools where they are installed (the Mac this was written on), else with
+    Blender's own WebP support (a PC with no libwebp: kit.export() runs inside Blender anyway)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        src, png, out = (os.path.join(tmp, n) for n in ("in.webp", "x.png", "out.webp"))
+        open(src, "wb").write(webp)
+        if shutil.which("dwebp") and shutil.which("cwebp"):
+            subprocess.run(["dwebp", "-quiet", src, "-o", png], check=True)
+            subprocess.run(["cwebp", "-quiet", "-resize", str(size[0] // 2), str(size[1] // 2), "-q", str(quality), "-m", "5", png, "-o", out], check=True)
+        else:
+            import bpy
+            img = bpy.data.images.load(src, check_existing=False)
+            img.colorspace_settings.name = "Non-Color"   # data maps: written back byte for byte, never through a colour transform
+            img.scale(size[0] // 2, size[1] // 2)
+            img.file_format = "WEBP"
+            img.save(filepath=out, quality=quality)
+            bpy.data.images.remove(img)
+        return open(out, "rb").read()
 
 
 def webp_size(data):
@@ -79,13 +100,9 @@ def shrink(path, quiet=False):
         # Already half the colour map, or small enough not to matter.
         if size[0] < MIN_SIDE or (colour and size[0] <= colour // 2):
             continue
-        with tempfile.TemporaryDirectory() as tmp:
-            src, png, out = (os.path.join(tmp, n) for n in ("in.webp", "x.png", "out.webp"))
-            open(src, "wb").write(views[image["bufferView"]])
-            subprocess.run(["dwebp", "-quiet", src, "-o", png], check=True)
-            # Normals keep a little more quality: blocking in a normal map shows as shading, in a roughness map it does not.
-            subprocess.run(["cwebp", "-quiet", "-resize", str(size[0] // 2), str(size[1] // 2), "-q", "90" if name.endswith("_normal") else "84", "-m", "5", png, "-o", out], check=True)
-            views[image["bufferView"]] = open(out, "rb").read()
+        # Normals keep a little more quality: blocking in a normal map shows as shading, in a roughness map it does not.
+        quality = 90 if name.endswith("_normal") else 84
+        views[image["bufferView"]] = _halve(views[image["bufferView"]], size, quality)
         sizes[k] = (size[0] // 2, size[1] // 2)
         changed = True
     if changed:
