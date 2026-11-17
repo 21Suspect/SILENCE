@@ -135,20 +135,23 @@ export const barkReliefBegin = `
       vec2 move=hit*barkReach;
       grainPatch.a+=patchRotate(move,grainPatch.ra);grainPatch.b+=patchRotate(move,grainPatch.rb);grainPatch.c+=patchRotate(move,grainPatch.rc);
       barkTap+=patchRotate(move,barkTurn);
-      // Cavity from how far this point lies below its surroundings: the height map read blurred (two mip levels coarser, a
-      // gradient 5 and 20 times wider) minus the height here. A pit or a fissure floor is lower than the average round it, a
-      // ridge or a plate's lip higher: the pits keep the sky out, the lips catch more of it.
+      // Cavity from how far this point lies below its close surroundings: the height map read over at least 8 of its texels (a
+      // fixed patch of bark, whatever the distance or the screen's resolution) minus the height here. A fissure floor is lower than
+      // the bark round it, a plate's lip higher: the fissures keep the sky out, the lips catch more of it. It was read 5 and 20
+      // screen pixels wide and pushed hard (x3, x4, to 15 % of the sky): the scans keep most of their height spread in broad swells
+      // (two thirds of the spruce map's in 64-texel blocks), so whole hand-sized patches counted as pits and every trunk in shade
+      // showed black blotches. Measured on the spruce map, the height less its 8-texel mean spreads by .07; a fissure is .15 to .2.
       if(uBarkRelief.z>0.){
-        vec2 below2=vec2(textureGrad(uBarkHeight,barkTap,barkGx*5.,barkGy*5.).r,textureGrad(uBarkHeight,barkTap,barkGx*20.,barkGy*20.).r)-barkH;
-        float pit=clamp(max(below2.x,0.)*4.+max(below2.y,0.)*3.,0.,1.),lip=clamp(max(-below2.x,0.)*3.+max(-below2.y,0.)*2.,0.,1.);
-        barkCavity=1.-.85*pit+.25*lip;
+        float texels=max(length(barkGx),length(barkGy))*float(textureSize(uBarkHeight,0).x),widen=max(1.,8./max(texels,1e-4));
+        float around=textureGrad(uBarkHeight,barkTap,barkGx*widen,barkGy*widen).r-barkH;
+        barkCavity=1.-.55*smoothstep(.03,.22,around)+.15*smoothstep(.03,.22,-around);
       }
     }
   }
   #endif
 `;
 
-/** Placed after the lights: crevices keep the sky and bounce light out (barkCavity: .15 at the bottom of a deep pit, 1 on open bark, 1.25 on a ridge). */
+/** Placed after the lights: crevices keep the sky and bounce light out (barkCavity: .45 at the bottom of a deep fissure, 1 on open bark, 1.15 on a lip). */
 export const barkReliefCavity = `
   #ifdef BARK_RELIEF
   {

@@ -4,7 +4,7 @@
  * (localStorage), so a tuned look survives the reload a code edit causes; Reset puts them all back.
  */
 export const LIGHT_DEFAULTS = {
-  /** Torch brightness, times its 14 cd. */
+  /** Torch brightness, times its 8.4 cd (flashlight.ts TORCH_CANDELA). */
   torch: 1,
   /** Torch cone, times its 54 degree spread (the hot spot keeps its share of the cone). */
   torchCone: 1,

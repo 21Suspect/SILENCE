@@ -39,7 +39,7 @@ const MOSS = new THREE.Color(.075, .095, .03);
 /**
  * The lamps baked into tiled props (tiled.py bake_lamps): their light is a map of irradiance per candela on the prop's own atlas,
  * turned into light here as `map x candela x colour x albedo / pi`, so one number sets how bright every baked lamp is. Kerosene
- * flame, about 1900 K. In the game's units (the sun is 1.62, the moon 1/50 of it, the torch 14, a street lamp 10).
+ * flame, about 1900 K. In the game's units (the sun is 1.62, the moon 1/50 of it, the torch 8.4, a street lamp 10).
  */
 /** Luminance of a lamp's lit globe per candela of the lamp (its glass is about 0.015 m2 seen from the side). */
 const GLOW_PER_CANDELA = 60;

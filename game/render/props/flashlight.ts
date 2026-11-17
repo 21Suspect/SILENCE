@@ -5,6 +5,14 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { solidContact, type SolidCollider } from '../../sim/world/collision';
 
 const TORCH_MODEL = '/torch/small-plastic-torch.glb';
+/**
+ * The torch's centre beam, in candela (the game's units: the sun is 1.62, a street lamp 10). It was 14, which put a trunk at 8 m in
+ * the hot spot at a clear mid-grey but burnt anything pale up close to white: the Listener at 3 m had 11 to 33 % of its pixels
+ * clipped, its skin's grain and its black eyes lost in it. 8.4 (.6 of it, chosen by the user from stills on 2026-11-17) leaves 6 %
+ * clipped there; the tone curve's shoulder keeps the creature bright (its mean only fell from 137 to 128 of 255), the ground darkens
+ * more. The ground at your feet still burns, as it does.
+ */
+export const TORCH_CANDELA = 8.4;
 
 function disposeModel(model: THREE.Object3D) {
   const materials = new Set<THREE.Material>();
@@ -87,8 +95,7 @@ export function createFlashlight(scene:THREE.Scene,camera:THREE.PerspectiveCamer
   for(const [at,v] of [[0,255],[.05,250],[.085,234],[.105,236],[.14,186],[.19,138],[.25,110],[.33,90],[.45,74],[.6,62],[.75,48],[.88,30],[.96,12],[1,0]] as const)gradient.addColorStop(at,`rgb(${v},${v},${v})`);
   bc.fillStyle=gradient;bc.fillRect(0,0,256,256);
   const cookie=new THREE.CanvasTexture(beamCanvas);cookie.colorSpace=THREE.SRGBColorSpace;
-  // Physical falloff (decay 2): at 1.35 a wall at 30 m was lit nearly as hard as one at 10. 14 cd puts a trunk at 8 m in the hot
-  // spot at a clear mid-grey at the night's exposure; the ground at your feet still burns white, as it does.
+  // Physical falloff (decay 2): at 1.35 a wall at 30 m was lit nearly as hard as one at 10. How bright: TORCH_CANDELA.
   const light=new THREE.SpotLight(0xfff0dc,0,45,.95,.5,2);light.map=cookie;light.castShadow=true;light.shadow.autoUpdate=false;light.shadow.mapSize.set(1024,1024);light.shadow.camera.near=.06;light.shadow.bias=-.00002;light.shadow.normalBias=.015;
   // On the water's far reflection layer too (river.ts), so the reflected land keeps the main view's set of lights.
   light.layers.enable(3);
@@ -151,7 +158,7 @@ export function createFlashlight(scene:THREE.Scene,camera:THREE.PerspectiveCamer
       if(owned){group.position.set(Math.min(.24,camera.aspect*.18),-.26-(1-raised)*.65,-.48+(1-raised)*.2);group.position.y+=Math.sin(time*7)*Math.min(speed,2)*.003;group.position.applyQuaternion(camera.quaternion).add(camera.position);group.quaternion.copy(camera.quaternion);group.rotateX(-(1-raised)*.6);}
       // The developer tab's lighting knobs (core/light-tuning.ts) scale brightness, cone and reach; all 1 by default.
       const lit=owned&&on;
-      light.visible=lit||steady();light.intensity=lit?14*LIGHT_TUNING.torch:0;light.angle=Math.min(1.5,.95*LIGHT_TUNING.torchCone);light.distance=45*LIGHT_TUNING.torchReach;
+      light.visible=lit||steady();light.intensity=lit?TORCH_CANDELA*LIGHT_TUNING.torch:0;light.angle=Math.min(1.5,.95*LIGHT_TUNING.torchCone);light.distance=45*LIGHT_TUNING.torchReach;
       if (lens) lens.emissiveIntensity = lit ? 1.8 : 0;
       camera.getWorldDirection(direction);
       // Emit just beyond the physical lens, not from behind the torch housing.
