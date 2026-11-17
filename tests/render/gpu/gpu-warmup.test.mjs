@@ -95,6 +95,23 @@ test('the warm-up does one piece per update and survives a failing compile', () 
   } finally { console.warn = warn; }
 });
 
+test('a light state whose programs are still compiling is asked again, and the model waits for it, but not forever', () => {
+  let t = 0, ready = 2; const asked = [];
+  const w = createGpuWarmup({ states: 2, minGap: 0, idlePause: 0, clock: () => (t += 1), upload: () => 'done', compile: (_, state) => { asked.push(state); return state === 0 && ready-- > 0 ? 'wait' : 'done'; } });
+  let shown = false;
+  w.add({ label: 'hut', textures: [], object: {}, onDone: () => { shown = true; } });
+  for (let i = 0; i < 3; i++) w.update();
+  assert.deepEqual(asked, [0, 0, 0], 'state 0 asked until it said done');
+  assert.equal(shown, false);
+  w.update(); assert.deepEqual(asked, [0, 0, 0, 1]); assert.equal(shown, true);
+  // A compile that never finishes is given up on, so a broken driver cannot hide a model for good.
+  let n = 0;
+  const stuck = createGpuWarmup({ states: 1, minGap: 0, idlePause: 0, clock: () => (t += 1), upload: () => 'done', compile: () => { n++; return 'wait'; } });
+  let done = false; stuck.add({ label: 'x', textures: [], object: {}, onDone: () => { done = true; } });
+  for (let i = 0; i < 1100 && !done; i++) stuck.update();
+  assert.equal(done, true); assert.ok(n > 900 && n < 1100, `${n} checks`);
+});
+
 test('last names the piece that ran most recently, for the loading corner', () => {
   let t = 0;
   const w = createGpuWarmup({ states: 1, minGap: 0, idlePause: 0, clock: () => (t += 1), upload: () => 'done', compile: () => {} });

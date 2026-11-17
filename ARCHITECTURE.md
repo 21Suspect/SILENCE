@@ -10,7 +10,8 @@ index.html            page shell; loads game/main.ts
 game/                 all game code
   main.ts             entry point: starts the game in <main id="game">
   core/               engine.ts (main loop, input, camera, frame order, dev hooks), settings, resolution (quality.ts),
-                      perf switches (perf-flags.ts), time slicing (time-slice.ts), tap detection
+                      perf switches (perf-flags.ts), time slicing (time-slice.ts), tap detection, the device and its
+                      per-device policies (device.ts)
   sim/                rules and simulation in plain TypeScript: no three.js, no DOM
     creature/         the Listener's mind: brain (behaviours, CREATURE_TUNING), navigation, sighting, the scripted opening
                       (director), visibility, surface climbing, articulation
@@ -33,7 +34,8 @@ game/                 all game code
   audio/              Web Audio: ambience, creature sounds, footsteps, breathing
   ui/                 pause menu (admin.ts), objective and stamina HUD, performance overlay and its statistics, the loading
                       corner on the black veil (loading-hud.ts; loading-progress.ts works out its words and bar)
-  dev/                development only: perf probe, spider lab (?spider-lab), door test (?door-test), telemetry
+  dev/                development only: perf probe, spider lab (?spider-lab), door test (?door-test), telemetry, WebGL
+                      stall trace (?gl-trace)
   data/               world-assets.json (props: URLs, colliders, doors, ladders) and spider-rig.json, both written by
                       tools/assets
 tests/                node:test suites in the same folders as the code; tests/helpers lets Node load extensionless imports
@@ -66,7 +68,8 @@ docs/                 design notes (creature-ai-plan.md)
 Input and the frame rate limit → sky and sun → player movement and collision → terrain streaming → forest and undergrowth
 slices → world props, doors, objectives → the creature (encounters.ts runs the brain from sim/creature) → shadow map
 cadence → audio → draw (atmosphere.ts: shadows, scene, water, fog, resolve, anti-aliasing) → one GPU warm-up step →
-performance overlay. The render size is the player's resolution choice (core/quality.ts); nothing scales it on its own.
+performance overlay. The render size is the player's resolution choice (core/quality.ts); nothing scales it on its own. Its
+default, Auto, is the one per-device choice: 1080 rows on a high-density screen, native on an ordinary one (core/device.ts).
 
 ## Not engine-agnostic yet
 

@@ -98,3 +98,17 @@ test('with nothing ever queued, a quiet game still counts its queue stage as don
   const r = p.update(frame({ quiet: true }));
   assert.ok(Math.abs(r.fraction - (LOADING_WEIGHTS.assets + LOADING_WEIGHTS.queue)) < 1e-9);
 });
+
+test('the world-building stages before the first frame name themselves and move the bar a little, never back', () => {
+  const p = createLoadingProgress();
+  assert.deepEqual(p.stage('Shaping the land', .01), { fraction: .01, label: 'Shaping the land' });
+  assert.deepEqual(p.stage('Planting the forest', .02), { fraction: .02, label: 'Planting the forest' });
+  assert.equal(p.update(frame()).fraction, .02, 'the frames that follow start from where the stages left the bar');
+  assert.equal(p.stage('Late', 7).fraction, LOADING_CAP, 'capped like the rest');
+});
+
+test('while the terrain worker is still building the ground round the spawn, the corner says so', () => {
+  const p = createLoadingProgress();
+  assert.equal(p.update(frame({ groundPending: 5 })).label, 'Building the ground');
+  assert.equal(p.update(frame({ groundPending: 0 })).label, 'Preparing the forest');
+});

@@ -19,6 +19,8 @@ export type LoadingFrame = {
   warmupTotal: number;
   /** Nothing is arriving and the queue is empty: the next whole-scene draw is about to run, or is running. */
   quiet: boolean;
+  /** Ground tiles round the spawn the terrain worker has still to build. */
+  groundPending?: number;
 };
 export type LoadingReport = { fraction: number; label: string };
 
@@ -79,10 +81,13 @@ export function createLoadingProgress() {
       else if (allDrawn && f.queuePending > 0) label = 'Final shader pass';
       else if (f.queuePending > 0 && f.queueLast) label = describeWarm(f.queueLast);
       else if (f.assetsPending && lastAsset) label = lastAsset;
+      else if (f.groundPending) label = 'Building the ground';
       else if (allDrawn) label = 'Almost ready';
       else label = 'Preparing the forest';
       return { fraction: best, label };
     },
+    /** A step of building the world before the frames start (engine.ts createGame): its words, and a little of the bar. */
+    stage(label: string, fraction: number): LoadingReport { best = Math.max(best, Math.min(LOADING_CAP, fraction)); return { fraction: best, label }; },
     /** The veil is about to lift: the bar is full from here on. */
     finish(): LoadingReport { done = true; best = 1; return { fraction: 1, label: 'Ready' }; },
   };

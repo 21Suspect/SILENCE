@@ -1,4 +1,5 @@
 import { LIGHT_TUNING } from '../../core/light-tuning';
+import { perfOn } from '../../core/perf-flags';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { solidContact, type SolidCollider } from '../../sim/world/collision';
@@ -91,6 +92,10 @@ export function createFlashlight(scene:THREE.Scene,camera:THREE.PerspectiveCamer
   const light=new THREE.SpotLight(0xfff0dc,0,45,.95,.5,2);light.map=cookie;light.castShadow=true;light.shadow.autoUpdate=false;light.shadow.mapSize.set(1024,1024);light.shadow.camera.near=.06;light.shadow.bias=-.00002;light.shadow.normalBias=.015;
   // On the water's far reflection layer too (river.ts), so the reflected land keeps the main view's set of lights.
   light.layers.enable(3);
+  // The spot stays in the scene when the torch is off, at zero intensity (light-guards.ts skips it per pixel), like the street lamps'
+  // pool. Hidden, it changed the scene's light count: every lit material needed a second program for "torch on", twice the compiling
+  // at load, and switching on swapped programs mid-game, where Direct3D 11 (ANGLE) still finishes a program's first draw on the spot.
+  const steady = () => perfOn('steadyTorchLight');
   scene.add(light,light.target);const direction=new THREE.Vector3(),target=new THREE.Vector3(),offset=new THREE.Vector3();
   // No light of its own away from the hand: a point light at wherever the beam landed (a stand-in for what the lit patch throws
   // back) jumped to far trunks and was dragged through the trees as the view swept, a lamp floating in the wood. All the torch's
@@ -145,21 +150,22 @@ export function createFlashlight(scene:THREE.Scene,camera:THREE.PerspectiveCamer
       group.visible=!owned||equip>0;
       if(owned){group.position.set(Math.min(.24,camera.aspect*.18),-.26-(1-raised)*.65,-.48+(1-raised)*.2);group.position.y+=Math.sin(time*7)*Math.min(speed,2)*.003;group.position.applyQuaternion(camera.quaternion).add(camera.position);group.quaternion.copy(camera.quaternion);group.rotateX(-(1-raised)*.6);}
       // The developer tab's lighting knobs (core/light-tuning.ts) scale brightness, cone and reach; all 1 by default.
-      light.visible=owned&&on;light.intensity=on?14*LIGHT_TUNING.torch:0;light.angle=Math.min(1.5,.95*LIGHT_TUNING.torchCone);light.distance=45*LIGHT_TUNING.torchReach;
-      if (lens) lens.emissiveIntensity = light.visible ? 1.8 : 0;
+      const lit=owned&&on;
+      light.visible=lit||steady();light.intensity=lit?14*LIGHT_TUNING.torch:0;light.angle=Math.min(1.5,.95*LIGHT_TUNING.torchCone);light.distance=45*LIGHT_TUNING.torchReach;
+      if (lens) lens.emissiveIntensity = lit ? 1.8 : 0;
       camera.getWorldDirection(direction);
       // Emit just beyond the physical lens, not from behind the torch housing.
       // That avoids lighting its own barrel into a distracting white silhouette.
       light.position.copy(beamOrigin).applyQuaternion(group.quaternion).add(group.position);
       light.target.position.copy(camera.position).addScaledVector(direction,16);light.target.updateMatrixWorld();
-      scene.userData.flashlight=light.visible?light:null;
+      scene.userData.flashlight=lit?light:null;
     },
     /** A restarted night: the torch lies on its bench again, switched off. */
     reset(){
       owned=false;wanted=false;on=false;equip=0;lastUpdate=performance.now();
       group.name='Bench flashlight';restOnBench();group.rotation.set(0,1.1,0);group.visible=available();
       group.traverse(o=>{if(o instanceof THREE.Mesh)o.castShadow=!(o.material instanceof THREE.MeshStandardMaterial&&o.material===lens);});
-      light.visible=false;light.intensity=0;if(lens)lens.emissiveIntensity=0;scene.userData.flashlight=null;
+      light.visible=steady();light.intensity=0;if(lens)lens.emissiveIntensity=0;scene.userData.flashlight=null;
     },
     /** Dev capture only: skip the pickup and raise the torch immediately. */
     devEquip(){if(owned||pickUp()){wanted=true;equip=1;}},
@@ -168,7 +174,7 @@ export function createFlashlight(scene:THREE.Scene,camera:THREE.PerspectiveCamer
     updateShadow(castersChanged:boolean){
       direction.subVectors(light.target.position,light.position).normalize();
       const moved=light.position.distanceToSquared(shadowPosition)>.004**2||direction.distanceToSquared(shadowDirection)>.001**2;
-      light.shadow.needsUpdate=light.visible&&(castersChanged||moved||light.shadow.map===null);
+      light.shadow.needsUpdate=light.visible&&light.intensity>0&&(castersChanged||moved||light.shadow.map===null);
       if(light.shadow.needsUpdate){shadowPosition.copy(light.position);shadowDirection.copy(direction);}
     },
     dispose() {

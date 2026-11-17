@@ -438,13 +438,28 @@ function routePaths() {
     const sandy = inlandOfSand(x, z) < SAND_MARGIN + 5 && !DOORS.some(d => Math.hypot(d[0] - x, d[1] - z) < 16);
     if (Math.abs(x) > 580 || z > 440 || !dryLand(x, z, 10) || sandy || (offMainStream(x, z) < 10 && !nearFord(x, z))) blocked[k] = 1;
     wet[k] = off < 7 ? 1 : 0;
-    coast[k] = coastDistance(x, z);
-    roadNear[k] = roadGap(x, z, 14) < 9 ? 1 : 0;
-    // Rock shelves step the ground by metres in a few paces: a hiking path keeps off them.
-    const [wu, wv] = warped(x, z);
-    loose[k] = landSlope(x, z, 5) < .75 && landSlope(x, z, 2) < .8 && z < mountainFoot(x) + 60 ? 1 : 0;
-    gentle[k] = landSlope(x, z, 5) < .5 && landSlope(x, z, 2) < .55 && landSlope(x, z, 1) < .6 && landSlope(x + 3, z, 1) < .7 && landSlope(x - 3, z, 1) < .7 && landSlope(x, z + 3, 1) < .7 && landSlope(x, z - 3, 1) < .7 && rockMask(wu, wv) < .5 && z < mountainFoot(x) + 30 ? 1 : 0;
   }
+  // What only the hiking searches read (the slope probes, how far the shore and the road are) is worked out the first time a search
+  // asks about a cell: the searches reach a fraction of the grid, and the probes alone were most of the router's time (37 samples of
+  // the land a cell, every cell, measured in Node). The same expressions at the same points: the paths come out the same.
+  const UNSET = 2;
+  gentle.fill(UNSET); loose.fill(UNSET); roadNear.fill(UNSET); coast.fill(NaN);
+  const cellXZ = (k: number) => { const j = Math.floor(k / SIZE), i = k - j * SIZE; return [(i - HALF) * CELL, (j - HALF) * CELL] as const; };
+  // Rock shelves step the ground by metres in a few paces: a hiking path keeps off them.
+  const looseAt = (k: number) => {
+    if (loose[k] === UNSET) { const [x, z] = cellXZ(k); loose[k] = landSlope(x, z, 5) < .75 && landSlope(x, z, 2) < .8 && z < mountainFoot(x) + 60 ? 1 : 0; }
+    return loose[k];
+  };
+  const gentleAt = (k: number) => {
+    if (gentle[k] === UNSET) {
+      const [x, z] = cellXZ(k), [wu, wv] = warped(x, z);
+      gentle[k] = landSlope(x, z, 5) < .5 && landSlope(x, z, 2) < .55 && landSlope(x, z, 1) < .6 && landSlope(x + 3, z, 1) < .7 && landSlope(x - 3, z, 1) < .7 && landSlope(x, z + 3, 1) < .7 && landSlope(x, z - 3, 1) < .7 && rockMask(wu, wv) < .5 && z < mountainFoot(x) + 30 ? 1 : 0;
+    }
+    return gentle[k];
+  };
+  // Read back from the Float32Array, as the eager grid was: the same rounding.
+  const coastAt = (k: number) => { if (coast[k] !== coast[k]) { const [x, z] = cellXZ(k); coast[k] = coastDistance(x, z); } return coast[k]; };
+  const roadNearAt = (k: number) => { if (roadNear[k] === UNSET) { const [x, z] = cellXZ(k); roadNear[k] = roadGap(x, z, 14) < 9 ? 1 : 0; } return roadNear[k]; };
   for (const p of POI_PLACEMENTS) {
     if (!p.footprint) continue;
     const [fx, fz] = placeLocal(p, p.footprint.cx, p.footprint.cz), reach = Math.hypot(p.footprint.hx, p.footprint.hz);
@@ -497,13 +512,13 @@ function routePaths() {
         if (ni < 0 || nj < 0 || ni >= SIZE || nj >= SIZE) continue;
         const n = key(ni, nj);
         if (blocked[n] && n !== start && !o.goal(n)) continue;
-        if (o.avoid?.has(n) || (o.hiking && (!(relaxed ? loose : gentle)[n] || (!relaxed && padded[n]) || mouths[n]) && !o.goal(n))) continue;
+        if (o.avoid?.has(n) || (o.hiking && (!(relaxed ? looseAt(n) : gentleAt(n)) || (!relaxed && padded[n]) || mouths[n]) && !o.goal(n))) continue;
         const run = Math.hypot(di, dj) * CELL, slope = Math.abs(height[n] - height[c]) / run;
         // People go round wet hollows and thickets: this is what stops a path being a ruled line.
         // A side stream can be waded, but nobody does it without a reason.
         let cost = run * (1 + 42 * slope * slope + noise(ni * .22 + WORLD_SEED, nj * .22) ** 2 * 3.2 + wet[n] * 9) * (o.discount && network.has(n) ? .35 : 1);
         // The hiking trail keeps its distance from the water: never nearer than 40 m to the sea if it can help it.
-        if (o.hiking) cost *= 1 + Math.max(0, 40 - coast[n]) * (o.beachy ? .02 : .16) + Math.max(0, coast[n] - 115) * .004 + (roadNear[n] ? 2.5 : 0);
+        if (o.hiking) { const shore = coastAt(n); cost *= 1 + Math.max(0, 40 - shore) * (o.beachy ? .02 : .16) + Math.max(0, shore - 115) * .004 + (roadNearAt(n) ? 2.5 : 0); }
         if (d + cost < best[n]) { best[n] = d + cost; prev[n] = c; heap.push([best[n], n]); }
       }
     }
@@ -543,7 +558,7 @@ function routePaths() {
     for (let ring = 0; ring < rings; ring++) for (let dj = -ring; dj <= ring; dj++) for (let di = -ring; di <= ring; di++) {
       if (Math.max(Math.abs(di), Math.abs(dj)) !== ring) continue;
       const i = cellOf(x) + di, j = cellOf(z) + dj;
-      if (i >= 0 && j >= 0 && i < SIZE && j < SIZE && !blocked[key(i, j)] && (relaxed ? loose : gentle)[key(i, j)] && (relaxed || !padded[key(i, j)]) && !mouths[key(i, j)]) return key(i, j);
+      if (i >= 0 && j >= 0 && i < SIZE && j < SIZE && !blocked[key(i, j)] && (relaxed ? looseAt(key(i, j)) : gentleAt(key(i, j))) && (relaxed || !padded[key(i, j)]) && !mouths[key(i, j)]) return key(i, j);
     }
     return -1;
   };

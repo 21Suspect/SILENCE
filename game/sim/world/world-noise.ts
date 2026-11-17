@@ -11,9 +11,21 @@ export function smooth(value:number,min:number,max:number) {
   return t*t*(3-2*t);
 }
 const mix=(a:number,b:number,t:number)=>a+(b-a)*t;
+// noise() reads the hash at the four corners of an integer lattice cell, and samples a metre or less apart (terrain blocks, the
+// horizon grid, the path router's slope probes) land in the same cells again and again: the hash's Math.sin was the largest
+// single cost of building the world (a third of the start-up's world building, measured in Node). The corners are kept in a
+// small direct-mapped table; a hit returns the very value hash() gave, so the world is unchanged to the last bit.
+const LATTICE_MASK=(1<<16)-1,latticeX=new Int32Array(LATTICE_MASK+1),latticeZ=new Int32Array(LATTICE_MASK+1),latticeV=new Float64Array(LATTICE_MASK+1).fill(NaN);
+function corner(ix:number,iz:number) {
+  // Only lattice points that fit a 32-bit integer are kept (the table compares them as such); anything else is hashed directly.
+  if((ix|0)!==ix||(iz|0)!==iz)return hash(ix,iz);
+  const slot=(Math.imul(ix,73856093)^Math.imul(iz,19349663))&LATTICE_MASK,held=latticeV[slot];
+  if(latticeX[slot]===ix&&latticeZ[slot]===iz&&held===held)return held;
+  const v=hash(ix,iz);latticeX[slot]=ix;latticeZ[slot]=iz;latticeV[slot]=v;return v;
+}
 export function noise(x:number,z:number) {
   const ix=Math.floor(x),iz=Math.floor(z),u=smooth(x-ix,0,1),v=smooth(z-iz,0,1);
-  return mix(mix(hash(ix,iz),hash(ix+1,iz),u),mix(hash(ix,iz+1),hash(ix+1,iz+1),u),v);
+  return mix(mix(corner(ix,iz),corner(ix+1,iz),u),mix(corner(ix,iz+1),corner(ix+1,iz+1),u),v);
 }
 /** Layered noise in -1..1. */
 export function fbm(x:number,z:number,octaves:number) {

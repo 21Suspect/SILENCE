@@ -4,7 +4,7 @@ import {WORLD_V2} from '../sim/world/world-flags';
 import {POI_PLACEMENTS,placeLocal} from '../sim/world/world-layout';
 import {createTapTracker} from '../core/tap';
 import {LIGHT_TUNING,LIGHT_DEFAULTS,setLightTuning,resetLightTuning,type LightKey} from '../core/light-tuning';
-import {renderSize,pixelCostVs1080,resolutionLabel,RESOLUTIONS} from '../core/quality';
+import {renderSize,pixelCostVs1080,resolutionLabel,autoResolution,RESOLUTIONS} from '../core/quality';
 type CreatureMode='natural'|'hunt'|'idle'|'walk'|'run'|'tree';
 type AdminOptions={
   getState:()=>{hours:number;cycleSpeed:number;flying:boolean;position:number[];fps:number;solids:number};
@@ -82,6 +82,7 @@ export function createAdmin(container:HTMLElement,options:AdminOptions){
     const r=options.settings.resolution,w=Math.max(1,container.clientWidth),h=Math.max(1,container.clientHeight),dpr=window.devicePixelRatio||1;
     const size=renderSize(r,w,h,dpr),native=renderSize(0,w,h,dpr),mp=(n:{width:number;height:number})=>(n.width*n.height/1e6).toFixed(1);
     let text=`Renders ${size.width} × ${size.height} (${mp(size)} MP).`;
+    if(r<0){const auto=autoResolution(h,dpr);text+=` Auto picks ${auto===0?'Native':`${auto}p`} for this screen and GPU.`;}
     if(r>0&&size.height<r)text+=` This window has only ${native.height} rows of screen pixels, so that is its native size.`;
     const cost=pixelCostVs1080(r,w,h,dpr);
     if(r===0&&cost>1.6)text+=` That is ${cost.toFixed(1)}× the pixels of 1080p: on a high-density (Retina) screen Native costs several times as much GPU time a frame.`;

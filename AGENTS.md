@@ -64,6 +64,13 @@ Development builds expose `window.__SILENCE__`: `snap()` runs one frame, `telepo
 POIs, doors and lights. P toggles the performance overlay (FPS, lows, CPU and GPU ms). A hidden browser tab does not run
 animation frames: drive frames with `snap()` and drain the GPU with a one-pixel `readPixels`.
 
+Start-up: `perf.startup()` lists createGame's stages (ms; it builds in stages with a painted frame between them), `perf.heights()`
+counts the terrain height blocks built on the page's thread, and `?gl-trace` (game/dev/gl-trace.ts) times every WebGL
+call that can wait on the GPU from before the engine loads, with a stack for any over 100 ms (`__GLTRACE__.report()`, `.long`).
+A browser window that is covered by other windows can be held to about one frame a second even while it reports itself visible;
+drive the load with `snap()` on a timer when measuring from an automated or background window. The device the game detected
+(core/device.ts) is printed to the console at start and returned by `graphics()`.
+
 ## Git
 
 - main is shared with a collaborator who also pushes to it: fetch and merge origin/main before starting and before

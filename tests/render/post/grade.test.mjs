@@ -1,7 +1,25 @@
 import './../../helpers/register-ts-hooks.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-const { gradeFor, fogDensityFor, NOON, NIGHT } = await import('../../../game/render/post/grade.ts');
+const { gradeFor, fogDensityFor, indoorEye, INDOOR_EYE, NOON, NIGHT } = await import('../../../game/render/post/grade.ts');
+const { eyeExposure } = await import('../../../game/render/post/final-image.ts');
+
+test('indoors the eye opens further and barely closes, eased by how far in, and outdoors nothing changes', () => {
+  const day = gradeFor(.6), night = gradeFor(-.3);
+  assert.deepEqual(indoorEye(gradeFor(.6), 0), day, 'outdoors: untouched');
+  const inDay = indoorEye(gradeFor(.6), 1), inNight = indoorEye(gradeFor(-.3), 1);
+  assert.equal(inDay.open, INDOOR_EYE.open); assert.equal(inDay.response, INDOOR_EYE.response);
+  assert.equal(inNight.close, INDOOR_EYE.close, 'a lantern-lit room closes the eye one stop at most, not four');
+  const half = indoorEye(gradeFor(.6), .5);
+  assert.ok(half.open > day.open && half.open < inDay.open);
+  // A room by day, metered six stops darker than the wood: the eye now opens 3 stops instead of 1.25.
+  const room = day.anchor * 2 ** 6;
+  assert.ok(Math.log2(eyeExposure(room, inDay) / day.anchor) > 2.9);
+  assert.ok(Math.log2(eyeExposure(room, day) / day.anchor) <= 1.25 + 1e-9);
+  // At night a lantern filling the view (metered four stops brighter): one stop down, not four.
+  const lantern = night.anchor * 2 ** -4;
+  assert.ok(Math.log2(eyeExposure(lantern, inNight) / night.anchor) >= -1 - 1e-9);
+});
 
 test('the night grade comes in only after sunset, and the eye may open further as it gets darker', () => {
   assert.equal(gradeFor(.8).scotopic, 0);

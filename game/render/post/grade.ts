@@ -57,6 +57,25 @@ export function gradeKey(elevation: number): Key {
   return blend(GOLDEN, NOON, smooth(elevation, .05, .35));
 }
 
+/**
+ * The eye indoors (the cabin, the huts). Outdoors it only leans towards what it meters (response .35 to .4) and opens at most
+ * 1.25 stops by day, so a room lit through its door and windows stayed far darker than the wood outside, and at night it could
+ * close 4 stops for a lantern, taking the whole picture down with it: walking in read as the screen going dark. (By day the cap
+ * on exposure held it tighter still: 9 against an anchor of 5.8 at noon is .6 of a stop.) Indoors it follows the room by .7 of the
+ * way, may open 3 stops (the cap rises to match) and closes at most one. `t` is how far indoors, 0..1, eased by the caller so the
+ * change rides on the eye's own adaptation instead of stepping at the threshold. Applied on top of gradeFor each frame.
+ */
+export const INDOOR_EYE = { response: .7, open: 3, close: 1 } as const;
+export function indoorEye(g: Grade, t: number): Grade {
+  const k = Math.min(1, Math.max(0, t));
+  if (!(k > 0)) return g;
+  g.response += (Math.max(g.response, INDOOR_EYE.response) - g.response) * k;
+  g.open += (Math.max(g.open, INDOOR_EYE.open) - g.open) * k;
+  g.close += (Math.min(g.close, INDOOR_EYE.close) - g.close) * k;
+  g.maxExposure += (Math.max(g.maxExposure, g.anchor * 2 ** INDOOR_EYE.open) - g.maxExposure) * k;
+  return g;
+}
+
 export function gradeFor(elevation: number, out?: Grade): Grade {
   const k = gradeKey(elevation), g = out ?? { ...k, shadows: new THREE.Color(), highlights: new THREE.Color() } as Grade;
   Object.assign(g, { ...k, shadows: g.shadows, highlights: g.highlights });

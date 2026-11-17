@@ -770,7 +770,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
   }
   let worker:Worker|undefined;
   let requested:TerrainTile|undefined,prepared:PreparedTerrainTile|undefined;
-  let pendingChunks=0,lastCoverageUpdate=performance.now();
+  let pendingChunks=0,pendingNear=0,lastCoverageUpdate=performance.now();
   const tileKey=({x,z}:TerrainTile)=>`${x},${z}`;
   function addTile(tile:TerrainTile,geometry:THREE.BufferGeometry){
     // Its heights stay cached for as long as the tile is built (game/sim/world/world.ts): the forest and props round the player read them.
@@ -800,16 +800,20 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
       prepared=undefined;requested=undefined;
     }
     let coverage2=DETAIL_RADIUS**2,next:TerrainTile|undefined,nextDistance2=Infinity;
-    pendingChunks=0;
+    pendingChunks=0;pendingNear=0;
     const minX=Math.floor((player.x-PREFETCH_RADIUS)/TERRAIN_CHUNK),maxX=Math.floor((player.x+PREFETCH_RADIUS)/TERRAIN_CHUNK);
     const minZ=Math.floor((player.z-PREFETCH_RADIUS)/TERRAIN_CHUNK),maxZ=Math.floor((player.z+PREFETCH_RADIUS)/TERRAIN_CHUNK);
     for(let z=minZ;z<=maxZ;z++)for(let x=minX;x<=maxX;x++){
       const distance2=tileDistanceSquared(x,z,player.x,player.z);
       if(distance2>=PREFETCH_RADIUS**2||terrainChunks.has(`${x},${z}`))continue;
       const inWorld=x>=-WORLD_EXTENT/TERRAIN_CHUNK&&x<WORLD_EXTENT/TERRAIN_CHUNK&&z>=-WORLD_EXTENT/TERRAIN_CHUNK&&z<WORLD_EXTENT/TERRAIN_CHUNK;
-      if(initial&&inWorld&&distance2<DETAIL_RADIUS**2){
+      // The first ring round the spawn was built here, on the page's thread: 38 tiles, 2.6 s (measured in Node), most of it the
+      // trees' ground masks, all of it a frozen page at start-up. The worker builds them like every other tile, nearest first, while
+      // the loading veil waits for them (pendingNear); only a browser that blocks workers still builds them here.
+      if(initial&&!worker&&inWorld&&distance2<DETAIL_RADIUS**2){
         const tile={x,z};addTile(tile,buildTerrainTile(tile,layout));continue;
       }
+      if(inWorld&&distance2<DETAIL_RADIUS**2)pendingNear++;
       // A single missing tile limits where the coarse surface can be clipped.
       coverage2=Math.min(coverage2,distance2);
       if(!inWorld)continue;
@@ -847,7 +851,6 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
       if(distance2>RETAIN_RADIUS**2){scene.remove(mesh);mesh.geometry.dispose();terrainChunks.delete(key);releaseTerrainBlock(tile.x,tile.z);}
     }
   }
-  updateChunks(spawn,true);
   try{
     const url=new URL(terrainWorkerUrl,import.meta.url);
     url.search=typeof location!=='undefined'?location.search:'?classic-world';
@@ -858,6 +861,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
   }catch{
     // Keep streaming from the deterministic builder if the browser blocks it.
   }
+  updateChunks(spawn,true);
   const river=createRiver(scene,riverX,heightAt);
   const boulderGeo=createRockGeometry(49),boulderMat=createRockMaterial(true);
   const riverStones=new THREE.InstancedMesh(boulderGeo,boulderMat,420);
@@ -974,7 +978,7 @@ export function createTerrain(scene: THREE.Scene, spawn: THREE.Vector3, renderer
     water:river,
     get solidColliders(){return activeColliders;},
     get collisionVersion(){return collisionVersion;},
-    get streamingStats(){return {nearChunks:terrainChunks.size,pendingChunks,detailRadius:nearCoverage.value,worker:!!worker,heightVertexSpacing:TERRAIN_STEP};},
+    get streamingStats(){return {nearChunks:terrainChunks.size,pendingChunks,pendingNear,detailRadius:nearCoverage.value,worker:!!worker,heightVertexSpacing:TERRAIN_STEP};},
     update(time:number,player:THREE.Vector3,darkness:number) {
       river.update(time,player,darkness);
       const changed=lastRockPosition.distanceToSquared(player)>9;

@@ -3,11 +3,27 @@
  * or Native, one pixel per screen pixel. Nothing lowers it on its own; there used to be an adaptive scaler here (capped at 2 MP and
  * a device pixel ratio of 1.4, then cut the scale whenever frames ran long) and players could not tell what they were looking at.
  */
-export const RESOLUTIONS = [720, 1080, 1440, 0] as const;
-/** Rows to render, or 0 for the screen's own pixels. */
+export const RESOLUTIONS = [-1, 720, 1080, 1440, 0] as const;
+/** Rows to render, 0 for the screen's own pixels, or -1 for Auto (autoResolution). */
 export type Resolution = typeof RESOLUTIONS[number];
-export const DEFAULT_RESOLUTION: Resolution = 1080;
-export const resolutionLabel = (resolution: number) => resolution > 0 ? `${resolution}p` : 'Native';
+export const AUTO_RESOLUTION = -1;
+export const DEFAULT_RESOLUTION: Resolution = AUTO_RESOLUTION;
+export const resolutionLabel = (resolution: number) => resolution < 0 ? 'Auto' : resolution > 0 ? `${resolution}p` : 'Native';
+
+/**
+ * What Auto renders. The game was tuned on a Retina MacBook, where 1080 rows stretched over a high-density panel (and sharpened,
+ * post/sharpen.ts) looks crisp and Native costs three times the pixels. On an ordinary-density screen the same 1080 rows are a
+ * plain bilinear stretch the eye sees as soft: a 1440p monitor at a device pixel ratio of 1 drew 2384 x 1080 into a 2841 x 1287
+ * window (measured in Chrome on Windows). So Auto is Native where the screen has few enough rows that every one is visible, and
+ * 1440 rows past that (a 4K monitor at a ratio of 1), and stays at 1080 on high-density screens.
+ */
+export function autoResolution(cssHeight: number, devicePixelRatio: number, nativeRows = autoNativeRows): 0 | 1080 | 1440 {
+  if (devicePixelRatio >= 1.5 || !(nativeRows > 0)) return 1080;
+  return cssHeight * devicePixelRatio <= nativeRows ? 0 : 1440;
+}
+let autoNativeRows = 1600;
+/** The device's policy (device.ts): the rows Auto draws natively up to on an ordinary-density screen; 0 keeps it at 1080. */
+export function configureAuto(nativeRows: number) { autoNativeRows = nativeRows; }
 
 /**
  * Device pixels per CSS pixel for the canvas. A fixed choice renders `resolution` rows, never more than the screen has (so 1440p
@@ -15,8 +31,9 @@ export const resolutionLabel = (resolution: number) => resolution > 0 ? `${resol
  */
 export function renderRatio(resolution: number, cssWidth: number, cssHeight: number, devicePixelRatio: number) {
   const dpr = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1;
-  if (!(resolution > 0)) return dpr;
-  return Math.min(dpr, resolution / Math.max(1, cssHeight));
+  const rows = resolution < 0 ? autoResolution(cssHeight, dpr) : resolution;
+  if (!(rows > 0)) return dpr;
+  return Math.min(dpr, rows / Math.max(1, cssHeight));
 }
 
 /** The drawing buffer the ratio gives, as three.js sizes it (floor of CSS size times ratio). */

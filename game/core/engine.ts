@@ -12,7 +12,8 @@ import { ForestAudio } from '../audio/audio';
 import { createEncounters } from '../render/creature/encounters';
 import { createStory } from '../render/props/story';
 import { createStableSunShadow, installSunBlend } from '../render/world/shadows';
-import { renderRatio } from './quality';
+import { renderRatio, configureAuto } from './quality';
+import { detectDevice, describeDevice } from './device';
 import { createCollisionWorld, moveCharacter, characterSupportAt, solidContact } from '../sim/world/collision';
 import { createAdmin } from '../ui/admin';
 import { createSky } from '../render/world/sky';
@@ -21,7 +22,7 @@ import { createFarScatter } from '../render/world/far-scatter';
 import { createFarPlants } from '../render/world/far-plants';
 import { createFarShadow } from '../render/world/far-shadow';
 import { bakeFarForest } from '../render/world/mountain-bake-run';
-import { biomeAt, riverSurfaceAt, WORLD_DESTINATIONS } from '../sim/world/world';
+import { biomeAt, riverSurfaceAt, WORLD_DESTINATIONS, terrainHeightStats } from '../sim/world/world';
 import { createFlashlight } from '../render/props/flashlight';
 import { createTapTracker } from './tap';
 import type { EncounterView } from '../sim/creature/encounter-visibility';
@@ -45,6 +46,7 @@ import { createLoadingHud, type LoadingHud } from '../ui/loading-hud';
 import { createLoadingProgress } from '../ui/loading-progress';
 import { waterDepthAt, wadeSpeedFactor, limitWading } from '../sim/world/water-depth';
 import { eyeExposure, type Grade } from '../render/post/final-image';
+import { indoorEye } from '../render/post/grade';
 
 // Deep lakes and open sea support a swimming body, rather than a player
 // walking across the bottom with the camera below the water surface.
@@ -54,13 +56,22 @@ const movementGround=(x:number,z:number)=>{
 };
 
 /** `hud` is the loading corner main.ts made before this chunk arrived; without one (tools, tests) the game makes its own. */
-export function createGame(container:HTMLElement,hud?:LoadingHud) {
+export async function createGame(container:HTMLElement,hud?:LoadingHud):Promise<()=>void> {
   let saved:string|null=null;try{saved=localStorage.getItem('silence-settings');}catch{}
   const settings=readSettings(saved);
   const veil=document.createElement('div');veil.style.cssText='position:absolute;inset:0;background:#000;z-index:100;pointer-events:none;opacity:1';container.appendChild(veil);
   let loading=true,loadCompleteAt=Infinity,pendingAssets=0,lastAsset=performance.now(),texturesDirty=true;
+  // Where the start-up's synchronous building goes, stage by stage, in ms since createGame began (dev: __SILENCE__.perf.startup()).
+  const startupAt=performance.now(),startupMarks:[string,number][]=[],startupMark=(stage:string)=>{startupMarks.push([stage,Math.round(performance.now()-startupAt)]);};
   // The corner on the veil that says what is loading and how far along it is (ui/loading-hud.ts); it is fed from the counts below.
   const loadingHud=hud??createLoadingHud(container),loadingProgress=createLoadingProgress();
+  // The world is built in stages with a painted frame between them, so the tab is never frozen for the whole build at once and the
+  // corner says what is being built. Each stage is still one long task (the terrain, the forest and the props were 1.6 to 2.7 s each,
+  // the whole build 6.6 s, on the Windows PC this was measured on). A hidden tab gets no frames: the timeout keeps it building.
+  const buildStage=async(label:string,fraction:number)=>{
+    loadingHud.update(loadingProgress.stage(label,fraction),performance.now());
+    await new Promise<void>(resolve=>{let done=false;const go=()=>{if(!done){done=true;resolve();}};requestAnimationFrame(()=>setTimeout(go,0));setTimeout(go,100);});
+  };
   const manager=THREE.DefaultLoadingManager,oldStart=manager.onStart,oldLoad=manager.onLoad,oldProgress=manager.onProgress;
   manager.onStart=()=>{pendingAssets++;lastAsset=performance.now();};manager.onLoad=()=>{pendingAssets=0;lastAsset=performance.now();};manager.onProgress=(url,loaded,total)=>{lastAsset=performance.now();texturesDirty=true;loadingProgress.asset(url,loaded,total);};
   const scene = new THREE.Scene();
@@ -74,6 +85,9 @@ export function createGame(container:HTMLElement,hud?:LoadingHud) {
   // The sun's second shadow map (shadows.ts): carried to the lighting chunk in a light probe that lights nothing. Must run after the guard.
   installSunBlend();
   const renderer=new THREE.WebGLRenderer({antialias:false,powerPreference:'high-performance',alpha:false});
+  // What this is running on (device.ts): the per-device policies are read from here, and the line in the console says which apply.
+  const device=detectDevice(renderer.getContext());configureAuto(device.policy.nativeRows);scene.userData.device=device;
+  console.info(`SILENCE: ${describeDevice(device)} (${device.discrete?'discrete':'shared-memory'} GPU, ${device.highDensity?'high':'standard'}-density screen).`);
   let pixelRatio=renderRatio(settings.resolution,window.innerWidth,window.innerHeight,window.devicePixelRatio);
   renderer.outputColorSpace=THREE.LinearSRGBColorSpace;
   renderer.toneMapping=THREE.NoToneMapping;
@@ -93,27 +107,27 @@ export function createGame(container:HTMLElement,hud?:LoadingHud) {
   const sunProbe=new THREE.LightProbe();
   const sunShadow=createStableSunShadow(sun,renderer.capabilities.maxTextureSize,()=>perfOn('sunShadowThrottle'),sunProbe,renderer);
   scene.add(sun,sun.target,sunProbe);
-  const sky=createSky(renderer,scene,sun,hemi);
+  startupMark('renderer');const sky=createSky(renderer,scene,sun,hemi);startupMark('sky');
   const player=new THREE.Vector3(pathX(12),heightAt(pathX(12),12),12);
   // The sun's shadows over the whole island (far-shadow.ts): the distant ground and the forest cast into it and sample it.
   const farShadow=WORLD_V2?createFarShadow(renderer):undefined;
-  const terrain=createTerrain(scene,player,renderer,farShadow);
-  const forest=createForest(scene,heightAt,exclusion,player,farShadow);
+  startupMark('far shadow');await buildStage('Shaping the land',.01);const terrain=createTerrain(scene,player,renderer,farShadow);startupMark('terrain');
+  await buildStage('Planting the forest',.02);const forest=createForest(scene,heightAt,exclusion,player,farShadow);startupMark('forest');
   // The forest past the streamed trees, to the island's edge and up the range (far-forest.ts): the same trees, as impostors.
   const farForest=WORLD_V2?createFarForest(scene,renderer,forest.impostorSource,player,farShadow):undefined;
   // The forest floor's boulders, stumps, fallen trunks and branches past the streamed ones (far-scatter.ts): the same pieces, as impostors.
   const farScatter=WORLD_V2?createFarScatter(scene,renderer,forest.impostorSource,player,farShadow):undefined;
   // The undergrowth past its streamed ring (far-plants.ts): the same plants from the same ecology, as impostors, grown in a worker.
-  const farPlants=WORLD_V2?createFarPlants(scene,renderer,forest.impostorSource,player,farShadow):undefined;
+  const farPlants=WORLD_V2?createFarPlants(scene,renderer,forest.impostorSource,player,farShadow):undefined;startupMark('far forest, scatter and plants');
   if(farForest){
     void terrain.mountainTrees.then(d=>farForest.setRange(d.trees,d.horizons));
     const grid=terrain.heightGrid;if(grid)void bakeFarForest(grid.heights,grid.n,grid.step,grid.x0).then(d=>{farForest.setIsland(d);farScatter?.setData(d);terrain.setFarGround(d.groundA,d.groundB);farPlants?.start(grid,player);});
   }
-  const story=createStory(scene,heightAt);
+  const story=createStory(scene,heightAt);startupMark('story');
   const collisions=createCollisionWorld();scene.userData.treesNear=(x:number,z:number,r:number)=>collisions.nearby(x,z,r);   // the fog shades itself under the crowns (atmosphere.ts)
   collisions.replace('story',story.solidColliders);
   let forestCollisionVersion=-1,terrainCollisionVersion=-1;
-  const atmosphere=createAtmosphere(renderer,scene,camera,terrain.water,sun);
+  startupMark('collisions');const atmosphere=createAtmosphere(renderer,scene,camera,terrain.water,sun);startupMark('atmosphere');
   const audio=new ForestAudio();audio.setVolumes(settings);
   // One stream of sounds for the creature. The rebuilt world owns it (the objectives' noises go there); the
   // classic world has only what the engine adds: footsteps and the torch switch.
@@ -124,7 +138,7 @@ export function createGame(container:HTMLElement,hud?:LoadingHud) {
     subscribe:(listener:(e:Noise)=>void)=>{if(world2)return world2.noise.subscribe(listener);classicNoise.add(listener);return()=>{classicNoise.delete(listener);};},
   };
   const flashlight=createFlashlight(scene,camera,heightAt,collisions,()=>{audio.flashlightClick();noise.emit({type:'noise',loudness:FLASHLIGHT_CLICK_LOUDNESS,source:'flashlight',x:player.x,z:player.z});});
-  const world2=WORLD_V2?createWorldV2({scene,camera,container,heightAt,farShadow,collisions,flashlight,water:terrain.water,viewHeight:()=>renderer.domElement.height,riverX,exclusion,interactKey:()=>keyLabel(settings.bindings.interact)}):undefined;
+  await buildStage('Putting up the buildings',.04);const world2=WORLD_V2?createWorldV2({scene,camera,container,heightAt,farShadow,collisions,flashlight,water:terrain.water,viewHeight:()=>renderer.domElement.height,riverX,exclusion,interactKey:()=>keyLabel(settings.bindings.interact)}):undefined;startupMark('world props');
   // The objective in the top-left corner (rebuilt world only): always shown. O hides or shows it, and so does the Settings checkbox;
   // both are the one saved setting, so the choice is still there after a reload.
   const saveSettings=()=>{try{localStorage.setItem('silence-settings',JSON.stringify(settings));}catch{}};
@@ -160,7 +174,7 @@ export function createGame(container:HTMLElement,hud?:LoadingHud) {
   };
   // It patrols the places the player needs: the rebuilt world's landmarks, or the classic destinations.
   const creaturePlaces=WORLD_V2?POI_PLACEMENTS.filter(p=>['cabin','hut','generator','mast','lookout','logstack','camp','chapel','mine'].includes(p.asset)).map(p=>({x:p.x,z:p.z})):WORLD_DESTINATIONS.map(d=>({x:d.x,z:d.z}));
-  const encounters=createEncounters(scene,heightAt,audio,collisions,readEncounterView,riverSurfaceAt,{places:creaturePlaces,seed:WORLD_SEED||7741,doorAt:world2?doorAt:undefined});
+  startupMark('player and HUD');const encounters=createEncounters(scene,heightAt,audio,collisions,readEncounterView,riverSurfaceAt,{places:creaturePlaces,seed:WORLD_SEED||7741,doorAt:world2?doorAt:undefined});startupMark('creature');
   const unsubscribeNoise=noise.subscribe(e=>{if(e.x!==undefined&&e.z!==undefined)encounters.hear({loudness:e.loudness,source:e.source,x:e.x,z:e.z} satisfies CreatureNoise);});
   const creature=scene.getObjectByName('something-between-the-trees')!;
   const velocity=new THREE.Vector3();
@@ -214,7 +228,7 @@ export function createGame(container:HTMLElement,hud?:LoadingHud) {
   let profileUntil=0,benchmarking=false;
   let diagnosticRatio:number|undefined;
   let shadowDirty=true,sunDirty=true,lastSunDraw=-Infinity;
-  let warmupDraws=0,warmupFence:WebGLSync|null=null;
+  let warmupDraws=0,warmupFence:WebGLSync|null=null,indoorLight=0;
   const gl=renderer.getContext() as WebGL2RenderingContext;
   const probe=import.meta.env.DEV?createPerfProbe(renderer):undefined;
   // FPS, lows, CPU and GPU time in the top-right corner; P or the Graphics setting. Costs nothing while hidden.
@@ -365,14 +379,15 @@ export function createGame(container:HTMLElement,hud?:LoadingHud) {
   // Anisotropic filtering is paid on every texture read. The ground and the road, seen at a grazing angle to the horizon,
   // need all of it and set their own (game/render/world/terrain.ts). Everything else was given the same 16x and it was the largest
   // per-pixel cost found (1.3 ms of a 12 ms frame on the road): leaf, needle and grass cards face the camera and gain
-  // nothing from it, so they get 2x. Bark, rocks, logs, props and the creature get 8x: trunks and boulders are seen edge-on at a
+  // nothing from it, so they get 2x. Bark, rocks, logs, props and the creature get 8x (16x on a discrete card): trunks and boulders are seen edge-on at a
   // few metres, where 4x smeared their bark and lichen. alphaHash is not a card: the forest's instanced bark, rocks and logs carry
   // it for their distance dissolve (forest.ts fadeInstances), and counting it put all of them on the cards' 2x.
   const filterFor=(material:THREE.Material)=>{
     const wanted=Math.min(anisotropy,settings.anisotropy);
     if(!perfOn('filterPolicy'))return wanted;
     const card=material.alphaTest>0||material.alphaToCoverage||material.transparent;
-    return Math.min(wanted,card?2:8);
+    // Solid materials: 8x where it was measured to cost (Apple, shared-memory GPUs), the full setting on a discrete card (device.ts).
+    return Math.min(wanted,card?2:device.policy.solidAnisotropy);
   };
   function filterTextures(){
     // A texture shared by two kinds of material keeps the higher of the two; a change of the setting starts over.
@@ -380,27 +395,53 @@ export function createGame(container:HTMLElement,hud?:LoadingHud) {
     scene.traverse(o=>{if(!(o instanceof THREE.Mesh))return;for(const material of Array.isArray(o.material)?o.material:[o.material]){const af=filterFor(material);for(const value of Object.values(material))if(value instanceof THREE.Texture&&!value.isRenderTargetTexture&&value.image?.width>0&&value.image?.complete!==false&&(filtered.get(value)??-1)<af){filtered.set(value,af);value.anisotropy=af;value.needsUpdate=true;}}});}
   // Props stream in with textures of up to 4096 px and their own shader programs. pois.ts hands each model to this queue as it arrives; one
   // texture or one light state's programs is built per step, with a pause that grows with the cost of the last step (game/render/gpu/gpu-warmup.ts).
-  const lampStates=()=>world2?.debug.streetLights.count?4:2,slicer=createTextureSlicer(renderer),shadowPrograms=createShadowProgramWarmer(renderer),lightSync=new THREE.Object3D();
+  // The light states the warm-ups cover: whatever changes the scene's light count, torch on or off and the street lamps lit or not.
+  // With a steady torch (flashlight.ts) only the lamps do: half the programs to compile, and switching the torch on swaps none.
+  const steadyTorch=perfOn('steadyTorchLight'),torchStates=steadyTorch?1:2;
+  const torchOnIn=(state:number)=>steadyTorch||state%2===1,lampsLitIn=(state:number)=>state>=torchStates;
+  const lampStates=()=>torchStates*(world2?.debug.streetLights.count?2:1),slicer=createTextureSlicer(renderer),shadowPrograms=createShadowProgramWarmer(renderer),lightSync=new THREE.Object3D();
+  // Shader programs where the GPU compiles them off the page's thread (KHR_parallel_shader_compile: ANGLE offers it on Direct3D 11 and
+  // on Metal). three.js links a program when a draw first needs it and that draw then waits for the compiler. On Direct3D 11 that is
+  // 0.85 s a program on average and up to 13 s for the largest, one after another, with the page and Chrome's whole GPU process stalled
+  // meanwhile (Windows, RTX 5070 Ti: 434 programs, 141 s of a 264 s first load waiting in getProgramInfoLog; Metal compiles fast enough
+  // that it never showed). Linked ahead and left to finish on their own they compile side by side, and nothing waits on them.
+  const parallelCompile=renderer.extensions.has('KHR_parallel_shader_compile');
+  type Program={isReady():boolean};
+  const programOf=(material:THREE.Material)=>(renderer.properties.get(material) as {currentProgram?:Program}).currentProgram;
+  const programsReady=(list:Iterable<Program|undefined>)=>{for(const p of list)if(p&&!p.isReady())return false;return true;};
+  const allProgramsReady=()=>programsReady((renderer.info.programs??[]) as unknown as Program[]);
+  /** Links every program `object` needs in light state `state` (torchOnIn, lampsLitIn), waiting for none. */
+  function linkPrograms(object:THREE.Object3D,state:number){
+    const light=flashlight.light,was=light.visible;light.visible=torchOnIn(state);
+    const unlit=lampsLitIn(state)?world2?.debug.streetLights.warm():undefined;
+    try{const materials=renderer.compile(object,camera,scene);if(perfOn('shadowWarmup'))shadowPrograms.compile(object,camera,scene);return [...materials].map(programOf);}finally{
+      unlit?.();light.visible=was;
+      // compile() leaves the scene's light setup as it was for this light state, and three.js (r180) draws the next frame's shadow
+      // maps before that frame sets its lights up again: without this the shadow pass would build depth programs for street lamps
+      // and a torch that are off, the very stall this warm-up is for. An empty object only gathers the lights.
+      if(perfOn('shadowWarmup'))renderer.compile(lightSync,camera,scene);
+    }
+  }
+  const linking=new WeakMap<THREE.Object3D,{state:number;programs:(Program|undefined)[]}>();
+  let programScan=-Infinity,linkedFor=-2;
   const gpuWarmup=createGpuWarmup({
     states:lampStates(),
     upload:(t,urgent)=>{
       if(!(t.image?.width>0)||t.image?.complete===false)return 'wait';
       // A streamed prop's texture: the filtering pass above settles its final quality once the model is in the scene.
-      const af=Math.min(anisotropy,settings.anisotropy,perfOn('filterPolicy')?8:16);
+      const af=Math.min(anisotropy,settings.anisotropy,perfOn('filterPolicy')?device.policy.solidAnisotropy:16);
       if(!filtered.has(t)){filtered.set(t,af);t.anisotropy=af;t.needsUpdate=true;}
       if(!perfOn('slicedUpload')){renderer.initTexture(t);return 'done';}
       return slicer.upload(t,urgent);
     },
     compile:(object,state)=>{
-      const light=flashlight.light,was=light.visible;light.visible=state%2===1;
-      const unlit=state>=2?world2?.debug.streetLights.warm():undefined;
-      try{renderer.compile(object,camera,scene);if(perfOn('shadowWarmup'))shadowPrograms.compile(object,camera,scene);}finally{
-        unlit?.();light.visible=was;
-        // compile() leaves the scene's light setup as it was for this light state, and three.js (r180) draws the next frame's shadow
-        // maps before that frame sets its lights up again: without this the shadow pass would build depth programs for street lamps
-        // and a torch that are off, the very stall this warm-up is for. An empty object only gathers the lights.
-        if(perfOn('shadowWarmup'))renderer.compile(lightSync,camera,scene);
-      }
+      // In play a streamed prop waits, hidden, until its programs have compiled, so its first draw does not stall on the compiler.
+      // Behind the veil nothing waits here: every prop links at once and they compile side by side (the loading frames hold the draw).
+      const waits=!loading&&parallelCompile&&perfOn('asyncPrograms'),pending=linking.get(object);
+      if(waits&&pending?.state===state){if(!programsReady(pending.programs))return 'wait';linking.delete(object);return 'done';}
+      const programs=linkPrograms(object,state);
+      if(waits&&!programsReady(programs)){linking.set(object,{state,programs});return 'wait';}
+      return 'done';
     },
   });
   scene.userData.gpuWarmup=gpuWarmup;
@@ -446,7 +487,7 @@ export function createGame(container:HTMLElement,hud?:LoadingHud) {
     die(){beginGrab();},
     creatureStep(dt:number,time:number,speed:number){return encounters.previewStep(dt,time,speed);},
     setRatio(r:number){diagnosticRatio=r;pixelRatio=r;renderer.setPixelRatio(r);resize();},
-    graphics(){const gl=renderer.getContext();return{timer:!!gl.getExtension('EXT_disjoint_timer_query_webgl2'),version:gl.getParameter(gl.VERSION),size:renderer.getDrawingBufferSize(new THREE.Vector2()).toArray(),memory:renderer.info.memory,anisotropy:Math.min(anisotropy,settings.anisotropy),settings:{...settings,bindings:undefined},shadowSize:sunShadow.size,antialias:settings.aa,pacing:'requestAnimationFrame'};},
+    graphics(){const gl=renderer.getContext();return{device:describeDevice(device),policy:device.policy,timer:!!gl.getExtension('EXT_disjoint_timer_query_webgl2'),version:gl.getParameter(gl.VERSION),size:renderer.getDrawingBufferSize(new THREE.Vector2()).toArray(),memory:renderer.info.memory,anisotropy:Math.min(anisotropy,settings.anisotropy),settings:{...settings,bindings:undefined},shadowSize:sunShadow.size,antialias:settings.aa,pacing:'requestAnimationFrame'};},
     inventory(){const rows:{name:string,triangles:number,instances:number}[]=[];scene.traverse(o=>{if(o instanceof THREE.Mesh){const count=o instanceof THREE.InstancedMesh?o.count:1;rows.push({name:o.name||o.parent?.name||o.type,triangles:((o.geometry.index?.count??o.geometry.attributes.position.count)/3)*count,instances:count});}});return rows.sort((a,b)=>b.triangles-a.triangles).slice(0,25);},
     async record(seconds=6){profileRows.length=0;profileUntil=performance.now()+seconds*1000;await new Promise(r=>setTimeout(r,seconds*1000+50));return profileRows.slice();},
     async benchmark(excluded:string[]=[],frames=10){
@@ -533,6 +574,10 @@ export function createGame(container:HTMLElement,hud?:LoadingHud) {
       shadowList(){sun.shadow.updateMatrices(sun);return drawList(scene,camera,sun.shadow.camera);},
       /** Of the instances the sun's shadow pass submits, how many reach the shadow frustum. */
       shadowCulling(){sun.shadow.updateMatrices(sun);return shadowInstanceCulling(scene,camera,sun.shadow.camera);},
+      /** The start-up's synchronous building, stage by stage: [stage, ms since createGame began when it ended]. */
+      startup(){return startupMarks.slice();},
+      /** The terrain height cache on this thread: blocks held, and how many were built from scratch and how long that took. */
+      heights(){return terrainHeightStats();},
       /** Names of the compiled shader programs, to see which ones appeared between two moments. */
       programNames(){return (renderer.info.programs??[]).map(p=>`${p.name}#${(p as unknown as {id:number}).id}`);},
       renderInfo(){const i=renderer.info;return{programs:i.programs?.length??0,textures:i.memory.textures,geometries:i.memory.geometries,lights:(()=>{let n=0;scene.traverse(o=>{if((o as THREE.Light).isLight&&o.visible)n++;});return n;})(),buffer:renderer.getDrawingBufferSize(new THREE.Vector2()).toArray()};},
@@ -574,20 +619,29 @@ export function createGame(container:HTMLElement,hud?:LoadingHud) {
       }
     });
   }
-  const warmupTotal=()=>perfOn('lampWarmup')&&world2?.debug.streetLights.count?4:2;
+  const warmupTotal=()=>torchStates*(perfOn('lampWarmup')&&world2?.debug.streetLights.count?2:1);
   function warmupRender(darkness:number){
     // Draw the rig and its depth material with every light configuration while
     // the loading veil still covers the canvas. A compile alone would leave
     // skin buffers, bone textures, and texture uploads to the first encounter.
     if(warmupDraws===0){forest.warmupTextures(renderer);farForest?.update();farScatter?.update();farPlants?.update();if(perfOn('streamWarmup'))uploadSceneTextures();if(perfOn('slicedUpload'))slicer.prime();}
-    const light=flashlight.light,wasVisible=creature.visible,beamWasVisible=light.visible;
+    const light=flashlight.light,wasVisible=creature.visible,beamWasVisible=light.visible,intensityWas=light.intensity,flashWas=scene.userData.flashlight;
     const listener=scene.getObjectByName('The Listener'),listenerWasVisible=listener?.visible;
     if(listener)listener.visible=true;
-    creature.visible=true;light.visible=warmupDraws%2===1;
-    const unlit=warmupDraws>=2?world2?.debug.streetLights.warm():undefined;
+    creature.visible=true;light.visible=torchOnIn(warmupDraws);
+    // The torch as it is when switched on: lit, and handed to the fog's beam (atmosphere.ts), so the beam's shadow-map and cookie reads
+    // are first bound here and not on the night the player switches it on.
+    if(light.visible){light.intensity=14;scene.userData.flashlight=light;}
+    const unlit=lampsLitIn(warmupDraws)?world2?.debug.streetLights.warm():undefined;
+    // Direct3D 11 (ANGLE) builds part of each program only at its first real draw, for the vertex layout and the render target it
+    // meets there; a compile alone leaves that to whichever frame first shows the thing. So the warm-up draws draw the whole world,
+    // not just the view from the start: the cabin, the far props, everything in every light state, behind the veil.
+    const culled:THREE.Object3D[]=[];
+    if(perfOn('warmupUnculled'))scene.traverse(o=>{if(o.frustumCulled){o.frustumCulled=false;culled.push(o);}});
     renderer.shadowMap.needsUpdate=true;sun.shadow.needsUpdate=true;light.shadow.needsUpdate=light.visible;
     try{atmosphere.render(elapsed,darkness);}finally{
-      unlit?.();creature.visible=wasVisible;if(listener)listener.visible=!!listenerWasVisible;light.visible=beamWasVisible;shadowDirty=true;
+      for(const o of culled)o.frustumCulled=true;
+      unlit?.();creature.visible=wasVisible;if(listener)listener.visible=!!listenerWasVisible;light.visible=beamWasVisible;light.intensity=intensityWas;scene.userData.flashlight=flashWas;shadowDirty=true;
     }
     if(++warmupDraws===warmupTotal()){
       warmupFence=gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE,0);gl.flush();
@@ -627,6 +681,10 @@ export function createGame(container:HTMLElement,hud?:LoadingHud) {
       if(g.done){grab=undefined;blackout.style.opacity=card.style.opacity='0';}
     }
     const skyState=sky.update(hours,player,elapsed),darkness=skyState.darkness;
+    // Indoors the eye opens further and barely closes (grade.ts indoorEye); eased over about a second each way so the step at the
+    // door rides on the eye's own adaptation.
+    indoorLight+=((world2?.indoors(player)?1:0)-indoorLight)*Math.min(1,dt*1.6);
+    if(scene.userData.grade)indoorEye(scene.userData.grade as Grade,THREE.MathUtils.smoothstep(indoorLight,0,1));
     // For shaders that work out light themselves (the ground's relief shadows, terrain.ts).
     scene.userData.sunDirection=skyState.sunDirection;
     diagnostic.darkness=darkness;diagnostic.elapsed=elapsed;
@@ -792,11 +850,29 @@ export function createGame(container:HTMLElement,hud?:LoadingHud) {
     const warming=loading&&perfOn('streamWarmup')?gpuWarmup.drain(24):0;
     // Said before the draw below: the whole-scene warm-up draws each block this frame for seconds on a first load, and the page only paints
     // once they return, so the words for a draw have to be on screen from the frames before it (the 900 ms the files must stay quiet).
-    if(loading)loadingHud.update(loadingProgress.update({assetsPending:pendingAssets>0,queuePending:gpuWarmup.pending,queueLast:gpuWarmup.last,warmupDraws,warmupTotal:warmupTotal(),quiet:pendingAssets===0&&warming===0&&frame>8&&now-lastAsset>300}),now);
-    const startRender=performance.now(),loadingQuiet=loading&&pendingAssets===0&&now-lastAsset>900&&frame>8&&warming===0;
+    if(loading)loadingHud.update(loadingProgress.update({assetsPending:pendingAssets>0,queuePending:gpuWarmup.pending,queueLast:gpuWarmup.last,warmupDraws,warmupTotal:warmupTotal(),groundPending:terrain.streamingStats.pendingNear,quiet:pendingAssets===0&&warming===0&&frame>8&&now-lastAsset>300&&terrain.streamingStats.pendingNear===0}),now);
+    // The ground round the spawn comes from the terrain worker (terrain.ts): the veil also waits for the last of it.
+    const groundPending=loading?terrain.streamingStats.pendingNear:0;
+    const startRender=performance.now(),loadingQuiet=loading&&pendingAssets===0&&now-lastAsset>900&&frame>8&&warming===0&&groundPending===0;
+    // Behind the veil with a parallel compiler (see linkPrograms): every half second whatever has streamed in is linked, in the light
+    // state of the next whole-scene warm-up draw once the files are in, and nothing is drawn while any program is still compiling. A
+    // draw then would wait for the compiler on this thread, one program at a time, and freeze the page and the browser with it.
+    let programsBusy=false;
+    if(loading&&parallelCompile&&perfOn('asyncPrograms')){
+      // Once the files are in, every light state still to be drawn is linked at once, so they compile side by side instead of a
+      // state at a time (four passes took 90 s one after another); never left to the draw itself.
+      const next=loadingQuiet&&warmupDraws<warmupTotal()?warmupDraws:-1;
+      if(next!==linkedFor||now-programScan>500){
+        programScan=now;linkedFor=next;
+        if(next>=0)for(let state=next;state<warmupTotal();state++)linkPrograms(scene,state);
+        else linkPrograms(scene,!steadyTorch&&flashlight.light.visible?1:0);
+      }
+      programsBusy=!allProgramsReady();
+    }
     if(probe){probe.marks.render0=startRender;probe.beginRender();}
     perfOverlay.setVisible(settings.perfOverlay);perfOverlay.beginGpu();
-    if(loadingQuiet&&warmupDraws<warmupTotal())warmupRender(darkness);
+    if(programsBusy){/* the veil is up: nothing to see, and a draw would wait on the compiler */}
+    else if(loadingQuiet&&warmupDraws<warmupTotal())warmupRender(darkness);
     else{
       atmosphere.render(elapsed,darkness);
       if(loadingQuiet&&(!warmupFence||gl.clientWaitSync(warmupFence,0,0)!==gl.TIMEOUT_EXPIRED)){
@@ -817,6 +893,7 @@ export function createGame(container:HTMLElement,hud?:LoadingHud) {
       diagnostic.drawCalls=renderer.info.render.calls;diagnostic.triangles=renderer.info.render.triangles;
     }
   }
+  startupMark('controls, warm-up and the rest');
   raf=requestAnimationFrame(animate);
   return ()=>{
     disposed=true;veil.remove();loadingHud.dispose();if(warmupFence)gl.deleteSync(warmupFence);manager.onStart=oldStart;manager.onLoad=oldLoad;manager.onProgress=oldProgress;cancelAnimationFrame(raf);if(document.pointerLockElement===renderer.domElement)document.exitPointerLock();

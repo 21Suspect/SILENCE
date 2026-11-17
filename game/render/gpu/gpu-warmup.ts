@@ -35,6 +35,8 @@ export type WarmQueueOptions = {
 };
 
 type Entry = { task: WarmTask; textures: THREE.Texture[]; state: number; waits: number };
+/** Checks of a light state's programs that are still compiling before the model is shown anyway: about 40 s at the 40 ms gap. */
+const COMPILE_WAITS = 1000;
 
 export function createWarmQueue(options: WarmQueueOptions = {}) {
   const { minGap = 40, idlePause = 4, urgentPause = .25, states = 1 } = options;
@@ -68,11 +70,11 @@ export function createWarmQueue(options: WarmQueueOptions = {}) {
         step, label: entry.task.label, urgent,
         finished: (cost, endedAt, status = 'done') => {
           executed++;
+          if (status === 'wait') entry.waits++;
           if (step.kind === 'texture') {
-            if (status === 'wait') entry.waits++;
             // A texture that never gets its image is given up on after a while rather than blocking its model forever.
             if (status === 'done' || entry.waits > 600) { entry.textures.shift(); entry.waits = 0; }
-          } else entry.state++;
+          } else if (status !== 'wait' || entry.waits > COMPILE_WAITS) { entry.state++; entry.waits = 0; }
           readyAt = endedAt + (status === 'wait' ? minGap : Math.max(minGap, cost * (urgent ? urgentPause : idlePause)));
           if (complete(entry)) finish(entry);
         },
@@ -86,8 +88,11 @@ export type WarmQueue = ReturnType<typeof createWarmQueue>;
 export type GpuWarmupOptions = WarmQueueOptions & {
   /** Do one piece of uploading `texture`. `urgent` says the model is already wanted on screen. */
   upload: (texture: THREE.Texture, urgent: boolean) => PieceStatus;
-  /** Build every shader program of `object` as light state `state` (0..states-1) would use it. */
-  compile: (object: THREE.Object3D, state: number) => void;
+  /**
+   * Build every shader program of `object` as light state `state` (0..states-1) would use it. 'wait' (or nothing, which is 'done')
+   * says the programs are linked but still compiling on the GPU's side: the step is asked again until it says 'done'.
+   */
+  compile: (object: THREE.Object3D, state: number) => PieceStatus | void;
   clock?: () => number;
 };
 
@@ -101,7 +106,7 @@ export function createGpuWarmup(options: GpuWarmupOptions) {
     let status: PieceStatus = 'done';
     try {
       if (item.step.kind === 'texture') status = options.upload(item.step.texture, item.urgent);
-      else options.compile(item.step.object, item.step.state);
+      else status = options.compile(item.step.object, item.step.state) || 'done';
     } catch (error) {
       console.warn('SILENCE: GPU warm-up step failed.', error);
       status = 'done';
